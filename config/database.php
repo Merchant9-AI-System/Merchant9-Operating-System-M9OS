@@ -53,7 +53,8 @@ return [
         // konstanta PHP terus mengelakkan seluruh kelas bug ni.
         'jemisys' => [
             'driver' => 'sqlite',
-            'database' => 'C:\\Users\\user\\Herd\\jemisys-laravel\\database\\jemisys.db',
+            // 'database' => 'C:\\Users\\user\\Herd\\jemisys-laravel\\database\\jemisys.db',
+            'database' => env('JEMISYS_URL_DB'),
             'prefix' => '',
             'foreign_key_constraints' => false,
             'busy_timeout' => 10000,
