@@ -30,15 +30,15 @@ class JemisysDataLoader extends Page
 
     protected static ?int $navigationSort = 99;
 
-    public static function shouldRegisterNavigation(): bool
-    {
-        return Auth::user()?->hasRole('manager') ?? false;
-    }
+    // public static function shouldRegisterNavigation(): bool
+    // {
+    //     return Auth::user()?->hasRole('manager') ?? false;
+    // }
 
-    public function mount(): void
-    {
-        abort_unless(Auth::user()?->hasRole('manager'), 403);
-    }
+    // public function mount(): void
+    // {
+    //     abort_unless(Auth::user()?->hasRole('manager'), 403);
+    // }
 
     protected function getHeaderActions(): array
     {
