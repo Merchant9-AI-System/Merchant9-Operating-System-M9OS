@@ -7,6 +7,11 @@ use App\Filament\Widgets\BranchHealthTable;
 use App\Filament\Widgets\CapitalAgingChart;
 use App\Filament\Widgets\CapitalAgingSummary;
 use App\Filament\Widgets\CeoActionCentre;
+use App\Filament\Widgets\DailyAssetPositionCashChart;
+use App\Filament\Widgets\DailyAssetPositionReconciliation;
+use App\Filament\Widgets\DailyAssetPositionStockChart;
+use App\Filament\Widgets\DailyAssetPositionSummary;
+use App\Filament\Widgets\DailyAssetPositionSupplierChart;
 use App\Filament\Widgets\GoldVsIdealByBranch;
 use App\Filament\Widgets\InventoryKpiStats;
 use App\Filament\Widgets\StockVsOptimumChart;
@@ -57,6 +62,13 @@ class AdminPanelProvider extends PanelProvider
                 GoldVsIdealByBranch::class,
                 BranchHealthTable::class,
                 StockVsOptimumChart::class,
+                // Daily Asset Position (accountant-keyed reconciliation layer) - boleh dimatikan
+                // via .env CEO_DAILY_ASSET_POSITION_ENABLED=false (config/dashboard.php).
+                DailyAssetPositionSummary::class,
+                DailyAssetPositionStockChart::class,
+                DailyAssetPositionCashChart::class,
+                DailyAssetPositionSupplierChart::class,
+                DailyAssetPositionReconciliation::class,
                 // AccountWidget::class,
             ])
             ->middleware([

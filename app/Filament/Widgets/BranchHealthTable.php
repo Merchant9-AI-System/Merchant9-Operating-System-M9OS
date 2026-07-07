@@ -28,6 +28,7 @@ class BranchHealthTable extends TableWidget
     public function table(Table $table): Table
     {
         return $table
+            ->description('Status (Healthy/Watch/Critical) ialah "rule-based suggestion" drpd dead stock % & bilangan best-seller sold out per cawangan.')
             ->records(fn () => BranchHealthCalculator::rows()->all())
             ->columns([
                 TextColumn::make('store_code')->label('Branch')->badge(),
@@ -48,10 +49,5 @@ class BranchHealthTable extends TableWidget
             ])
             ->paginated(false)
             ->defaultSort('inventory_value', 'desc');
-    }
-
-    public function getDescription(): ?string
-    {
-        return 'Status (Healthy/Watch/Critical) ialah "rule-based suggestion" drpd dead stock % & bilangan best-seller sold out per cawangan.';
     }
 }

@@ -28,6 +28,7 @@ class CeoActionCentre extends TableWidget
     public function table(Table $table): Table
     {
         return $table
+            ->description('5-8 amaran keutamaan digabung drpd data JEMiSys semasa. Semua andaian/threshold dilabel "rule-based suggestion" - belum dikalibrasi drpd data sejarah.')
             ->records(fn () => CeoActionCentreCalculator::alerts()->take(8)->all())
             ->columns([
                 TextColumn::make('priority')
@@ -49,10 +50,5 @@ class CeoActionCentre extends TableWidget
                     ->formatStateUsing(fn (bool $state) => $state ? 'Rule-based suggestion' : 'Dikira penuh'),
             ])
             ->paginated(false);
-    }
-
-    public function getDescription(): ?string
-    {
-        return '5-8 amaran keutamaan digabung drpd data JEMiSys semasa. Semua andaian/threshold dilabel "rule-based suggestion" - belum dikalibrasi drpd data sejarah.';
     }
 }
