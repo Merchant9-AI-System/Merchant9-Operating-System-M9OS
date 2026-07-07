@@ -44,24 +44,20 @@ return [
             'transaction_mode' => 'DEFERRED',
         ],
 
-        // Data JEMiSys sedia ada (TblInventory, TblVendor, dll) - dibaca sahaja oleh app ni.
-        // Phase 1: SQLite tempatan. Bila migrate ke VM (Postgres/MySQL), pindah nilai 'database' ni
-        // kepada config deployment yang betul.
-        //
-        // SENGAJA HARDCODE (bukan env('JEMISYS_DB')) - .env didapati berubah/rosak sendiri berkali-kali
-        // (nilai JEMISYS_DB terpotong/hilang tanpa sebab jelas semasa pembangunan di mesin ni). Guna
-        // konstanta PHP terus mengelakkan seluruh kelas bug ni.
+        // Data JEMiSys (TblInventory, TblVendor, dll) - dibaca sahaja oleh app ni. Sambung
+        // TERUS ke SQL Server sebenar (via Tailscale) - tiada lagi mirror SQLite/upload dump manual
+        // (dimansuhkan: sync via SQLite jadi tak boleh diskala lepas data cecah ~20GB & sentiasa jadi
+        // snapshot lapuk; lihat git history utk JemisysDataLoader/JemisysSqlLoader kalau perlu rujuk).
         'jemisys' => [
-            'driver' => 'sqlite',
-            // 'database' => 'C:\\Users\\user\\Herd\\jemisys-laravel\\database\\jemisys.db',
-            'database' => env('JEMISYS_URL_DB'),
+            'driver' => 'sqlsrv',
+            'host' => env('JEMISYS_HOST'),
+            'port' => env('JEMISYS_PORT', '1433'),
+            'database' => env('JEMISYS_DATABASE', 'JEMiSys_M9'),
+            'username' => env('JEMISYS_USERNAME'),
+            'password' => env('JEMISYS_PASSWORD'),
             'prefix' => '',
-            'foreign_key_constraints' => false,
-            'busy_timeout' => 10000,
-            // TIADA journal_mode WAL di sini dgn sengaja - connection ni read-only utk web app
-            // (tulis cuma via tinker/artisan manual, tak concurrent dgn trafik web). WAL perlukan
-            // fail sampingan -wal/-shm yg pernah sebabkan "unable to open database file" di Windows
-            // bila php artisan serve cuba mount beberapa widget ($isLazy=false) serentak.
+            'encrypt' => env('JEMISYS_ENCRYPT', true),
+            'trust_server_certificate' => env('JEMISYS_TRUST_SERVER_CERTIFICATE', true),
         ],
 
         'mysql' => [

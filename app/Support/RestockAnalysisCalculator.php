@@ -2,9 +2,11 @@
 
 namespace App\Support;
 
+use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Cadangan restock silang Kategori x Cawangan, per Saiz ATAU per Berat - 100% drpd data
@@ -101,13 +103,15 @@ class RestockAnalysisCalculator
         // mentah (float berterusan) yg cipta beribu kumpulan tak perlu (punca OOM sblm ni).
         $caseExpr = static::weightBucketSqlCase();
 
+        // GROUP BY kena ulang $caseExpr penuh, bukan alias 'bucket' - SQLite/MySQL benarkan
+        // GROUP BY rujuk alias SELECT, tapi SQL Server tak (throw "Invalid column name").
         $raw = InventoryPiece::query()
             ->realVendor()
             ->selectRaw("CategoryCode, StoreCode, {$caseExpr} as bucket, ".
                 'COUNT(*) as pieces_received, '.
                 'SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as pieces_sold, '.
                 'SUM(QtyOnHand) as current_stock')
-            ->groupBy('CategoryCode', 'StoreCode', 'bucket')
+            ->groupBy('CategoryCode', 'StoreCode', DB::raw($caseExpr))
             ->get();
 
         return static::finalize($raw);
@@ -147,7 +151,7 @@ class RestockAnalysisCalculator
     protected static function finalize(Collection $raw): Collection
     {
         $salesWindowDays = SalesVelocityHelper::salesWindowDays();
-        $categoryNames = \App\Models\Jemisys\Category::pluck('Description', 'CategoryCode');
+        $categoryNames = Category::pluck('Description', 'CategoryCode');
 
         $out = $raw->map(function ($r) use ($salesWindowDays, $categoryNames) {
             $piecesReceived = (int) $r->pieces_received;

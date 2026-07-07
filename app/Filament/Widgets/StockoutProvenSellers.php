@@ -2,7 +2,9 @@
 
 namespace App\Filament\Widgets;
 
+use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
+use App\Models\Jemisys\Vendor;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
@@ -48,6 +50,13 @@ class StockoutProvenSellers extends TableWidget
             // 6 percubaan, 800ms antara - toleransi ~4s utk lock sementara (cth. antivirus scan
             // selepas jemisys.db ditulis semula). Query ni disahkan cepat (~370ms) bila tiada lock.
             return retry(6, function () {
+                // Category/Vendor pra-ambil SEKALI (jadual kecil, 88/143 baris) - elak lazy-load
+                // relationship per baris dlm map() di bawah. Murah (~0ms) atas SQLite (proses sama),
+                // tapi ~14K baris x 2 relationship = ~28K round-trip berasingan atas sambungan network
+                // (cth. sqlsrv, walaupun localhost) - punca sebenar widget ni pernah amik ~98 saat.
+                $categoryNames = Category::pluck('Description', 'CategoryCode');
+                $vendorNames = Vendor::pluck('Description', 'VendorCode');
+
                 // TIADA physicalStore() - sepadan definisi asal, merentas semua saluran (fizikal + web).
                 return InventoryPiece::query()
                     ->realVendor()
@@ -62,15 +71,17 @@ class StockoutProvenSellers extends TableWidget
                         DB::raw('MAX(SalesDate) as last_sale_date'),
                     ])
                     ->groupBy('InternalCode')
-                    ->havingRaw('sold_count >= 3 AND stock_count = 0')
+                    // havingRaw kena ulang expression penuh, bukan alias 'sold_count'/'stock_count' -
+                    // SQLite/MySQL benarkan HAVING rujuk alias SELECT, tapi SQL Server tak.
+                    ->havingRaw('SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) >= 3 AND SUM(QtyOnHand) = 0')
                     ->orderByDesc('sold_count')
                     ->get()
                     ->map(fn ($r) => [
                         'InventoryCode' => $r->InventoryCode,
                         'InternalCode' => $r->InternalCode,
                         'Description' => $r->Description,
-                        'category_name' => optional($r->category)->Description ?? $r->CategoryCode,
-                        'vendor_name' => optional($r->vendor)->Description ?? $r->VendorCode,
+                        'category_name' => $categoryNames[$r->CategoryCode] ?? $r->CategoryCode,
+                        'vendor_name' => $vendorNames[$r->VendorCode] ?? $r->VendorCode,
                         'sold_count' => (int) $r->sold_count,
                         'last_sale_date' => $r->last_sale_date,
                     ])

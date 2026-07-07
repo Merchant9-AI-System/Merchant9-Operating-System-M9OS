@@ -20,10 +20,12 @@ class ActionAlerts extends StatsOverviewWidget
     {
         $stockoutCount = Cache::remember('action_alerts_stockout_count', 3600, function () {
             return retry(6, function () {
+                // havingRaw kena ulang expression penuh, bukan alias 'sold'/'stock' - SQLite/MySQL
+                // benarkan HAVING rujuk alias SELECT, tapi SQL Server tak (throw "Invalid column name").
                 return InventoryPiece::realVendor()
                     ->selectRaw('InternalCode, SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as sold, SUM(QtyOnHand) as stock')
                     ->groupBy('InternalCode')
-                    ->havingRaw('sold >= 3 AND stock = 0')
+                    ->havingRaw('SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) >= 3 AND SUM(QtyOnHand) = 0')
                     ->get()
                     ->count();
             }, 800);

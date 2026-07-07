@@ -27,10 +27,12 @@ class InventoryKpiStats extends StatsOverviewWidget
                     // TIADA physicalStore() di sini - sepadan definisi asal (disahkan): sold-out
                     // dikira merentas SEMUA saluran (fizikal + web), lain daripada Rearrange yang
                     // sengaja kecualikan web (kerana rearrange ialah logik pindah cawangan FIZIKAL).
+                    // havingRaw kena ulang expression penuh, bukan alias 'sold'/'stock' - SQLite/MySQL
+                    // benarkan HAVING rujuk alias SELECT, tapi SQL Server tak (throw "Invalid column name").
                     'stockout_proven' => InventoryPiece::realVendor()
                         ->selectRaw('InternalCode, SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as sold, SUM(QtyOnHand) as stock')
                         ->groupBy('InternalCode')
-                        ->havingRaw('sold >= 3 AND stock = 0')
+                        ->havingRaw('SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) >= 3 AND SUM(QtyOnHand) = 0')
                         ->get()
                         ->count(),
                 ];
