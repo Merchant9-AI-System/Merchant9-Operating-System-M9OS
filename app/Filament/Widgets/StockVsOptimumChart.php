@@ -8,6 +8,7 @@ use App\Support\OrderRecommendationCalculator;
 use App\Support\SalesVelocityHelper;
 use Filament\Widgets\ChartWidget;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\HtmlString;
 
 /**
  * Bar chart Stok Semasa vs Stok Optimum (target) per Kategori - 100% drpd data JEMiSys
@@ -71,8 +72,12 @@ class StockVsOptimumChart extends ChartWidget
         return 'bar';
     }
 
-    public function getDescription(): ?string
+    public function getDescription(): string|HtmlString
     {
-        return 'Stok optimum = velocity jualan/bulan x 1.5 bulan sasaran cover (formula sama spt Cadangan Beli). Top 12 kategori ikut stok semasa.';
+        return new HtmlString(
+            'Stok optimum = velocity jualan/bulan x 1.5 bulan sasaran cover (formula sama spt Cadangan Beli). '.
+            'Top 12 kategori ikut stok semasa. '.
+            '<a href="'.route('filament.admin.pages.branch-focus').'" class="underline font-medium">Lihat butiran ikut cawangan &rarr;</a>'
+        );
     }
 }

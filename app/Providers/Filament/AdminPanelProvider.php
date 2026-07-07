@@ -3,11 +3,12 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Widgets\ActionAlerts;
-use App\Filament\Widgets\BuyRecommendations;
+use App\Filament\Widgets\BranchHealthTable;
 use App\Filament\Widgets\CapitalAgingChart;
+use App\Filament\Widgets\CapitalAgingSummary;
+use App\Filament\Widgets\CeoActionCentre;
 use App\Filament\Widgets\GoldVsIdealByBranch;
 use App\Filament\Widgets\InventoryKpiStats;
-use App\Filament\Widgets\OpenToBuySummary;
 use App\Filament\Widgets\StockVsOptimumChart;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -46,13 +47,16 @@ class AdminPanelProvider extends PanelProvider
                 Dashboard::class,
             ])
             ->widgets([
+                // CEO Dashboard Phase 1 - boleh dimatikan via .env (config/dashboard.php),
+                // widget lain di bawah TIDAK berubah.
+                CeoActionCentre::class,
                 InventoryKpiStats::class,
                 ActionAlerts::class,
                 CapitalAgingChart::class,
+                CapitalAgingSummary::class,
                 GoldVsIdealByBranch::class,
+                BranchHealthTable::class,
                 StockVsOptimumChart::class,
-                OpenToBuySummary::class,
-                BuyRecommendations::class,
                 // AccountWidget::class,
             ])
             ->middleware([

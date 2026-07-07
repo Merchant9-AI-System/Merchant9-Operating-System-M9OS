@@ -3,6 +3,8 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Exports\StockoutReorderExporter;
+use App\Filament\Widgets\BestSellerLostOpportunityStats;
+use App\Filament\Widgets\BestSellerLostOpportunityTable;
 use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Vendor;
@@ -55,6 +57,19 @@ class StockoutReorder extends Page implements HasTable
     public function getSubheading(): ?string
     {
         return 'Design pernah laku (>=3 pcs) tapi kini stok=0 di semua saluran - guna senarai ni utk reorder segera.';
+    }
+
+    /**
+     * CEO Dashboard Phase 1 (D) "Best Seller Lost Opportunity" - header widget SAHAJA
+     * ditambah di sini, table/filter/export sedia ada di bawah TIDAK diubah. Boleh dimatikan
+     * via .env CEO_LOST_OPPORTUNITY_ENABLED=false (config/dashboard.php, widget canView()).
+     */
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            BestSellerLostOpportunityStats::class,
+            BestSellerLostOpportunityTable::class,
+        ];
     }
 
     public function table(Table $table): Table
