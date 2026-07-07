@@ -8,7 +8,6 @@ use App\Filament\Widgets\CapitalAgingChart;
 use App\Filament\Widgets\GoldVsIdealByBranch;
 use App\Filament\Widgets\InventoryKpiStats;
 use App\Filament\Widgets\OpenToBuySummary;
-use App\Filament\Widgets\StockoutProvenSellers;
 use App\Filament\Widgets\StockVsOptimumChart;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -19,7 +18,6 @@ use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
 use Filament\Widgets\AccountWidget;
-use Filament\Widgets\FilamentInfoWidget;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -55,7 +53,6 @@ class AdminPanelProvider extends PanelProvider
                 StockVsOptimumChart::class,
                 OpenToBuySummary::class,
                 BuyRecommendations::class,
-                StockoutProvenSellers::class,
                 // AccountWidget::class,
             ])
             ->middleware([

@@ -6,7 +6,7 @@ use App\Filament\Widgets\ActionAlerts;
 use App\Filament\Widgets\CapitalAgingChart;
 use App\Filament\Widgets\GoldVsIdealByBranch;
 use App\Filament\Widgets\InventoryKpiStats;
-use App\Filament\Widgets\StockoutProvenSellers;
+use App\Filament\Widgets\StockVsOptimumChart;
 use App\Support\BranchFocusCalculator;
 use App\Support\OrderRecommendationCalculator;
 use App\Support\RearrangeCalculator;
@@ -34,7 +34,6 @@ class WarmDashboardCache extends Command
             'KPI Stats' => fn () => (new \ReflectionMethod(InventoryKpiStats::class, 'getStats'))->invoke(new InventoryKpiStats),
             'Capital Aging' => fn () => (new \ReflectionMethod(CapitalAgingChart::class, 'getData'))->invoke(new CapitalAgingChart),
             'Gold vs Ideal' => fn () => (new \ReflectionMethod(GoldVsIdealByBranch::class, 'getData'))->invoke(new GoldVsIdealByBranch),
-            'Stockout Proven Sellers' => fn () => (new \ReflectionMethod(StockoutProvenSellers::class, 'getCachedRows'))->invoke(new StockoutProvenSellers),
             'Rearrange' => fn () => RearrangeCalculator::recommendations(),
             'Order Recommendation' => fn () => OrderRecommendationCalculator::recommendations(),
             'Supplier Scorecard' => fn () => SupplierScorecardCalculator::scorecard(),
@@ -43,7 +42,7 @@ class WarmDashboardCache extends Command
             'Restock by Weight' => fn () => RestockAnalysisCalculator::byWeight(),
             'Supplier Performance (JEMiSys)' => fn () => SupplierPerformanceCalculator::performance(),
             'Branch Focus' => fn () => BranchFocusCalculator::focus(),
-            'Stock vs Optimum' => fn () => (new \ReflectionMethod(\App\Filament\Widgets\StockVsOptimumChart::class, 'getData'))->invoke(new \App\Filament\Widgets\StockVsOptimumChart),
+            'Stock vs Optimum' => fn () => (new \ReflectionMethod(StockVsOptimumChart::class, 'getData'))->invoke(new StockVsOptimumChart),
         ];
 
         foreach ($tasks as $label => $fn) {
