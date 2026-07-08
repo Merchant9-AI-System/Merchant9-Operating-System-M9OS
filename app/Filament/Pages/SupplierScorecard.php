@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Models\Jemisys\Vendor;
 use App\Support\SupplierScorecardCalculator;
 use BackedEnum;
+use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -18,7 +19,7 @@ use Filament\Tables\Table;
  */
 class SupplierScorecard extends Page implements HasTable
 {
-    use InteractsWithTable;
+    use InteractsWithTable, HasPageShield;
 
     protected string $view = 'filament.pages.supplier-scorecard';
 

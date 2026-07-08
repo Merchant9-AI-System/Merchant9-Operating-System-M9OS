@@ -3,18 +3,16 @@
 namespace App\Filament\Widgets;
 
 use App\Support\DailyAssetPositionCalculator;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\ChartWidget;
 
 class DailyAssetPositionStockChart extends ChartWidget
 {
+    use HasWidgetShield;
+    
     protected static bool $isLazy = false;
 
     protected ?string $heading = 'Daily Closing Stock & Sales Trend';
-
-    public static function canView(): bool
-    {
-        return (bool) config('dashboard.ceo_features.daily_asset_position', true);
-    }
 
     protected function getData(): array
     {

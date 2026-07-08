@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Support\DailyAssetPositionCalculator;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 
@@ -13,12 +14,9 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
  */
 class DailyAssetPositionSummary extends StatsOverviewWidget
 {
+    use HasWidgetShield;
+    
     protected static bool $isLazy = false;
-
-    public static function canView(): bool
-    {
-        return (bool) config('dashboard.ceo_features.daily_asset_position', true);
-    }
 
     protected function getStats(): array
     {

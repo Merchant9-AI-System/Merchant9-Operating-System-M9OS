@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Support\CapitalAgingCalculator;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 
@@ -13,12 +14,9 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
  */
 class CapitalAgingSummary extends StatsOverviewWidget
 {
+    use HasWidgetShield;
+    
     protected static bool $isLazy = false;
-
-    public static function canView(): bool
-    {
-        return (bool) config('dashboard.ceo_features.capital_trend', true);
-    }
 
     protected function getStats(): array
     {

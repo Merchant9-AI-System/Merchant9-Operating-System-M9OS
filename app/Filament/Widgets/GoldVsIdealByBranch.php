@@ -4,11 +4,14 @@ namespace App\Filament\Widgets;
 
 use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Store;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\ChartWidget;
 use Illuminate\Support\Facades\Cache;
 
 class GoldVsIdealByBranch extends ChartWidget
 {
+    use HasWidgetShield;
+    
     protected static bool $isLazy = false;
 
     protected ?string $heading = 'Berat Emas vs Ideal Setiap Cawangan';

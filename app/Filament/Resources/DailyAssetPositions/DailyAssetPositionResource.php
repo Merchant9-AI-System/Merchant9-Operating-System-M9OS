@@ -70,29 +70,29 @@ class DailyAssetPositionResource extends Resource
     }
 
     /** Accountant/admin sahaja boleh key-in - CEO/management/staff lain read-only. */
-    public static function canCreate(): bool
-    {
-        return static::isAccountantOrAdmin();
-    }
+    // public static function canCreate(): bool
+    // {
+    //     return static::isAccountantOrAdmin();
+    // }
 
-    public static function canEdit($record): bool
-    {
-        return static::isAccountantOrAdmin();
-    }
+    // public static function canEdit($record): bool
+    // {
+    //     return static::isAccountantOrAdmin();
+    // }
 
-    /** Padam cuma utk admin (arahan eksplisit - jejak audit kekal walaupun accountant tersilap). */
-    public static function canDelete($record): bool
-    {
-        return Auth::user()?->hasRole('admin') ?? false;
-    }
+    // /** Padam cuma utk admin (arahan eksplisit - jejak audit kekal walaupun accountant tersilap). */
+    // public static function canDelete($record): bool
+    // {
+    //     return Auth::user()?->hasRole('admin') ?? false;
+    // }
 
-    public static function canDeleteAny(): bool
-    {
-        return Auth::user()?->hasRole('admin') ?? false;
-    }
+    // public static function canDeleteAny(): bool
+    // {
+    //     return Auth::user()?->hasRole('admin') ?? false;
+    // }
 
-    protected static function isAccountantOrAdmin(): bool
-    {
-        return Auth::user()?->hasAnyRole(['accountant', 'admin']) ?? false;
-    }
+    // protected static function isAccountantOrAdmin(): bool
+    // {
+    //     return Auth::user()?->hasAnyRole(['accountant', 'admin']) ?? false;
+    // }
 }

@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Support\BestSellerLostOpportunityCalculator;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
@@ -13,16 +14,13 @@ use Filament\Widgets\TableWidget;
  */
 class BestSellerLostOpportunityTable extends TableWidget
 {
+    use HasWidgetShield;
+    
     protected static ?string $heading = 'Top 10 Sold-Out Designs';
 
     protected int|string|array $columnSpan = 'full';
 
     protected static bool $isLazy = false;
-
-    public static function canView(): bool
-    {
-        return (bool) config('dashboard.ceo_features.lost_opportunity', true);
-    }
 
     public function table(Table $table): Table
     {

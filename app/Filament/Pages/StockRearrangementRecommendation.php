@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Models\Jemisys\InventoryPiece;
 use App\Support\StockRearrangementRecommender;
 use BackedEnum;
+use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -20,7 +21,7 @@ use Filament\Tables\Table;
  */
 class StockRearrangementRecommendation extends Page implements HasTable
 {
-    use InteractsWithTable;
+    use InteractsWithTable, HasPageShield;
 
     protected string $view = 'filament.pages.stock-rearrangement-recommendation';
 
@@ -32,10 +33,10 @@ class StockRearrangementRecommendation extends Page implements HasTable
 
     protected static ?int $navigationSort = 6;
 
-    public static function canAccess(): bool
-    {
-        return (bool) config('dashboard.ceo_features.rearrangement', true);
-    }
+    // public static function canAccess(): bool
+    // {
+    //     return (bool) config('dashboard.ceo_features.rearrangement', true);
+    // }
 
     public static function shouldRegisterNavigation(): bool
     {

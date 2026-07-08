@@ -7,6 +7,7 @@ use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Store;
 use App\Support\BranchFocusCalculator;
 use BackedEnum;
+use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -21,7 +22,7 @@ use Filament\Tables\Table;
  */
 class BranchFocus extends Page implements HasTable
 {
-    use InteractsWithTable;
+    use InteractsWithTable, HasPageShield;
 
     protected string $view = 'filament.pages.branch-focus';
 

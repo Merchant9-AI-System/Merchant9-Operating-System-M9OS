@@ -6,6 +6,7 @@ use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
 use App\Support\OrderRecommendationCalculator;
 use App\Support\SalesVelocityHelper;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\ChartWidget;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\HtmlString;
@@ -17,6 +18,8 @@ use Illuminate\Support\HtmlString;
  */
 class StockVsOptimumChart extends ChartWidget
 {
+    use HasWidgetShield;
+    
     protected static bool $isLazy = false;
 
     protected ?string $heading = 'Stok Semasa vs Stok Optimum (per Kategori)';

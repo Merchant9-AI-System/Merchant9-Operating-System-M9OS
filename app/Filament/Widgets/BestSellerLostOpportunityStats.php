@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Support\BestSellerLostOpportunityCalculator;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 
@@ -13,13 +14,10 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
  */
 class BestSellerLostOpportunityStats extends StatsOverviewWidget
 {
+    use HasWidgetShield;
+    
     protected static bool $isLazy = false;
-
-    public static function canView(): bool
-    {
-        return (bool) config('dashboard.ceo_features.lost_opportunity', true);
-    }
-
+    
     protected function getStats(): array
     {
         $s = BestSellerLostOpportunityCalculator::summary();

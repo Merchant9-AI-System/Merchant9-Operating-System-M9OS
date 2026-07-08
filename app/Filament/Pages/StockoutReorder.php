@@ -9,6 +9,7 @@ use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Vendor;
 use BackedEnum;
+use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\ExportAction;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -37,6 +38,7 @@ use Illuminate\Support\Facades\DB;
  */
 class StockoutReorder extends Page implements HasTable
 {
+    use HasPageShield;
     use InteractsWithTable;
 
     protected string $view = 'filament.pages.stockout-reorder';
@@ -80,7 +82,7 @@ class StockoutReorder extends Page implements HasTable
                 TextColumn::make('InternalCode')->label('Kod Design')->searchable()->sortable(),
                 TextColumn::make('Description')->label('Jenis Item')->limit(30)->searchable()->sortable(),
                 TextColumn::make('category.Description')->label('Kategori')->badge(),
-                TextColumn::make('vendor.Description')->label('Supplier'),
+                TextColumn::make('vendor.Description')->label('Supplier')->searchable(),
                 TextColumn::make('sold_count')->label('Pernah Terjual')->numeric()->sortable()->badge()->color('danger'),
                 TextColumn::make('last_sale_date')->label('Jualan Terkini')->date('d/m/Y')->sortable(),
             ])
@@ -98,15 +100,15 @@ class StockoutReorder extends Page implements HasTable
                         ->pluck('Description', 'VendorCode')
                         ->sort())),
 
-                SelectFilter::make('Description')
-                    ->label('Jenis Item')
-                    ->searchable()
-                    ->options(fn () => Cache::remember('stockout_reorder_item_options', 600, fn () => InventoryPiece::query()
-                        ->realVendor()
-                        ->whereNotNull('Description')
-                        ->distinct()
-                        ->orderBy('Description')
-                        ->pluck('Description', 'Description'))),
+                // SelectFilter::make('Description')
+                //     ->label('Jenis Item')
+                //     ->searchable()
+                //     ->options(fn () => Cache::remember('stockout_reorder_item_options', 600, fn () => InventoryPiece::query()
+                //         ->realVendor()
+                //         ->whereNotNull('Description')
+                //         ->distinct()
+                //         ->orderBy('Description')
+                //         ->pluck('Description', 'Description'))),
             ])
             ->filtersFormColumns(3)
             ->toolbarActions([
@@ -119,7 +121,7 @@ class StockoutReorder extends Page implements HasTable
 
     private static function baseQuery(): Builder
     {
-        return InventoryPiece::query()
+        $grouped = InventoryPiece::query()
             ->realVendor()
             ->select([
                 DB::raw('InternalCode as InventoryCode'),
@@ -135,5 +137,15 @@ class StockoutReorder extends Page implements HasTable
             // havingRaw kena ulang expression penuh, bukan alias - SQLite/MySQL benarkan HAVING
             // rujuk alias SELECT, tapi SQL Server tak (sama nota spt widget asal).
             ->havingRaw('SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) >= 3 AND SUM(QtyOnHand) = 0');
+
+        // Filament tambah secara automatik "ORDER BY [TblInventory].[InventoryCode]" sbg
+        // tie-breaker (ikut $primaryKey model) utk pagination stabil. [InventoryCode] tu alias
+        // dlm SELECT (InternalCode AS InventoryCode), bukan lajur fizikal - tapi bila query
+        // agregat ni ditanya terus (bukan dlm subquery), SQL Server resolve rujukan berkelayakan
+        // [TblInventory].[InventoryCode] kpd LAJUR FIZIKAL sebenar (yg wujud tapi tak
+        // di-GROUP BY) - punca ralat "invalid in ORDER BY clause". Bungkus jadi derived table
+        // (fromSub) supaya outer query x agregat lagi & [InventoryCode] cuma rujuk output
+        // subquery, bukan lajur fizikal.
+        return InventoryPiece::query()->fromSub($grouped, 'TblInventory');
     }
 }

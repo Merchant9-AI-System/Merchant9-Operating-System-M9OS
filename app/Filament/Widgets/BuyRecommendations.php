@@ -4,6 +4,7 @@ namespace App\Filament\Widgets;
 
 use App\Models\Jemisys\InventoryPiece;
 use App\Support\OrderRecommendationCalculator;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
@@ -14,6 +15,8 @@ use Filament\Widgets\TableWidget;
  */
 class BuyRecommendations extends TableWidget
 {
+    use HasWidgetShield;
+    
     protected static ?string $heading = 'Cadangan Beli (Open-to-Buy Terkawal)';
 
     protected int|string|array $columnSpan = 'full';

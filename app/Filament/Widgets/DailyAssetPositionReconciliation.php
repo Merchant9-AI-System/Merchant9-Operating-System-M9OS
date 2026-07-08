@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Support\DailyAssetPositionCalculator;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
@@ -13,16 +14,13 @@ use Filament\Widgets\TableWidget;
  */
 class DailyAssetPositionReconciliation extends TableWidget
 {
+    use HasWidgetShield;
+    
     protected static ?string $heading = 'Jemisys vs Accountant Reconciliation';
 
     protected int|string|array $columnSpan = 'full';
 
     protected static bool $isLazy = false;
-
-    public static function canView(): bool
-    {
-        return (bool) config('dashboard.ceo_features.daily_asset_position', true);
-    }
 
     public function table(Table $table): Table
     {

@@ -3,11 +3,14 @@
 namespace App\Filament\Widgets;
 
 use App\Models\Jemisys\InventoryPiece;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\ChartWidget;
 use Illuminate\Support\Facades\Cache;
 
 class CapitalAgingChart extends ChartWidget
 {
+    use HasWidgetShield;
+    
     protected static bool $isLazy = false;
 
     protected ?string $heading = 'Modal Terikut Umur Stok';

@@ -6,6 +6,7 @@ use App\Models\Jemisys\InventoryPiece;
 use App\Models\StockTransfer;
 use App\Support\RearrangeCalculator;
 use BackedEnum;
+use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -24,7 +25,7 @@ use Illuminate\Support\Facades\Auth;
  */
 class Rearrange extends Page implements HasTable
 {
-    use InteractsWithTable;
+    use InteractsWithTable, HasPageShield;
 
     protected string $view = 'filament.pages.rearrange';
 

@@ -3,12 +3,15 @@
 namespace App\Filament\Widgets;
 
 use App\Models\Jemisys\InventoryPiece;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use Illuminate\Support\Facades\Cache;
 
 class InventoryKpiStats extends StatsOverviewWidget
 {
+    use HasWidgetShield;
+    
     protected static bool $isLazy = false;
 
     protected function getStats(): array

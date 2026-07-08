@@ -39,4 +39,9 @@ class User extends Authenticatable implements FilamentUser
             'password' => 'hashed',
         ];
     }
+
+    public function isSuperAdmin(): bool
+    {
+        return $this->hasRole(config('filament-shield.super_admin.name'));
+    }
 }

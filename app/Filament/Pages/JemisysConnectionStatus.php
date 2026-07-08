@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use BackedEnum;
+use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
@@ -18,6 +19,8 @@ use Throwable;
  */
 class JemisysConnectionStatus extends Page
 {
+    use HasPageShield;
+    
     protected string $view = 'filament.pages.jemisys-connection-status';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedSignal;

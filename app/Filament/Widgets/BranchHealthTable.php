@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Support\BranchHealthCalculator;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
@@ -14,16 +15,13 @@ use Filament\Widgets\TableWidget;
  */
 class BranchHealthTable extends TableWidget
 {
+    use HasWidgetShield;
+    
     protected static ?string $heading = 'Branch Health';
 
     protected int|string|array $columnSpan = 'full';
 
     protected static bool $isLazy = false;
-
-    public static function canView(): bool
-    {
-        return (bool) config('dashboard.ceo_features.branch_health', true);
-    }
 
     public function table(Table $table): Table
     {

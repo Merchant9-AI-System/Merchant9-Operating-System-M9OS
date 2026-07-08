@@ -20,7 +20,7 @@ class DailyAssetPosition extends Model
 {
     use HasFactory;
 
-    protected $guarded = [];
+    // protected $guarded = [];
 
     protected $casts = [
         'entry_date' => 'date',

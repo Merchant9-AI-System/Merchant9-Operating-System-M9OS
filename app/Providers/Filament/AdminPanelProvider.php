@@ -15,10 +15,12 @@ use App\Filament\Widgets\DailyAssetPositionSupplierChart;
 use App\Filament\Widgets\GoldVsIdealByBranch;
 use App\Filament\Widgets\InventoryKpiStats;
 use App\Filament\Widgets\StockVsOptimumChart;
+use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Navigation\NavigationGroup;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -43,6 +45,7 @@ class AdminPanelProvider extends PanelProvider
             ->profile()
             ->colors([
                 'primary' => Color::Amber,
+                'secondary' => Color::Zinc,
             ])
             ->brandName('Merchant9 OS')
             ->sidebarCollapsibleOnDesktop()
@@ -50,6 +53,23 @@ class AdminPanelProvider extends PanelProvider
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
             ->pages([
                 Dashboard::class,
+            ])
+            ->navigationGroups([
+                NavigationGroup::make()
+                    ->label('Analisis JEMiSys')
+                    ->collapsible(false),
+                NavigationGroup::make()
+                    ->label('Accounting')
+                    ->collapsible(false),
+                NavigationGroup::make()
+                    ->label('Procurement')
+                    ->collapsible(false),
+                NavigationGroup::make()
+                    ->label('Inventory Health')
+                    ->collapsible(false),
+                NavigationGroup::make()
+                    ->label('Data Management')
+                    ->collapsible(false),
             ])
             ->widgets([
                 // CEO Dashboard Phase 1 - boleh dimatikan via .env (config/dashboard.php),
@@ -69,7 +89,7 @@ class AdminPanelProvider extends PanelProvider
                 DailyAssetPositionCashChart::class,
                 DailyAssetPositionSupplierChart::class,
                 DailyAssetPositionReconciliation::class,
-                // AccountWidget::class,
+                AccountWidget::class,
             ])
             ->middleware([
                 EncryptCookies::class,
@@ -81,6 +101,26 @@ class AdminPanelProvider extends PanelProvider
                 SubstituteBindings::class,
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
+            ])
+            ->plugins([
+                FilamentShieldPlugin::make()
+                    ->navigationLabel('Roles')
+                    ->navigationGroup('Data Management')
+                    ->gridColumns([
+                        'default' => 1,
+                        'sm' => 2,
+                        'lg' => 3
+                    ])
+                    ->sectionColumnSpan(1)
+                    ->checkboxListColumns([
+                        'default' => 1,
+                        'sm' => 2,
+                        'lg' => 4,
+                    ])
+                    ->resourceCheckboxListColumns([
+                        'default' => 1,
+                        'sm' => 2,
+                    ]),
             ])
             ->authMiddleware([
                 Authenticate::class,

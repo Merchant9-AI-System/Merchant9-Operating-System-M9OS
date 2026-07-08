@@ -3,18 +3,16 @@
 namespace App\Filament\Widgets;
 
 use App\Support\DailyAssetPositionCalculator;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\ChartWidget;
 
 class DailyAssetPositionSupplierChart extends ChartWidget
 {
+    use HasWidgetShield;
+    
     protected static bool $isLazy = false;
 
     protected ?string $heading = 'Supplier Hutang / Overpaid Trend';
-
-    public static function canView(): bool
-    {
-        return (bool) config('dashboard.ceo_features.daily_asset_position', true);
-    }
 
     protected function getData(): array
     {

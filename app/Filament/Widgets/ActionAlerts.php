@@ -4,6 +4,7 @@ namespace App\Filament\Widgets;
 
 use App\Models\Jemisys\InventoryPiece;
 use App\Support\RearrangeCalculator;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use Illuminate\Support\Facades\Cache;
@@ -14,6 +15,8 @@ use Illuminate\Support\Facades\Cache;
  */
 class ActionAlerts extends StatsOverviewWidget
 {
+    use HasWidgetShield;
+    
     protected static bool $isLazy = false;
 
     protected function getStats(): array
