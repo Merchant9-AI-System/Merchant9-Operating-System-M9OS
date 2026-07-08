@@ -24,10 +24,12 @@ class UserForm
                     ->email()
                     ->required(),
                 DateTimePicker::make('email_verified_at'),
-                // TextInput::make('password')
-                //     ->password(),
+                TextInput::make('password')
+                    ->password()
+                    ->required(fn($record) => $record === null),
                 Select::make('roles')
-                    ->disabled(fn(User $record): bool => $record->isSuperAdmin())
+                    ->hidden(fn($record): bool => $record === null)
+                    ->disabled(fn(User $record): bool => $record === null || $record->isSuperAdmin())
                     ->relationship('roles', 'name')
                     ->getOptionLabelFromRecordUsing(fn(Model $record) => Str::headline($record->name))
                     ->multiple()
