@@ -13,7 +13,7 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
  */
 class DailyAssetPositionListSummary extends StatsOverviewWidget
 {
-    use HasWidgetShield;
+    // use HasWidgetShield;
     
     protected static bool $isLazy = false;
 
