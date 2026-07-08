@@ -14,7 +14,7 @@ use Filament\Widgets\TableWidget;
  */
 class BestSellerLostOpportunityTable extends TableWidget
 {
-    use HasWidgetShield;
+    // use HasWidgetShield;
     
     protected static ?string $heading = 'Top 10 Sold-Out Designs';
 

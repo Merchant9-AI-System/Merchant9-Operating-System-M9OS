@@ -15,7 +15,7 @@ use Filament\Widgets\TableWidget;
  */
 class BuyRecommendations extends TableWidget
 {
-    use HasWidgetShield;
+    // use HasWidgetShield;
     
     protected static ?string $heading = 'Cadangan Beli (Open-to-Buy Terkawal)';
 

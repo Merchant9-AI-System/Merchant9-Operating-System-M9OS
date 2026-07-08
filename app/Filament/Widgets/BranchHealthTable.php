@@ -15,7 +15,7 @@ use Filament\Widgets\TableWidget;
  */
 class BranchHealthTable extends TableWidget
 {
-    use HasWidgetShield;
+    // use HasWidgetShield;
     
     protected static ?string $heading = 'Branch Health';
 
