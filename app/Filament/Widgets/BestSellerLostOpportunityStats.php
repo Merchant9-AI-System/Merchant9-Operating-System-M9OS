@@ -14,7 +14,7 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
  */
 class BestSellerLostOpportunityStats extends StatsOverviewWidget
 {
-    use HasWidgetShield;
+    // use HasWidgetShield;
     
     protected static bool $isLazy = false;
     
