@@ -6,7 +6,6 @@ use App\Models\User;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
-use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
@@ -26,12 +25,13 @@ class UserForm
                 DateTimePicker::make('email_verified_at'),
                 TextInput::make('password')
                     ->password()
-                    ->required(fn($record) => $record === null),
+                    ->hidden(fn ($record) => $record !== null)
+                    ->required(fn ($record) => $record === null),
                 Select::make('roles')
-                    ->hidden(fn($record): bool => $record === null)
-                    ->disabled(fn(User $record): bool => $record === null || $record->isSuperAdmin())
+                    ->hidden(fn ($record): bool => $record === null)
+                    ->disabled(fn (User $record): bool => $record === null || $record->isSuperAdmin())
                     ->relationship('roles', 'name')
-                    ->getOptionLabelFromRecordUsing(fn(Model $record) => Str::headline($record->name))
+                    ->getOptionLabelFromRecordUsing(fn (Model $record) => Str::headline($record->name))
                     ->multiple()
                     ->preload()
                     ->searchable()

@@ -138,14 +138,20 @@ class StockoutReorder extends Page implements HasTable
             // rujuk alias SELECT, tapi SQL Server tak (sama nota spt widget asal).
             ->havingRaw('SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) >= 3 AND SUM(QtyOnHand) = 0');
 
-        // Filament tambah secara automatik "ORDER BY [TblInventory].[InventoryCode]" sbg
-        // tie-breaker (ikut $primaryKey model) utk pagination stabil. [InventoryCode] tu alias
-        // dlm SELECT (InternalCode AS InventoryCode), bukan lajur fizikal - tapi bila query
-        // agregat ni ditanya terus (bukan dlm subquery), SQL Server resolve rujukan berkelayakan
-        // [TblInventory].[InventoryCode] kpd LAJUR FIZIKAL sebenar (yg wujud tapi tak
-        // di-GROUP BY) - punca ralat "invalid in ORDER BY clause". Bungkus jadi derived table
-        // (fromSub) supaya outer query x agregat lagi & [InventoryCode] cuma rujuk output
-        // subquery, bukan lajur fizikal.
-        return InventoryPiece::query()->fromSub($grouped, 'TblInventory');
+        // Filament tambah secara automatik "ORDER BY [table].[InventoryCode]" sbg tie-breaker
+        // (ikut $primaryKey model) utk pagination stabil. [InventoryCode] tu alias dlm SELECT
+        // (InternalCode AS InventoryCode), bukan lajur fizikal - tapi bila query agregat ni
+        // ditanya terus (bukan dlm subquery), SQL Server resolve rujukan berkelayakan kpd LAJUR
+        // FIZIKAL sebenar (yg wujud tapi tak di-GROUP BY) - punca ralat "invalid in ORDER BY
+        // clause". Bungkus jadi derived table (fromSub) supaya outer query x agregat lagi &
+        // [InventoryCode] cuma rujuk output subquery, bukan lajur fizikal.
+        //
+        // Alias KENA sepadan $model->getTable() (bukan string literal ditetap) - Filament
+        // qualify sesetengah lajur (cth. table filter) guna nama table model terus, yg lain
+        // (spt tie-breaker order by di atas) guna alias FROM semasa; kalau tak sepadan, filter
+        // gagal dgn "no such column: {table_lama}.{lajur}" (bug sebenar yg berlaku bila
+        // $table model ditukar drpd 'TblInventory' ke 'jemisys_inventory_mirror' tapi alias ni
+        // dibiar sbg string literal lama).
+        return InventoryPiece::query()->fromSub($grouped, (new InventoryPiece)->getTable());
     }
 }

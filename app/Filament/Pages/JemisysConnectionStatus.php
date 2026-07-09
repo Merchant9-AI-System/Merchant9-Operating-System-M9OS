@@ -2,13 +2,20 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Widgets\StatusConnectionWidget;
+use App\Jobs\SyncJemisysMirrors;
+use App\Models\InventoryMirror;
+use App\Models\Jemisys\Category;
+use App\Models\Jemisys\Store;
+use App\Models\Jemisys\Vendor;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
-use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -20,12 +27,12 @@ use Throwable;
 class JemisysConnectionStatus extends Page
 {
     use HasPageShield;
-    
+
     protected string $view = 'filament.pages.jemisys-connection-status';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedSignal;
 
-    protected static ?string $navigationLabel = 'Status Sambungan JEMiSys';
+    protected static ?string $navigationLabel = 'Connection Status';
 
     protected static string|\UnitEnum|null $navigationGroup = 'Data Management';
 
@@ -34,21 +41,74 @@ class JemisysConnectionStatus extends Page
     /** @var array<string, array{label: string, status: string, detail: string, ms: ?float}> */
     public array $checks = [];
 
+    public function getSubheading(): ?string
+    {
+        return __('Diagnostik sambungan "jemisys" (SQL Server via Tailscale) - jalankan semak berperingkat');
+    }
+
     public function mount(): void
     {
         $this->runDiagnostics();
     }
 
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            StatusConnectionWidget::class,
+        ];
+    }
+
+    /** @return array{checks: array, mirrors: array<string, int>, lastSyncedAt: ?string} */
+    public function getWidgetData(): array
+    {
+        return [
+            'checks' => $this->checks,
+            'mirrors' => $this->mirrorStatus['mirrors'],
+            'lastSyncedAt' => $this->mirrorStatus['lastSyncedAt'],
+        ];
+    }
+
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('syncMirrors')
+                ->label('Segerak Data JEMiSys')
+                ->icon(Heroicon::OutlinedArrowPath)
+                ->color('warning')
+                ->disabled(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING))
+                ->requiresConfirmation()
+                ->modalDescription('Segerak Category/Vendor/Store/TblInventory drpd SQL Server VPN ke cermin tempatan. Berjalan di latar belakang - ianya mengambil masa beberapa minit.')
+                ->action(function () {
+                    SyncJemisysMirrors::dispatch();
+                    Notification::make()->info()->title('Penyegerakan dimulakan di latar belakang...')->send();
+                }),
             Action::make('refresh')
-                ->label('Jalankan Semula')
+                ->label('Refresh')
                 ->icon(Heroicon::OutlinedArrowPath)
                 ->action(function () {
                     $this->runDiagnostics();
-                    Notification::make()->success()->title('Semak Berperingkat Berjaya')->send();
+                    Notification::make()->success()->title('Diagnostik selesai')->send();
                 }),
+        ];
+    }
+
+    /**
+     * @return array{syncing: bool, syncStartedAt: ?string, lastSyncedAt: ?string, mirrors: array<string, int>}
+     */
+    public function getMirrorStatusProperty(): array
+    {
+        $startedAt = Cache::get(SyncJemisysMirrors::CACHE_KEY_SYNCING);
+
+        return [
+            'syncing' => $startedAt !== null,
+            'syncStartedAt' => $startedAt instanceof Carbon ? $startedAt->toIso8601String() : null,
+            'lastSyncedAt' => InventoryMirror::max('synced_at'),
+            'mirrors' => [
+                'Category' => Category::count(),
+                'Vendor' => Vendor::count(),
+                'Store' => Store::count(),
+                'Inventory' => InventoryMirror::count(),
+            ],
         ];
     }
 
