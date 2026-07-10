@@ -15,6 +15,7 @@ use App\Filament\Widgets\DailyAssetPositionSupplierChart;
 use App\Filament\Widgets\GoldVsIdealByBranch;
 use App\Filament\Widgets\InventoryKpiStats;
 use App\Filament\Widgets\StockVsOptimumChart;
+use App\Filament\Widgets\UserWidget;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -25,7 +26,6 @@ use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
-use Filament\Widgets\AccountWidget;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -50,6 +50,9 @@ class AdminPanelProvider extends PanelProvider
             ->brandName('Merchant9 OS')
             ->sidebarCollapsibleOnDesktop()
             ->spa()
+            ->databaseNotifications()
+            ->databaseNotificationsPolling('30s')
+            ->globalSearch(false)
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
             ->pages([
@@ -73,6 +76,7 @@ class AdminPanelProvider extends PanelProvider
                     ->collapsible(false),
             ])
             ->widgets([
+                UserWidget::class,
                 // CEO Dashboard Phase 1 - boleh dimatikan via .env (config/dashboard.php),
                 // widget lain di bawah TIDAK berubah.
                 CeoActionCentre::class,
@@ -90,7 +94,6 @@ class AdminPanelProvider extends PanelProvider
                 DailyAssetPositionCashChart::class,
                 DailyAssetPositionSupplierChart::class,
                 DailyAssetPositionReconciliation::class,
-                AccountWidget::class,
             ])
             ->middleware([
                 EncryptCookies::class,

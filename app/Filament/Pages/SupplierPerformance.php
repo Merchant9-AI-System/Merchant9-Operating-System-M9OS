@@ -12,6 +12,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
  * Supplier mana mahal (avg kos seunit), margin tinggi/rendah, fast-moving - 100% drpd data
@@ -19,7 +20,7 @@ use Filament\Tables\Table;
  */
 class SupplierPerformance extends Page implements HasTable
 {
-    use InteractsWithTable, HasPageShield;
+    use HasPageShield, InteractsWithTable;
 
     protected string $view = 'filament.pages.supplier-performance';
 
@@ -40,7 +41,22 @@ class SupplierPerformance extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->records(fn () => Vendor::hydrate(SupplierPerformanceCalculator::performance()->all()))
+            ->records(function (int|string $page, int|string $recordsPerPage) {
+                // ->records() TIDAK auto-paginate spt ->query() - Filament hantar page/
+                // recordsPerPage terus ke closure ni, kena slice & bungkus jadi
+                // LengthAwarePaginator sendiri (rujuk Filament\Tables\Concerns\HasRecords).
+                $all = SupplierPerformanceCalculator::performance();
+
+                $page = (int) $page;
+                $recordsPerPage = (int) $recordsPerPage;
+
+                return new LengthAwarePaginator(
+                    Vendor::hydrate($all->forPage($page, $recordsPerPage)->values()->all()),
+                    $all->count(),
+                    $recordsPerPage,
+                    $page,
+                );
+            })
             ->columns([
                 TextColumn::make('vendor_name')->label('Supplier')->searchable(),
                 TextColumn::make('avg_unit_cost')->label('Avg Kos/Unit')->money('MYR')->sortable(),

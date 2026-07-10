@@ -40,10 +40,12 @@ class ActionAlerts extends StatsOverviewWidget
             Stat::make('Best-seller Sold Out', (string) $stockoutCount)
                 ->description('Design pernah laku tapi kini stok=0')
                 ->color('danger'),
-
             Stat::make('Design Perlu Rearrange', (string) $rearrangeCount)
                 ->description('Cadangan pindah stok antara cawangan')
                 ->color('warning'),
+            Stat::make('[Title]', 0)
+                ->description('[Description]')
+                ->color('info'),
         ];
     }
 }

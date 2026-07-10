@@ -12,6 +12,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
  * CEO Dashboard Phase 1 (E) - versi RINGKAS & PAPAR SAHAJA (read-only) drpd cadangan
@@ -21,7 +22,7 @@ use Filament\Tables\Table;
  */
 class StockRearrangementRecommendation extends Page implements HasTable
 {
-    use InteractsWithTable, HasPageShield;
+    use HasPageShield, InteractsWithTable;
 
     protected string $view = 'filament.pages.stock-rearrangement-recommendation';
 
@@ -52,11 +53,23 @@ class StockRearrangementRecommendation extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->records(fn () => InventoryPiece::hydrate(
-                StockRearrangementRecommender::recommendations()
-                    ->map(fn ($r, $i) => $r + ['InventoryCode' => 'sr_'.$i])
-                    ->all()
-            ))
+            ->records(function (int|string $page, int|string $recordsPerPage) {
+                // ->records() TIDAK auto-paginate spt ->query() - Filament hantar page/
+                // recordsPerPage terus ke closure ni, kena slice & bungkus jadi
+                // LengthAwarePaginator sendiri (rujuk Filament\Tables\Concerns\HasRecords).
+                $all = StockRearrangementRecommender::recommendations()
+                    ->map(fn ($r, $i) => $r + ['InventoryCode' => 'sr_'.$i]);
+
+                $page = (int) $page;
+                $recordsPerPage = (int) $recordsPerPage;
+
+                return new LengthAwarePaginator(
+                    InventoryPiece::hydrate($all->forPage($page, $recordsPerPage)->values()->all()),
+                    $all->count(),
+                    $recordsPerPage,
+                    $page,
+                );
+            })
             ->columns([
                 TextColumn::make('from_branch')->label('From Branch')->badge()->color('success'),
                 TextColumn::make('to_branch')->label('To Branch')->badge()->color('danger'),

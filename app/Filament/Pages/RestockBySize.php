@@ -15,6 +15,7 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
  * Saiz apa perlu restock (atau tidak), silang Kategori x Cawangan - 100% drpd data JEMiSys
@@ -22,7 +23,7 @@ use Filament\Tables\Table;
  */
 class RestockBySize extends Page implements HasTable
 {
-    use InteractsWithTable, HasPageShield;
+    use HasPageShield, InteractsWithTable;
 
     protected string $view = 'filament.pages.restock-by-size';
 
@@ -42,11 +43,25 @@ class RestockBySize extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->records(fn () => InventoryPiece::hydrate(
-                RestockAnalysisCalculator::bySize()
-                    ->map(fn ($r, $i) => $r + ['InventoryCode' => 'rbs_'.$i])
-                    ->all()
-            ))
+            ->records(function (int|string $page, int|string $recordsPerPage) {
+                // ->records() TIDAK auto-paginate spt ->query() - Filament hantar page/
+                // recordsPerPage terus ke closure ni (rujuk Filament\Tables\Concerns\
+                // HasRecords::getTableRecords()), kena slice & bungkus jadi LengthAwarePaginator
+                // sendiri. Tanpa ni, ->paginated([25,50,100]) cuma tetapkan pilihan UI - semua
+                // baris tetap terpapar sekali (punca "tak paginate" walaupun kod dah ada).
+                $all = RestockAnalysisCalculator::bySize()
+                    ->map(fn ($r, $i) => $r + ['InventoryCode' => 'rbs_'.$i]);
+
+                $page = (int) $page;
+                $recordsPerPage = (int) $recordsPerPage;
+
+                return new LengthAwarePaginator(
+                    InventoryPiece::hydrate($all->forPage($page, $recordsPerPage)->values()->all()),
+                    $all->count(),
+                    $recordsPerPage,
+                    $page,
+                );
+            })
             ->columns([
                 TextColumn::make('category_name')->label('Kategori')->searchable()->sortable(),
                 TextColumn::make('store_code')->label('Cawangan')->badge()->sortable(),
@@ -79,6 +94,6 @@ class RestockBySize extends Page implements HasTable
                 ]),
             ])
             ->defaultSort('gap', 'desc')
-            ->paginated([25, 50, 100]);
+            ->paginated([10, 25, 50, 100]);
     }
 }

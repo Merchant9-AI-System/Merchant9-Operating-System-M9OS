@@ -15,6 +15,7 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
  * Cawangan mana perlu focus pada kategori mana - 100% drpd data JEMiSys sebenar
@@ -22,7 +23,7 @@ use Filament\Tables\Table;
  */
 class BranchFocus extends Page implements HasTable
 {
-    use InteractsWithTable, HasPageShield;
+    use HasPageShield, InteractsWithTable;
 
     protected string $view = 'filament.pages.branch-focus';
 
@@ -42,11 +43,23 @@ class BranchFocus extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->records(fn () => InventoryPiece::hydrate(
-                BranchFocusCalculator::focus()
-                    ->map(fn ($r, $i) => $r + ['InventoryCode' => 'bf_'.$i])
-                    ->all()
-            ))
+            ->records(function (int|string $page, int|string $recordsPerPage) {
+                // ->records() TIDAK auto-paginate spt ->query() - Filament hantar page/
+                // recordsPerPage terus ke closure ni, kena slice & bungkus jadi
+                // LengthAwarePaginator sendiri (rujuk Filament\Tables\Concerns\HasRecords).
+                $all = BranchFocusCalculator::focus()
+                    ->map(fn ($r, $i) => $r + ['InventoryCode' => 'bf_'.$i]);
+
+                $page = (int) $page;
+                $recordsPerPage = (int) $recordsPerPage;
+
+                return new LengthAwarePaginator(
+                    InventoryPiece::hydrate($all->forPage($page, $recordsPerPage)->values()->all()),
+                    $all->count(),
+                    $recordsPerPage,
+                    $page,
+                );
+            })
             ->columns([
                 TextColumn::make('store_code')->label('Cawangan')->badge()->sortable(),
                 TextColumn::make('category_name')->label('Kategori')->searchable()->sortable(),

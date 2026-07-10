@@ -24,6 +24,8 @@ class StockVsOptimumChart extends ChartWidget
 
     protected ?string $heading = 'Stok Semasa vs Stok Optimum (per Kategori)';
 
+    // protected string | array | int $columnSpan = 'full';
+
     protected function getData(): array
     {
         $data = Cache::rememberForever('stock_vs_optimum_by_category', function () {

@@ -7,6 +7,7 @@ use App\Filament\Widgets\CapitalAgingChart;
 use App\Filament\Widgets\GoldVsIdealByBranch;
 use App\Filament\Widgets\InventoryKpiStats;
 use App\Filament\Widgets\StockVsOptimumChart;
+use App\Models\User;
 use App\Support\BestSellerLostOpportunityCalculator;
 use App\Support\BranchFocusCalculator;
 use App\Support\BranchHealthCalculator;
@@ -18,6 +19,7 @@ use App\Support\RestockAnalysisCalculator;
 use App\Support\StockRearrangementRecommender;
 use App\Support\SupplierPerformanceCalculator;
 use App\Support\SupplierScorecardCalculator;
+use Filament\Notifications\Notification;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -67,6 +69,15 @@ class WarmDashboardCache extends Command
         }
 
         $this->info('Selesai pre-warm cache dashboard.');
+
+        $userAdmin = User::role('super_admin')->first();
+        $count = \DB::table('jemisys_inventory_mirror')->count();
+        Notification::make()
+            ->success()
+            ->title('Selesai pre-warm cache dashboard.')
+            ->body("Terdapat {$count} rekod dalam `jemisys_inventory_mirror`.")
+            ->send()
+            ->sendToDatabase($userAdmin);
 
         return self::SUCCESS;
     }

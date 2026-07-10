@@ -17,6 +17,8 @@ class CapitalAgingChart extends ChartWidget
 
     protected ?string $heading = 'Modal Terikut Umur Stok';
 
+    // protected string | array | int $columnSpan = 'full';
+
     protected function getData(): array
     {
         $buckets = CapitalAgingCalculator::buckets();

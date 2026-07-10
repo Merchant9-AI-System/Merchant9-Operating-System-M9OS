@@ -12,6 +12,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
  * Prestasi supplier dikira drpd data PO+GRN sebenar (rujuk SupplierScorecardCalculator).
@@ -34,9 +35,22 @@ class SupplierScorecard extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->records(fn () => Vendor::hydrate(
-                SupplierScorecardCalculator::scorecard()->all()
-            ))
+            ->records(function (int|string $page, int|string $recordsPerPage) {
+                // ->records() TIDAK auto-paginate spt ->query() - Filament hantar page/
+                // recordsPerPage terus ke closure ni, kena slice & bungkus jadi
+                // LengthAwarePaginator sendiri (rujuk Filament\Tables\Concerns\HasRecords).
+                $all = SupplierScorecardCalculator::scorecard();
+
+                $page = (int) $page;
+                $recordsPerPage = (int) $recordsPerPage;
+
+                return new LengthAwarePaginator(
+                    Vendor::hydrate($all->forPage($page, $recordsPerPage)->values()->all()),
+                    $all->count(),
+                    $recordsPerPage,
+                    $page,
+                );
+            })
             ->columns([
                 TextColumn::make('vendor_name')->label('Supplier')->searchable(),
                 TextColumn::make('total_po')->label('Jumlah PO')->numeric()->sortable(),

@@ -17,6 +17,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 
 /**
@@ -25,7 +26,7 @@ use Illuminate\Support\Facades\Auth;
  */
 class Rearrange extends Page implements HasTable
 {
-    use InteractsWithTable, HasPageShield;
+    use HasPageShield, InteractsWithTable;
 
     protected string $view = 'filament.pages.rearrange';
 
@@ -40,9 +41,22 @@ class Rearrange extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->records(fn () => InventoryPiece::hydrate(
-                RearrangeCalculator::recommendations()->all()
-            ))
+            ->records(function (int|string $page, int|string $recordsPerPage) {
+                // ->records() TIDAK auto-paginate spt ->query() - Filament hantar page/
+                // recordsPerPage terus ke closure ni, kena slice & bungkus jadi
+                // LengthAwarePaginator sendiri (rujuk Filament\Tables\Concerns\HasRecords).
+                $all = RearrangeCalculator::recommendations();
+
+                $page = (int) $page;
+                $recordsPerPage = (int) $recordsPerPage;
+
+                return new LengthAwarePaginator(
+                    InventoryPiece::hydrate($all->forPage($page, $recordsPerPage)->values()->all()),
+                    $all->count(),
+                    $recordsPerPage,
+                    $page,
+                );
+            })
             ->columns([
                 TextColumn::make('internal_code')->label('Kod Design')->searchable(),
                 TextColumn::make('item_desc')->label('Jenis Item')->limit(25),

@@ -16,6 +16,8 @@ class GoldVsIdealByBranch extends ChartWidget
 
     protected ?string $heading = 'Berat Emas vs Ideal Setiap Cawangan';
 
+    // protected string | array | int $columnSpan = 'full';
+
     protected function getData(): array
     {
         // retry() toleransi lock sementara (cth. antivirus scan selepas jemisys.db ditulis semula).
