@@ -11,14 +11,14 @@ use Illuminate\Support\Facades\Cache;
 class InventoryKpiStats extends StatsOverviewWidget
 {
     use HasWidgetShield;
-    
-    protected static bool $isLazy = false;
+
+    protected ?string $pollingInterval = null;
 
     protected function getStats(): array
     {
         // Cache 10 minit - scan penuh inventori (39k+ baris), sama pendekatan spt app.py _cached().
         // retry() toleransi lock sementara (cth. antivirus scan selepas jemisys.db ditulis semula).
-        $m = Cache::remember('inventory_kpi_stats', 3600, function () {
+        $m = Cache::rememberForever('inventory_kpi_stats', function () {
             return retry(6, function () {
                 $q = InventoryPiece::onHand()->realVendor();
 

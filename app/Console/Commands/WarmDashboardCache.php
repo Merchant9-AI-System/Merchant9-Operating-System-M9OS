@@ -7,10 +7,15 @@ use App\Filament\Widgets\CapitalAgingChart;
 use App\Filament\Widgets\GoldVsIdealByBranch;
 use App\Filament\Widgets\InventoryKpiStats;
 use App\Filament\Widgets\StockVsOptimumChart;
+use App\Support\BestSellerLostOpportunityCalculator;
 use App\Support\BranchFocusCalculator;
+use App\Support\BranchHealthCalculator;
+use App\Support\CeoActionCentreCalculator;
+use App\Support\DailyAssetPositionCalculator;
 use App\Support\OrderRecommendationCalculator;
 use App\Support\RearrangeCalculator;
 use App\Support\RestockAnalysisCalculator;
+use App\Support\StockRearrangementRecommender;
 use App\Support\SupplierPerformanceCalculator;
 use App\Support\SupplierScorecardCalculator;
 use Illuminate\Console\Attributes\Description;
@@ -25,7 +30,7 @@ use Illuminate\Console\Command;
  * JALANKAN LEPAS: load_data.py --replace, `artisan cache:clear`, atau restart server.
  */
 #[Signature('app:warm-dashboard-cache')]
-#[Description('Pre-warm cache dashboard (KPI/Aging/GoldVsIdeal/Stockout/Rearrange) - jalankan lepas load_data.py atau cache:clear')]
+#[Description('Pre-warm cache dashboard (KPI/Aging/GoldVsIdeal/Stockout/Rearrange) - jalankan lepas `php artisan cache:clear`.')]
 class WarmDashboardCache extends Command
 {
     public function handle(): int
@@ -43,6 +48,11 @@ class WarmDashboardCache extends Command
             'Supplier Performance (JEMiSys)' => fn () => SupplierPerformanceCalculator::performance(),
             'Branch Focus' => fn () => BranchFocusCalculator::focus(),
             'Stock vs Optimum' => fn () => (new \ReflectionMethod(StockVsOptimumChart::class, 'getData'))->invoke(new StockVsOptimumChart),
+            'Best Seller Lost Opportunity' => fn () => BestSellerLostOpportunityCalculator::summary(),
+            'Branch Health' => fn () => BranchHealthCalculator::rows(),
+            'CEO Action Centre' => fn () => CeoActionCentreCalculator::alerts(),
+            'Stock Rearrangement Recommendation' => fn () => StockRearrangementRecommender::recommendations(),
+            'Daily Asset Position Reconciliation' => fn () => DailyAssetPositionCalculator::reconciliation(),
         ];
 
         foreach ($tasks as $label => $fn) {

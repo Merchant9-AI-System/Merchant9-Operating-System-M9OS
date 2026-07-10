@@ -9,8 +9,8 @@ use Filament\Widgets\ChartWidget;
 class DailyAssetPositionCashChart extends ChartWidget
 {
     use HasWidgetShield;
-    
-    protected static bool $isLazy = false;
+
+    protected ?string $pollingInterval = null;
 
     protected ?string $heading = 'Daily Available Cash Trend';
 

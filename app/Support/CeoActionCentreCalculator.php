@@ -30,7 +30,7 @@ class CeoActionCentreCalculator
      */
     public static function alerts(): Collection
     {
-        $plain = Cache::remember('ceo_action_centre_alerts', 3600, function () {
+        $plain = Cache::rememberForever('ceo_action_centre_alerts', function () {
             return retry(6, fn () => static::compute()->toArray(), 800);
         });
 

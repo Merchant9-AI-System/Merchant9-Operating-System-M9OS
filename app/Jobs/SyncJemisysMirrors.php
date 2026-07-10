@@ -6,8 +6,10 @@ use App\Models\InventoryMirror;
 use App\Models\Jemisys\Category;
 use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
+use App\Support\StockoutReorderMaterializer;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -54,8 +56,22 @@ class SyncJemisysMirrors implements ShouldQueue
 
             $total = $this->syncInventory();
 
+            // StockoutReorder baca terus drpd jadual ni (bukan agregat live) - rujuk nota
+            // App\Support\StockoutReorderMaterializer/App\Filament\Pages\StockoutReorder.
+            $stockoutCandidateCount = StockoutReorderMaterializer::materialize();
+
+            // Semua kalkulator berat guna Cache::rememberForever() (bukan TTL 3600s) - staleness
+            // kekal terikat pada bila sync/warm terakhir berjaya, BUKAN tempoh tamat rawak yg
+            // boleh terkena permintaan pengguna sebenar (live recompute 40-50 saat --> 504).
+            // Ini bermakna Cache::flush() DI SINI ialah SATU-SATUNYA cara data jadi stale/refresh -
+            // wajib disusuli warm-dashboard-cache serta-merta (bukan pilihan) atau semua page
+            // akan cuba recompute LIVE dlm permintaan pengguna seterusnya lepas flush ni.
+            Cache::flush();
+            Artisan::call('app:warm-dashboard-cache');
+
             $ms = round((microtime(true) - $start) * 1000);
-            Log::info("SyncJemisysMirrors: selesai - {$total} baris TblInventory + Category/Vendor/Store ({$ms}ms).");
+            Log::info("SyncJemisysMirrors: selesai - {$total} baris TblInventory + Category/Vendor/Store, ".
+                "{$stockoutCandidateCount} calon StockoutReorder ({$ms}ms).");
         } catch (Throwable $e) {
             Log::error('SyncJemisysMirrors gagal: '.$e->getMessage());
 

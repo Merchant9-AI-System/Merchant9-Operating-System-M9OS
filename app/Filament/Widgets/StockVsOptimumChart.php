@@ -19,14 +19,14 @@ use Illuminate\Support\HtmlString;
 class StockVsOptimumChart extends ChartWidget
 {
     use HasWidgetShield;
-    
-    protected static bool $isLazy = false;
+
+    protected ?string $pollingInterval = null;
 
     protected ?string $heading = 'Stok Semasa vs Stok Optimum (per Kategori)';
 
     protected function getData(): array
     {
-        $data = Cache::remember('stock_vs_optimum_by_category', 3600, function () {
+        $data = Cache::rememberForever('stock_vs_optimum_by_category', function () {
             return retry(6, function () {
                 $salesWindowDays = SalesVelocityHelper::salesWindowDays();
 

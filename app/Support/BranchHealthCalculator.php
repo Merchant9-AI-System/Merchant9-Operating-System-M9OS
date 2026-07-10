@@ -22,7 +22,7 @@ class BranchHealthCalculator
 
     public static function rows(): Collection
     {
-        $plain = Cache::remember('branch_health_rows', 3600, function () {
+        $plain = Cache::rememberForever('branch_health_rows', function () {
             return retry(6, fn () => static::compute()->toArray(), 800);
         });
 

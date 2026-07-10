@@ -16,12 +16,12 @@ use Illuminate\Support\Facades\Cache;
 class ActionAlerts extends StatsOverviewWidget
 {
     use HasWidgetShield;
-    
-    protected static bool $isLazy = false;
+
+    protected ?string $pollingInterval = null;
 
     protected function getStats(): array
     {
-        $stockoutCount = Cache::remember('action_alerts_stockout_count', 3600, function () {
+        $stockoutCount = Cache::rememberForever('action_alerts_stockout_count', function () {
             return retry(6, function () {
                 // havingRaw kena ulang expression penuh, bukan alias 'sold'/'stock' - SQLite/MySQL
                 // benarkan HAVING rujuk alias SELECT, tapi SQL Server tak (throw "Invalid column name").

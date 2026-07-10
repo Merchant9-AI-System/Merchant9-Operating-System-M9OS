@@ -38,14 +38,14 @@ class RestockAnalysisCalculator
 
     public static function bySize(): Collection
     {
-        return collect(Cache::remember('restock_by_size', 3600, function () {
+        return collect(Cache::rememberForever('restock_by_size', function () {
             return retry(6, fn () => static::computeBySize()->toArray(), 800);
         }));
     }
 
     public static function byWeight(): Collection
     {
-        return collect(Cache::remember('restock_by_weight', 3600, function () {
+        return collect(Cache::rememberForever('restock_by_weight', function () {
             return retry(6, fn () => static::computeByWeight()->toArray(), 800);
         }));
     }

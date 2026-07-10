@@ -2,7 +2,9 @@
 
 namespace App\Support;
 
+use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
+use App\Models\Jemisys\Vendor;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
@@ -23,7 +25,7 @@ class RearrangeCalculator
         // yang berlaku bila cache ditulis dari konteks CLI dibaca semula dari konteks web (php
         // artisan serve) atau sebaliknya. Array/scalar biasa tiada pergantungan class semasa
         // unserialize, jadi selamat merentas konteks proses.
-        $plain = Cache::remember('rearrange_recommendations', 3600, function () {
+        $plain = Cache::rememberForever('rearrange_recommendations', function () {
             return retry(6, fn () => static::compute()->toArray(), 800);
         });
 
@@ -49,8 +51,8 @@ class RearrangeCalculator
             ->get()
             ->keyBy('InternalCode');
 
-        $categoryNames = \App\Models\Jemisys\Category::pluck('Description', 'CategoryCode');
-        $vendorNames = \App\Models\Jemisys\Vendor::pluck('Description', 'VendorCode');
+        $categoryNames = Category::pluck('Description', 'CategoryCode');
+        $vendorNames = Vendor::pluck('Description', 'VendorCode');
 
         $recs = collect();
 

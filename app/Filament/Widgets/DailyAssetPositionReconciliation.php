@@ -15,12 +15,12 @@ use Filament\Widgets\TableWidget;
 class DailyAssetPositionReconciliation extends TableWidget
 {
     use HasWidgetShield;
-    
+
     protected static ?string $heading = 'Jemisys vs Accountant Reconciliation';
 
     protected int|string|array $columnSpan = 'full';
 
-    protected static bool $isLazy = false;
+    protected ?string $pollingInterval = null;
 
     public function table(Table $table): Table
     {

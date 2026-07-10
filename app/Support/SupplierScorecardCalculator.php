@@ -15,7 +15,7 @@ class SupplierScorecardCalculator
 {
     public static function scorecard(): Collection
     {
-        return collect(Cache::remember('supplier_scorecard', 3600, function () {
+        return collect(Cache::rememberForever('supplier_scorecard', function () {
             return retry(6, fn () => static::compute()->toArray(), 800);
         }));
     }

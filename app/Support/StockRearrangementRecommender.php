@@ -29,7 +29,7 @@ class StockRearrangementRecommender
 
     public static function recommendations(): Collection
     {
-        $plain = Cache::remember('stock_rearrangement_recommendations', 3600, function () {
+        $plain = Cache::rememberForever('stock_rearrangement_recommendations', function () {
             return retry(6, fn () => static::compute()->toArray(), 800);
         });
 

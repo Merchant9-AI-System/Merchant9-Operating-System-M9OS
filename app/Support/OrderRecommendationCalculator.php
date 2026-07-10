@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Jemisys\InventoryPiece;
+use App\Models\Jemisys\Vendor;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
@@ -27,7 +28,7 @@ class OrderRecommendationCalculator
 
     public static function recommendations(): Collection
     {
-        $plain = Cache::remember('order_recommendations', 3600, function () {
+        $plain = Cache::rememberForever('order_recommendations', function () {
             return retry(6, fn () => static::compute()->toArray(), 800);
         });
 
@@ -48,7 +49,7 @@ class OrderRecommendationCalculator
             ->groupBy('VendorCode', 'InternalCode')
             ->get();
 
-        $vendorNames = \App\Models\Jemisys\Vendor::pluck('Description', 'VendorCode');
+        $vendorNames = Vendor::pluck('Description', 'VendorCode');
 
         // PENTING: Python compute_metrics() BUNDAR sell_through_rate (3dp) & velocity_per_month
         // (2dp) SEBELUM build_order_recommendation() guna nilai tsb utk eligibility+target_stock -

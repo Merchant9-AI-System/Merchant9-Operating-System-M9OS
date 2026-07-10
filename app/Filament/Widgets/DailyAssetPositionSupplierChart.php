@@ -9,8 +9,8 @@ use Filament\Widgets\ChartWidget;
 class DailyAssetPositionSupplierChart extends ChartWidget
 {
     use HasWidgetShield;
-    
-    protected static bool $isLazy = false;
+
+    protected ?string $pollingInterval = null;
 
     protected ?string $heading = 'Supplier Hutang / Overpaid Trend';
 

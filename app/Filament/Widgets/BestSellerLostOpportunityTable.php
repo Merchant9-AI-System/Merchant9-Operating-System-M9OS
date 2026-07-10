@@ -15,12 +15,12 @@ use Filament\Widgets\TableWidget;
 class BestSellerLostOpportunityTable extends TableWidget
 {
     // use HasWidgetShield;
-    
+
     protected static ?string $heading = 'Top 10 Sold-Out Designs';
 
     protected int|string|array $columnSpan = 'full';
 
-    protected static bool $isLazy = false;
+    protected ?string $pollingInterval = null;
 
     public function table(Table $table): Table
     {

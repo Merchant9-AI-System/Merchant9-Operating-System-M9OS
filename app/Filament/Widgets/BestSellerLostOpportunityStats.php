@@ -15,9 +15,9 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
 class BestSellerLostOpportunityStats extends StatsOverviewWidget
 {
     // use HasWidgetShield;
-    
-    protected static bool $isLazy = false;
-    
+
+    protected ?string $pollingInterval = null;
+
     protected function getStats(): array
     {
         $s = BestSellerLostOpportunityCalculator::summary();

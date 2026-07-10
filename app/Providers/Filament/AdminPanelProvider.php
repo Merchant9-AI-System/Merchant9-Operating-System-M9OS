@@ -49,6 +49,10 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->brandName('Merchant9 OS')
             ->sidebarCollapsibleOnDesktop()
+            // SPA: nav antara halaman guna Livewire wire:navigate (partial swap), bukan full
+            // page reload - elak refetch semula CSS/JS/font setiap klik nav, rasa jauh lebih
+            // laju terutama pada panel besar spt ni (banyak resource/page/widget).
+            ->spa()
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
             ->pages([
@@ -109,7 +113,7 @@ class AdminPanelProvider extends PanelProvider
                     ->gridColumns([
                         'default' => 1,
                         'sm' => 2,
-                        'lg' => 3
+                        'lg' => 3,
                     ])
                     ->sectionColumnSpan(1)
                     ->checkboxListColumns([

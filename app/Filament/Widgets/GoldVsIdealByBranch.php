@@ -11,15 +11,15 @@ use Illuminate\Support\Facades\Cache;
 class GoldVsIdealByBranch extends ChartWidget
 {
     use HasWidgetShield;
-    
-    protected static bool $isLazy = false;
+
+    protected ?string $pollingInterval = null;
 
     protected ?string $heading = 'Berat Emas vs Ideal Setiap Cawangan';
 
     protected function getData(): array
     {
         // retry() toleransi lock sementara (cth. antivirus scan selepas jemisys.db ditulis semula).
-        $data = Cache::remember('gold_vs_ideal_by_branch', 3600, function () {
+        $data = Cache::rememberForever('gold_vs_ideal_by_branch', function () {
             return retry(6, function () {
                 $held = InventoryPiece::onHand()->realVendor()->physicalStore()
                     ->selectRaw('StoreCode, SUM(GoldWeight) / 1000 as kg')

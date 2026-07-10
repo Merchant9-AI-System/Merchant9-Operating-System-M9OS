@@ -20,7 +20,7 @@ class SupplierPerformanceCalculator
 {
     public static function performance(): Collection
     {
-        return collect(Cache::remember('supplier_performance_jemisys', 3600, function () {
+        return collect(Cache::rememberForever('supplier_performance_jemisys', function () {
             return retry(6, fn () => static::compute()->toArray(), 800);
         }));
     }

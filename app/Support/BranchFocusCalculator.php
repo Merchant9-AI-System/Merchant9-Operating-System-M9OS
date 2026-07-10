@@ -20,7 +20,7 @@ class BranchFocusCalculator
 
     public static function focus(): Collection
     {
-        return collect(Cache::remember('branch_focus', 3600, function () {
+        return collect(Cache::rememberForever('branch_focus', function () {
             return retry(6, fn () => static::compute()->toArray(), 800);
         }));
     }

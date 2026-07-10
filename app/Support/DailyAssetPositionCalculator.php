@@ -103,7 +103,7 @@ class DailyAssetPositionCalculator
             return [];
         }
 
-        return Cache::remember('daily_asset_position_reconciliation', 3600, function () use ($latest) {
+        return Cache::rememberForever('daily_asset_position_reconciliation', function () use ($latest) {
             return retry(6, fn () => static::compute($latest), 800);
         });
     }

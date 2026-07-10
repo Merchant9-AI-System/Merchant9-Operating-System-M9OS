@@ -16,12 +16,12 @@ use Filament\Widgets\TableWidget;
 class BranchHealthTable extends TableWidget
 {
     // use HasWidgetShield;
-    
+
     protected static ?string $heading = 'Branch Health';
 
     protected int|string|array $columnSpan = 'full';
 
-    protected static bool $isLazy = false;
+    protected ?string $pollingInterval = null;
 
     public function table(Table $table): Table
     {

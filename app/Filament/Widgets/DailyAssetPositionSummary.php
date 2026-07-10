@@ -15,8 +15,8 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
 class DailyAssetPositionSummary extends StatsOverviewWidget
 {
     use HasWidgetShield;
-    
-    protected static bool $isLazy = false;
+
+    protected ?string $pollingInterval = null;
 
     protected function getStats(): array
     {

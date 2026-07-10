@@ -6,8 +6,8 @@ use App\Filament\Exports\StockoutReorderExporter;
 use App\Filament\Widgets\BestSellerLostOpportunityStats;
 use App\Filament\Widgets\BestSellerLostOpportunityTable;
 use App\Models\Jemisys\Category;
-use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Vendor;
+use App\Models\StockoutReorderCandidate;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\ExportAction;
@@ -21,7 +21,6 @@ use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Design pernah laku (>=3 pcs terjual) tapi kini stok=0 di semua saluran (rujuk realVendor(),
@@ -29,12 +28,14 @@ use Illuminate\Support\Facades\DB;
  * segera. Dipindah keluar drpd dashboard (list terlalu panjang) ke page sendiri supaya staff
  * boleh filter ikut kategori/supplier/jenis item & eksport senarai lepas filter.
  *
- * Guna ->query() (bukan ->records()) sengaja - table berasaskan ->records() (cth. BranchFocus,
- * SupplierPerformance) TIDAK menyokong filter/eksport sebenar sebab Filament terus panggil
- * closure data source tanpa aplikasikan filter/sort/query eksport (rujuk
- * Filament\Tables\Concerns\HasRecords::getTableRecords() - cabang "! hasQuery()"). Dengan
- * query Eloquent sebenar, filter/sort/paginate/ExportAction semua guna mekanisme standard
- * Filament (sepadan InventoryPiecesTable).
+ * Baca terus drpd stockout_reorder_candidates (snapshot pra-agregat, rujuk
+ * App\Support\StockoutReorderMaterializer) - BUKAN agregat live 481K baris jemisys_inventory_mirror
+ * setiap page load/filter/sort/paginate. Page ni SATU-SATUNYA di seluruh app yg tiada caching
+ * langsung sebelum ni sebab guna ->query() (perlu utk filter/sort/eksport Filament standard,
+ * rujuk Filament\Tables\Concerns\HasRecords::getTableRecords() cabang "! hasQuery()") - realVendor()
+ * padan 91% baris jemisys_inventory_mirror, jadi tiada index boleh percepatkan agregat tsb
+ * (disahkan via EXPLAIN, ~50 saat setiap panggilan). Materialize ke jadual kecil menyelesaikan
+ * ni tanpa perlu ubah apa-apa mekanisme filter/sort/eksport sedia ada - hanya sumber data ditukar.
  */
 class StockoutReorder extends Page implements HasTable
 {
@@ -89,16 +90,21 @@ class StockoutReorder extends Page implements HasTable
             ->filters([
                 SelectFilter::make('CategoryCode')
                     ->label('Kategori')
+                    // ->toArray() sengaja - elak isu unserialize __PHP_Incomplete_Class bila
+                    // cache Collection ditulis dari konteks CLI & dibaca dari konteks web
+                    // (php artisan serve) atau sebaliknya (sama nota spt RearrangeCalculator).
                     ->options(fn () => Cache::remember('stockout_reorder_category_options', 600, fn () => Category::where('CategoryCode', '!=', '')
                         ->orderBy('Description')
-                        ->pluck('Description', 'CategoryCode'))),
+                        ->pluck('Description', 'CategoryCode')
+                        ->toArray())),
 
                 SelectFilter::make('VendorCode')
                     ->label('Supplier')
                     ->searchable()
                     ->options(fn () => Cache::remember('stockout_reorder_vendor_options', 600, fn () => Vendor::where('VendorCode', '!=', '.')
                         ->pluck('Description', 'VendorCode')
-                        ->sort())),
+                        ->sort()
+                        ->toArray())),
 
                 // SelectFilter::make('Description')
                 //     ->label('Jenis Item')
@@ -121,37 +127,6 @@ class StockoutReorder extends Page implements HasTable
 
     private static function baseQuery(): Builder
     {
-        $grouped = InventoryPiece::query()
-            ->realVendor()
-            ->select([
-                DB::raw('InternalCode as InventoryCode'),
-                'InternalCode',
-                DB::raw('MAX(Description) as Description'),
-                DB::raw('MAX(CategoryCode) as CategoryCode'),
-                DB::raw('MAX(VendorCode) as VendorCode'),
-                DB::raw('SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as sold_count'),
-                DB::raw('SUM(QtyOnHand) as stock_count'),
-                DB::raw('MAX(SalesDate) as last_sale_date'),
-            ])
-            ->groupBy('InternalCode')
-            // havingRaw kena ulang expression penuh, bukan alias - SQLite/MySQL benarkan HAVING
-            // rujuk alias SELECT, tapi SQL Server tak (sama nota spt widget asal).
-            ->havingRaw('SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) >= 3 AND SUM(QtyOnHand) = 0');
-
-        // Filament tambah secara automatik "ORDER BY [table].[InventoryCode]" sbg tie-breaker
-        // (ikut $primaryKey model) utk pagination stabil. [InventoryCode] tu alias dlm SELECT
-        // (InternalCode AS InventoryCode), bukan lajur fizikal - tapi bila query agregat ni
-        // ditanya terus (bukan dlm subquery), SQL Server resolve rujukan berkelayakan kpd LAJUR
-        // FIZIKAL sebenar (yg wujud tapi tak di-GROUP BY) - punca ralat "invalid in ORDER BY
-        // clause". Bungkus jadi derived table (fromSub) supaya outer query x agregat lagi &
-        // [InventoryCode] cuma rujuk output subquery, bukan lajur fizikal.
-        //
-        // Alias KENA sepadan $model->getTable() (bukan string literal ditetap) - Filament
-        // qualify sesetengah lajur (cth. table filter) guna nama table model terus, yg lain
-        // (spt tie-breaker order by di atas) guna alias FROM semasa; kalau tak sepadan, filter
-        // gagal dgn "no such column: {table_lama}.{lajur}" (bug sebenar yg berlaku bila
-        // $table model ditukar drpd 'TblInventory' ke 'jemisys_inventory_mirror' tapi alias ni
-        // dibiar sbg string literal lama).
-        return InventoryPiece::query()->fromSub($grouped, (new InventoryPiece)->getTable());
+        return StockoutReorderCandidate::query();
     }
 }

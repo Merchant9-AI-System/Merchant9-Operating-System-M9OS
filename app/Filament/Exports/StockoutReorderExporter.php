@@ -2,7 +2,7 @@
 
 namespace App\Filament\Exports;
 
-use App\Models\Jemisys\InventoryPiece;
+use App\Models\StockoutReorderCandidate;
 use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Exporter;
 use Filament\Actions\Exports\Models\Export;
@@ -10,7 +10,7 @@ use Illuminate\Support\Number;
 
 class StockoutReorderExporter extends Exporter
 {
-    protected static ?string $model = InventoryPiece::class;
+    protected static ?string $model = StockoutReorderCandidate::class;
 
     public static function getColumns(): array
     {

@@ -16,12 +16,12 @@ use Filament\Widgets\TableWidget;
 class CeoActionCentre extends TableWidget
 {
     use HasWidgetShield;
-    
+
     protected static ?string $heading = 'CEO Action Centre';
 
     protected int|string|array $columnSpan = 'full';
 
-    protected static bool $isLazy = false;
+    protected ?string $pollingInterval = null;
 
     // public static function canView(): bool
     // {

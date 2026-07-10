@@ -22,6 +22,10 @@ class StatusConnectionWidget extends StatsOverviewWidget
 
     public ?string $lastSyncedAt = null;
 
+    // Data dibekalkan SEKALI oleh Page::getWidgetData() semasa mount - poll auto tak beri apa-apa
+    // kesan (properties awam tsb tak berubah tanpa page mount semula), jadi hanya bebankan server.
+    protected ?string $pollingInterval = null;
+
     protected function getStats(): array
     {
         $failed = collect($this->checks)->filter(fn ($check) => $check['status'] === 'fail');

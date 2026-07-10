@@ -19,7 +19,7 @@ use Filament\Tables\Table;
  */
 class SupplierScorecard extends Page implements HasTable
 {
-    use InteractsWithTable, HasPageShield;
+    use HasPageShield, InteractsWithTable;
 
     protected string $view = 'filament.pages.supplier-scorecard';
 
@@ -50,7 +50,8 @@ class SupplierScorecard extends Page implements HasTable
                     ->sortable(),
                 TextColumn::make('po_received_count')->label('PO Selesai Diterima')->numeric(),
             ])
-            ->defaultSort('total_spend', 'desc');
+            ->defaultSort('total_spend', 'desc')
+            ->paginated([25, 50, 100]);
     }
 
     public function getTableRecordKey($record): string
