@@ -88,7 +88,12 @@ class BestSellerLostOpportunityCalculator
             'category_name' => $categoryNames[$r->CategoryCode] ?? $r->CategoryCode,
             'vendor_name' => $vendorNames[$r->VendorCode] ?? $r->VendorCode,
             'sold_count' => (int) $r->sold_count,
-            'last_sale_date' => $r->last_sale_date,
+            // ->toDateTimeString() (bukan Carbon object terus) - $r->last_sale_date datang drpd
+            // cast 'datetime' StockoutReorderCandidate, jadi objek Carbon PENUH. toArray() di
+            // bawah cuma tukar Collection LUAR jadi array, TAK recurse ke dlm nested object -
+            // Carbon tsb kekal tersimpan whole dlm cache & kena __PHP_Incomplete_Class yg sama
+            // bila unserialize merentas proses CLI/web (rujuk nota summary() di atas).
+            'last_sale_date' => $r->last_sale_date?->toDateTimeString(),
         ]);
 
         // Cawangan mana paling terjejas - kira drpd sejarah jualan (SalesDate) design yg kini

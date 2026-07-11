@@ -90,6 +90,6 @@ class BranchFocus extends Page implements HasTable
                 ]),
             ])
             ->defaultSort('gap', 'desc')
-            ->paginated([25, 50, 100]);
+            ->paginated([10, 25, 50, 100]);
     }
 }

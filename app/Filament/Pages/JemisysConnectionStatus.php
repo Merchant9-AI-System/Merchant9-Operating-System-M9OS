@@ -75,7 +75,10 @@ class JemisysConnectionStatus extends Page
                 ->label('Segerak Data JEMiSys')
                 ->icon(Heroicon::OutlinedArrowPath)
                 ->color('warning')
-                ->disabled(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING))
+                ->disabled(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['network']['status'] ?? null) !== 'ok')
+                ->tooltip(fn () => ($this->checks['network']['status'] ?? null) !== 'ok'
+                    ? 'Sambungan rangkaian ke JEMiSys gagal - semak Tailscale/VPN (laptop sumber perlu ON & disambung) sebelum segerak.'
+                    : null)
                 ->requiresConfirmation()
                 ->modalDescription('Segerak Category/Vendor/Store/TblInventory drpd SQL Server VPN ke cermin tempatan. Berjalan di latar belakang - ianya mengambil masa beberapa minit.')
                 ->action(function () {
@@ -119,6 +122,20 @@ class JemisysConnectionStatus extends Page
         $this->checks['config'] = $this->checkConfig();
         $this->checks['extensions'] = $this->checkExtensions();
         $this->checks['network'] = $this->checkNetwork();
+
+        // Kalau rangkaian dah gagal (VPN/Tailscale down), auth/query PASTI gagal jugak -
+        // langkau terus drpd cuba sambung sqlsrv sebenar, yg boleh ambil masa lama (walaupun
+        // login_timeout dah ditetapkan) berbanding fsockopen 3 saat semakan network di atas.
+        // Fallback ni elak page/refresh "hang" beberapa saat setiap kali VPN down.
+        if ($this->checks['network']['status'] !== 'ok') {
+            $skipped = 'Dilangkau - sambungan rangkaian gagal (rujuk semakan "Sambungan Rangkaian" di atas). Semak Tailscale/VPN dahulu.';
+
+            $this->checks['auth'] = ['label' => 'Auth SQL Server', 'status' => 'skip', 'detail' => $skipped, 'ms' => null];
+            $this->checks['query'] = ['label' => 'Query Sebenar (TblInventory)', 'status' => 'skip', 'detail' => $skipped, 'ms' => null];
+
+            return;
+        }
+
         $this->checks['auth'] = $this->checkAuth();
         $this->checks['query'] = $this->checkQuery();
     }

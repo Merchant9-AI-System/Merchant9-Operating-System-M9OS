@@ -58,6 +58,10 @@ return [
             'prefix' => '',
             'encrypt' => env('JEMISYS_ENCRYPT', true),
             'trust_server_certificate' => env('JEMISYS_TRUST_SERVER_CERTIFICATE', true),
+            // Tanpa ni, sqlsrv driver guna default OS/driver (boleh puluhan saat) bila VPN
+            // Tailscale down tapi tak refuse connection secara bersih (packet senyap dibuang) -
+            // gagal cepat supaya diagnostik/sync tak nampak "hang" bila laptop sumber down.
+            'login_timeout' => (int) env('JEMISYS_LOGIN_TIMEOUT', 5),
         ],
 
         'mysql' => [

@@ -63,18 +63,4 @@ class BudgetPeriodResource extends Resource
     }
 
     // Cuma manager boleh tetapkan/ubah budget - staff read-only.
-    public static function canCreate(): bool
-    {
-        return \Illuminate\Support\Facades\Auth::user()?->hasRole('manager') ?? false;
-    }
-
-    public static function canEdit($record): bool
-    {
-        return \Illuminate\Support\Facades\Auth::user()?->hasRole('manager') ?? false;
-    }
-
-    public static function canDelete($record): bool
-    {
-        return \Illuminate\Support\Facades\Auth::user()?->hasRole('manager') ?? false;
-    }
 }

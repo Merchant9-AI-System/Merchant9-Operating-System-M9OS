@@ -45,7 +45,12 @@ class SupplierPerformance extends Page implements HasTable
                 // ->records() TIDAK auto-paginate spt ->query() - Filament hantar page/
                 // recordsPerPage terus ke closure ni, kena slice & bungkus jadi
                 // LengthAwarePaginator sendiri (rujuk Filament\Tables\Concerns\HasRecords).
-                $all = SupplierPerformanceCalculator::performance();
+                // Vendor->$primaryKey = 'VendorCode' (PascalCase), tapi calculator pulang
+                // 'vendor_code' (snake_case) - tanpa map ni, getKey() model pulang null utk
+                // SEMUA baris (mismatch attribute), Filament re-key ikut getKey() dlm
+                // getTableRecords() lalu SEMUA baris bertindih jadi SATU baris sahaja.
+                $all = SupplierPerformanceCalculator::performance()
+                    ->map(fn ($r) => $r + ['VendorCode' => $r['vendor_code']]);
 
                 $page = (int) $page;
                 $recordsPerPage = (int) $recordsPerPage;
@@ -74,7 +79,7 @@ class SupplierPerformance extends Page implements HasTable
                 TextColumn::make('current_stock')->label('Stok Semasa')->numeric(),
             ])
             ->defaultSort('avg_unit_cost', 'desc')
-            ->paginated([25, 50, 100]);
+            ->paginated([10, 25, 50, 100]);
     }
 
     public function getTableRecordKey($record): string

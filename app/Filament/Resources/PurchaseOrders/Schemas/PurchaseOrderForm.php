@@ -6,8 +6,8 @@ use App\Models\Jemisys\Vendor;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -38,13 +38,13 @@ class PurchaseOrderForm
                                     ->label('Dicipta oleh')
                                     ->default(fn () => Auth::user()?->name)
                                     ->required()
-                                    ->disabledOn('edit'),
+                                    ->disabledOn(['edit', 'create']),
                             ]),
                         Textarea::make('notes')
                             ->label('Nota')
                             ->rows(2)
                             ->columnSpanFull(),
-                    ]),
+                    ])->columnSpanFull(),
 
                 Section::make('Item Order')
                     ->schema([
@@ -74,7 +74,7 @@ class PurchaseOrderForm
                             ->reorderable(false)
                             ->defaultItems(1)
                             ->columnSpanFull(),
-                    ]),
+                    ])->columnSpanFull(),
             ]);
     }
 }
