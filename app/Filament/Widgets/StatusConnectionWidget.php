@@ -38,7 +38,7 @@ class StatusConnectionWidget extends StatsOverviewWidget
                 ->descriptionIcon($failed->isNotEmpty() ? 'heroicon-m-x-circle' : 'heroicon-m-check-circle')
                 ->color($failed->isNotEmpty() ? 'danger' : 'success'),
 
-            Stat::make('Jumlah Baris Cermin Tempatan', number_format(array_sum($this->mirrors)))
+            Stat::make('Jumlah Baris Synced Tempatan', number_format(array_sum($this->mirrors)))
                 ->description(collect($this->mirrors)
                     ->map(fn ($count, $label) => "{$label}: ".number_format($count))
                     ->implode(' · '))
@@ -46,8 +46,8 @@ class StatusConnectionWidget extends StatsOverviewWidget
                 ->color('primary'),
 
             Stat::make(
-                'Segerak Terakhir',
-                $this->lastSyncedAt ? Carbon::parse($this->lastSyncedAt)->diffForHumans() : 'Belum pernah disegerak'
+                'Sync Terakhir',
+                $this->lastSyncedAt ? Carbon::parse($this->lastSyncedAt)->diffForHumans() : 'Belum pernah sync'
             )
                 ->descriptionIcon('heroicon-m-clock')
                 ->color($this->lastSyncedAt ? 'success' : 'gray'),

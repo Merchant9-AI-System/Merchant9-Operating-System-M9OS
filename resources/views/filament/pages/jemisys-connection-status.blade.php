@@ -1,15 +1,24 @@
 <x-filament-panels::page>
-    <x-filament::section icon="heroicon-o-arrow-path" icon-color="primary" wire:poll.3s.visible="$refresh">
+    <x-filament::section icon="heroicon-o-arrow-path" icon-size="sm" icon-color="primary" wire:poll.3s.visible="$refresh">
         <x-slot name="heading">
-            Cermin Tempatan JEMiSys
+            Sync Dari JEMiSys
         </x-slot>
 
         <x-slot name="afterHeader">
             @if ($this->mirrorStatus['syncing'])
-                <x-filament::loading-indicator class="h-5 w-5" />
+                {{-- <x-filament::loading-indicator class="h-3 w-3" /> --}}
+                <x-filament::badge color="warning" size="sm" icon="heroicon-m-arrow-path">
+                    Syncing...
+                </x-filament::badge>
+            @elseif ($this->mirrorStatus['lastSyncedAt'])
+                <x-filament::badge color="success" size="sm" icon="heroicon-m-clock">
+                    Last Synced
+                    {{ \Illuminate\Support\Carbon::parse($this->mirrorStatus['lastSyncedAt'])->diffForHumans() }}
+                </x-filament::badge>
             @else
-                <x-filament::icon icon="heroicon-o-check-circle" class="h-5 w-5 shrink-0"
-                    style="color: var(--success-500)" />
+                <x-filament::badge color="gray" size="sm">
+                    Never Sync
+                </x-filament::badge>
             @endif
         </x-slot>
 
@@ -19,21 +28,6 @@
                     {{ $label }}: {{ number_format($count) }}
                 </x-filament::badge>
             @endforeach
-
-            @if ($this->mirrorStatus['syncing'])
-                <x-filament::badge color="warning" size="sm" icon="heroicon-m-arrow-path">
-                    sedang segerak...
-                </x-filament::badge>
-            @elseif ($this->mirrorStatus['lastSyncedAt'])
-                <x-filament::badge color="success" size="sm" icon="heroicon-m-clock">
-                    segerak terakhir
-                    {{ \Illuminate\Support\Carbon::parse($this->mirrorStatus['lastSyncedAt'])->diffForHumans() }}
-                </x-filament::badge>
-            @else
-                <x-filament::badge color="gray" size="sm">
-                    belum pernah disegerak
-                </x-filament::badge>
-            @endif
         </div>
     </x-filament::section>
 
@@ -46,7 +40,7 @@
             'ok' => 'success',
             'fail' => 'danger',
             default => 'gray',
-        }">
+        }" icon-size="sm">
             <x-slot name="heading">
                 {{ $check['label'] }}
             </x-slot>
@@ -57,7 +51,7 @@
 
             @if ($check['ms'] !== null)
                 <x-slot name="footer">
-                    <x-filament::badge color="gray" size="sm">
+                    <x-filament::badge color="zinc" size="sm">
                         {{ $check['ms'] }}ms
                     </x-filament::badge>
                 </x-slot>
