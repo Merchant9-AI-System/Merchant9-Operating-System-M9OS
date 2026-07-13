@@ -2,12 +2,22 @@
 
 namespace App\Filament\Resources\Users\Tables;
 
+use App\Models\User;
+use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\Select;
+use Filament\Notifications\Notification;
+use Filament\Support\Enums\Alignment;
+use Filament\Support\Enums\IconSize;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
 class UsersTable
@@ -43,8 +53,45 @@ class UsersTable
                 //
             ])
             ->recordActions([
-                ViewAction::make(),
-                EditAction::make(),
+                ActionGroup::make([
+                    ViewAction::make(),
+                    EditAction::make(),
+                    Action::make('set_role')
+                        ->label('Set Role')
+                        ->color('info')
+                        ->icon('heroicon-s-shield-check')
+                        ->modalIcon('heroicon-s-shield-check')
+                        ->modalDescription('Select a role for the user.')
+                        ->modalWidth('md')
+                        ->modalAlignment(Alignment::Center)
+                        ->modalFooterActionsAlignment(Alignment::Center)
+                        ->form([
+                            Select::make('roles')
+                                ->relationship('roles', 'name')
+                                ->getOptionLabelFromRecordUsing(fn(Model $record) => Str::headline($record->name))
+                                ->multiple()
+                                ->preload()
+                                ->optionsLimit(4)
+                                ->searchable(),
+                        ])
+                        ->action(
+                            fn() => Notification::make()
+                                ->success()
+                                ->title('Updated successfully')
+                                ->body('Role has been updated.')
+                                ->send()
+                        )
+                        ->hidden(fn(User $record): bool => $record->isSuperAdmin() && !Auth::user()->isSuperAdmin()),
+                    ActionGroup::make([
+                        DeleteAction::make(),
+                    ])
+                        ->dropdown(false),
+                ])
+                    ->link()
+                    ->icon('heroicon-m-ellipsis-horizontal')
+                    ->iconSize(\Filament\Support\Enums\IconSize::Large)
+                    ->hiddenLabel()
+                    ->tooltip('More Actions')
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
