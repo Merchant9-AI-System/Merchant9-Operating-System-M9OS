@@ -51,7 +51,7 @@
 
             @if ($check['ms'] !== null)
                 <x-slot name="footer">
-                    <x-filament::badge color="zinc" size="sm">
+                    <x-filament::badge color="gray" size="sm">
                         {{ $check['ms'] }}ms
                     </x-filament::badge>
                 </x-slot>

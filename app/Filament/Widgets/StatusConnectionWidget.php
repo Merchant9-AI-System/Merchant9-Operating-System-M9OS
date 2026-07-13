@@ -24,23 +24,23 @@ class StatusConnectionWidget extends StatsOverviewWidget
 
     // Data dibekalkan SEKALI oleh Page::getWidgetData() semasa mount - poll auto tak beri apa-apa
     // kesan (properties awam tsb tak berubah tanpa page mount semula), jadi hanya bebankan server.
-    protected ?string $pollingInterval = null;
+    protected ?string $pollingInterval = '3s';
 
     protected function getStats(): array
     {
-        $failed = collect($this->checks)->filter(fn ($check) => $check['status'] === 'fail');
+        $failed = collect($this->checks)->filter(fn($check) => $check['status'] === 'fail');
 
         return [
             Stat::make('Status Sambungan', $failed->isNotEmpty() ? 'Gagal' : 'Sihat')
                 ->description($failed->isNotEmpty()
-                    ? $failed->count().' semakan gagal - rujuk senarai di bawah'
+                    ? $failed->count() . ' semakan gagal - rujuk senarai di bawah'
                     : 'Semua semakan lulus')
                 ->descriptionIcon($failed->isNotEmpty() ? 'heroicon-m-x-circle' : 'heroicon-m-check-circle')
                 ->color($failed->isNotEmpty() ? 'danger' : 'success'),
 
             Stat::make('Jumlah Baris Synced Tempatan', number_format(array_sum($this->mirrors)))
                 ->description(collect($this->mirrors)
-                    ->map(fn ($count, $label) => "{$label}: ".number_format($count))
+                    ->map(fn($count, $label) => "{$label}: " . number_format($count))
                     ->implode(' · '))
                 ->descriptionIcon('heroicon-m-circle-stack')
                 ->color('primary'),
