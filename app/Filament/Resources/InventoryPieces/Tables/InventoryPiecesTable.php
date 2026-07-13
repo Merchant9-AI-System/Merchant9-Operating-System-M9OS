@@ -9,9 +9,12 @@ use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
 use Filament\Actions\ExportAction;
 use Filament\Actions\ViewAction;
+use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Grouping\Group;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -28,6 +31,10 @@ class InventoryPiecesTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->groups([
+                Group::make('StoreCode')->label('Cawangan')->collapsible(),
+                Group::make('category.Description')->label('Kategori')->collapsible(),
+            ])
             ->columns([
                 TextColumn::make('InternalCode')
                     ->label('Kod Design')
@@ -73,39 +80,39 @@ class InventoryPiecesTable
                     ->sortable(),
                 TextColumn::make('age_days')
                     ->label('Umur (hari)')
-                    ->state(fn (InventoryPiece $record) => $record->age_days)
+                    ->state(fn(InventoryPiece $record) => $record->age_days)
                     ->badge()
-                    ->color(fn (?int $state) => match (true) {
+                    ->color(fn(?int $state) => match (true) {
                         $state === null => 'gray',
                         $state > 365 => 'danger',
                         $state > 180 => 'warning',
                         default => 'success',
                     })
-                    ->sortable(query: fn (Builder $q, string $direction) => $q->orderBy('PurchDate', $direction === 'asc' ? 'desc' : 'asc')),
+                    ->sortable(query: fn(Builder $q, string $direction) => $q->orderBy('PurchDate', $direction === 'asc' ? 'desc' : 'asc')),
             ])
             ->filters([
                 SelectFilter::make('StoreCode')
                     ->label('Cawangan')
-                    ->options(fn () => Store::orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
+                    ->options(fn() => Store::orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
 
                 SelectFilter::make('CategoryCode')
                     ->label('Kategori')
-                    ->options(fn () => Category::where('CategoryCode', '!=', '')
+                    ->options(fn() => Category::where('CategoryCode', '!=', '')
                         ->orderBy('Description')
                         ->get()
-                        ->mapWithKeys(fn ($c) => [$c->CategoryCode => $c->Description ?? $c->CategoryCode])),
+                        ->mapWithKeys(fn($c) => [$c->CategoryCode => $c->Description ?? $c->CategoryCode])),
 
                 SelectFilter::make('VendorCode')
                     ->label('Supplier')
                     ->searchable()
-                    ->options(fn () => Vendor::where('VendorCode', '!=', '.')
+                    ->options(fn() => Vendor::where('VendorCode', '!=', '.')
                         ->get()
-                        ->mapWithKeys(fn ($v) => [$v->VendorCode => $v->Description ?? $v->VendorCode])
+                        ->mapWithKeys(fn($v) => [$v->VendorCode => $v->Description ?? $v->VendorCode])
                         ->sort()),
 
                 SelectFilter::make('ClassCode')
                     ->label('Purity')
-                    ->options(fn () => InventoryPiece::query()->onHand()
+                    ->options(fn() => InventoryPiece::query()->onHand()
                         ->whereNotNull('ClassCode')->distinct()
                         ->orderBy('ClassCode')->pluck('ClassCode', 'ClassCode')),
 
@@ -135,8 +142,8 @@ class InventoryPiecesTable
                     ])
                     ->query(function (Builder $query, array $data): Builder {
                         return $query
-                            ->when($data['cost_min'] ?? null, fn ($q, $v) => $q->where('TotalCost', '>=', $v))
-                            ->when($data['cost_max'] ?? null, fn ($q, $v) => $q->where('TotalCost', '<=', $v));
+                            ->when($data['cost_min'] ?? null, fn($q, $v) => $q->where('TotalCost', '>=', $v))
+                            ->when($data['cost_max'] ?? null, fn($q, $v) => $q->where('TotalCost', '<=', $v));
                     }),
 
                 Filter::make('weight_range')
@@ -147,16 +154,16 @@ class InventoryPiecesTable
                     ])
                     ->query(function (Builder $query, array $data): Builder {
                         return $query
-                            ->when($data['weight_min'] ?? null, fn ($q, $v) => $q->where('GoldWeight', '>=', $v))
-                            ->when($data['weight_max'] ?? null, fn ($q, $v) => $q->where('GoldWeight', '<=', $v));
+                            ->when($data['weight_min'] ?? null, fn($q, $v) => $q->where('GoldWeight', '>=', $v))
+                            ->when($data['weight_max'] ?? null, fn($q, $v) => $q->where('GoldWeight', '<=', $v));
                     }),
-            ])
+            ], layout: FiltersLayout::AboveContentCollapsible)
             ->filtersFormColumns(3)
             ->recordActions([
                 ViewAction::make()->slideOver(),
             ])
             ->toolbarActions([
-                ExportAction::make()->exporter(InventoryPieceExporter::class),
+                ExportAction::make()->label('Export')->icon(Heroicon::ArrowDownTray)->exporter(InventoryPieceExporter::class),
             ])
             ->defaultSort('PurchDate', 'desc')
             ->searchPlaceholder('Cari design, jenis item...');
