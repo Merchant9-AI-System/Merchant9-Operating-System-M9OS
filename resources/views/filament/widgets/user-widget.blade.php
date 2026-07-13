@@ -16,8 +16,8 @@
             </p>
         </div>
 
-        <div class="fi-account-widget-actions">
-            <x-filament::button :icon="\Filament\Support\Icons\Heroicon::UserCircle" tag="a"
+        <div class="fi-account-widget-logout-forms">
+            <x-filament::button :icon="\Filament\Support\Icons\Heroicon::UserCircle" tag="a" labeled-from="sm"
                 href="{{ filament()->getProfileUrl() }}">
                 {{ __('Profile') }}
             </x-filament::button>
