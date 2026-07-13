@@ -81,7 +81,7 @@ class UsersTable
                                 ->body('Role has been updated.')
                                 ->send()
                         )
-                        ->hidden(fn(User $record): bool => $record->isSuperAdmin() && !Auth::user()->isSuperAdmin()),
+                        ->hidden(fn(User $record): bool => $record->isSuperAdmin()),
                     ActionGroup::make([
                         DeleteAction::make(),
                     ])
