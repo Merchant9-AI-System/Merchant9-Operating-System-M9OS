@@ -35,16 +35,29 @@ class SupplierScorecard extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->records(function (int|string $page, int|string $recordsPerPage) {
-                // ->records() TIDAK auto-paginate spt ->query() - Filament hantar page/
-                // recordsPerPage terus ke closure ni, kena slice & bungkus jadi
-                // LengthAwarePaginator sendiri (rujuk Filament\Tables\Concerns\HasRecords).
+            ->records(function (int|string $page, int|string $recordsPerPage, ?string $search, ?string $sortColumn, ?string $sortDirection) {
+                // ->records() TIDAK auto-paginate/search/sort spt ->query() - Filament hantar
+                // SEMUA parameter ni terus ke closure, closure WAJIB uruskan semuanya sendiri
+                // (rujuk Filament\Tables\Concerns\HasRecords::getTableRecords()).
                 // Vendor->$primaryKey = 'VendorCode' (PascalCase), tapi calculator pulang
                 // 'vendor_code' (snake_case) - tanpa map ni, getKey() model pulang null utk
                 // SEMUA baris (mismatch attribute), Filament re-key ikut getKey() dlm
                 // getTableRecords() lalu SEMUA baris bertindih jadi SATU baris sahaja.
                 $all = SupplierScorecardCalculator::scorecard()
                     ->map(fn ($r) => $r + ['VendorCode' => $r['vendor_code']]);
+
+                if (filled($search)) {
+                    $needle = mb_strtolower($search);
+                    $all = $all->filter(fn ($r) => str_contains(mb_strtolower((string) $r['vendor_name']), $needle));
+                }
+
+                if (filled($sortColumn)) {
+                    $all = $sortDirection === 'desc'
+                        ? $all->sortByDesc($sortColumn)
+                        : $all->sortBy($sortColumn);
+                }
+
+                $all = $all->values();
 
                 $page = (int) $page;
                 $recordsPerPage = (int) $recordsPerPage;

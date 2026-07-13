@@ -41,11 +41,24 @@ class Rearrange extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->records(function (int|string $page, int|string $recordsPerPage) {
-                // ->records() TIDAK auto-paginate spt ->query() - Filament hantar page/
-                // recordsPerPage terus ke closure ni, kena slice & bungkus jadi
-                // LengthAwarePaginator sendiri (rujuk Filament\Tables\Concerns\HasRecords).
+            ->records(function (int|string $page, int|string $recordsPerPage, ?string $search, ?string $sortColumn, ?string $sortDirection) {
+                // ->records() TIDAK auto-paginate/search/sort spt ->query() - Filament hantar
+                // SEMUA parameter ni terus ke closure, closure WAJIB uruskan semuanya sendiri
+                // (rujuk Filament\Tables\Concerns\HasRecords::getTableRecords()).
                 $all = RearrangeCalculator::recommendations();
+
+                if (filled($search)) {
+                    $needle = mb_strtolower($search);
+                    $all = $all->filter(fn ($r) => str_contains(mb_strtolower((string) $r['internal_code']), $needle));
+                }
+
+                if (filled($sortColumn)) {
+                    $all = $sortDirection === 'desc'
+                        ? $all->sortByDesc($sortColumn)
+                        : $all->sortBy($sortColumn);
+                }
+
+                $all = $all->values();
 
                 $page = (int) $page;
                 $recordsPerPage = (int) $recordsPerPage;

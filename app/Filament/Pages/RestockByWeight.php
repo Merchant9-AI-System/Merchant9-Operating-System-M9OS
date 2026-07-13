@@ -43,12 +43,37 @@ class RestockByWeight extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->records(function (int|string $page, int|string $recordsPerPage) {
-                // ->records() TIDAK auto-paginate spt ->query() - Filament hantar page/
-                // recordsPerPage terus ke closure ni, kena slice & bungkus jadi
-                // LengthAwarePaginator sendiri (rujuk Filament\Tables\Concerns\HasRecords).
+            ->records(function (int|string $page, int|string $recordsPerPage, ?array $filters, ?string $search, ?string $sortColumn, ?string $sortDirection) {
+                // ->records() TIDAK auto-paginate/filter/search/sort spt ->query() - Filament
+                // hantar SEMUA parameter ni terus ke closure, closure WAJIB uruskan semuanya
+                // sendiri (rujuk Filament\Tables\Concerns\HasRecords::getTableRecords()).
                 $all = RestockAnalysisCalculator::byWeight()
                     ->map(fn ($r, $i) => $r + ['InventoryCode' => 'rbw_'.$i]);
+
+                if ($categoryCode = $filters['category_code']['value'] ?? null) {
+                    $all = $all->where('category_code', $categoryCode);
+                }
+
+                if ($storeCode = $filters['store_code']['value'] ?? null) {
+                    $all = $all->where('store_code', $storeCode);
+                }
+
+                if ($verdict = $filters['verdict']['value'] ?? null) {
+                    $all = $all->where('verdict', $verdict);
+                }
+
+                if (filled($search)) {
+                    $needle = mb_strtolower($search);
+                    $all = $all->filter(fn ($r) => str_contains(mb_strtolower((string) $r['category_name']), $needle));
+                }
+
+                if (filled($sortColumn)) {
+                    $all = $sortDirection === 'desc'
+                        ? $all->sortByDesc($sortColumn)
+                        : $all->sortBy($sortColumn);
+                }
+
+                $all = $all->values();
 
                 $page = (int) $page;
                 $recordsPerPage = (int) $recordsPerPage;

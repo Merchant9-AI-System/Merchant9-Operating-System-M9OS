@@ -51,7 +51,7 @@ class InventoryPieceResource extends Resource
     {
         return [
             'index' => ListInventoryPieces::route('/'),
-            'view' => ViewInventoryPiece::route('/{record}'),
+            // 'view' => ViewInventoryPiece::route('/{record}'),
         ];
     }
 

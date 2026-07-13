@@ -27,6 +27,6 @@ class InventoryPieceInfolist
                         TextEntry::make('ReceivedDate')->label('Tarikh Terima')->date('d/m/Y'),
                         TextEntry::make('age_days')->label('Umur (hari)'),
                     ]),
-            ]);
+            ])->columns(1);
     }
 }

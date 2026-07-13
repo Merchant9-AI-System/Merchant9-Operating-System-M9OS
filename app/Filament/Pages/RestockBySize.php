@@ -43,14 +43,39 @@ class RestockBySize extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->records(function (int|string $page, int|string $recordsPerPage) {
-                // ->records() TIDAK auto-paginate spt ->query() - Filament hantar page/
-                // recordsPerPage terus ke closure ni (rujuk Filament\Tables\Concerns\
-                // HasRecords::getTableRecords()), kena slice & bungkus jadi LengthAwarePaginator
-                // sendiri. Tanpa ni, ->paginated([25,50,100]) cuma tetapkan pilihan UI - semua
-                // baris tetap terpapar sekali (punca "tak paginate" walaupun kod dah ada).
+            ->records(function (int|string $page, int|string $recordsPerPage, ?array $filters, ?string $search, ?string $sortColumn, ?string $sortDirection) {
+                // ->records() TIDAK auto-paginate/filter/search/sort spt ->query() - Filament
+                // hantar SEMUA parameter ni terus ke closure (rujuk Filament\Tables\Concerns\
+                // HasRecords::getTableRecords()), closure WAJIB uruskan semuanya sendiri. Tanpa
+                // ni, filter/carian/sort papar di UI tapi TIADA kesan langsung pada data (disahkan
+                // - total records kekal sama walau apa jua filter/carian/arah sort diguna).
                 $all = RestockAnalysisCalculator::bySize()
                     ->map(fn ($r, $i) => $r + ['InventoryCode' => 'rbs_'.$i]);
+
+                if ($categoryCode = $filters['category_code']['value'] ?? null) {
+                    $all = $all->where('category_code', $categoryCode);
+                }
+
+                if ($storeCode = $filters['store_code']['value'] ?? null) {
+                    $all = $all->where('store_code', $storeCode);
+                }
+
+                if ($verdict = $filters['verdict']['value'] ?? null) {
+                    $all = $all->where('verdict', $verdict);
+                }
+
+                if (filled($search)) {
+                    $needle = mb_strtolower($search);
+                    $all = $all->filter(fn ($r) => str_contains(mb_strtolower((string) $r['category_name']), $needle));
+                }
+
+                if (filled($sortColumn)) {
+                    $all = $sortDirection === 'desc'
+                        ? $all->sortByDesc($sortColumn)
+                        : $all->sortBy($sortColumn);
+                }
+
+                $all = $all->values();
 
                 $page = (int) $page;
                 $recordsPerPage = (int) $recordsPerPage;

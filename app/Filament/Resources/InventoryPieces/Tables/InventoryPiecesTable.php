@@ -153,7 +153,7 @@ class InventoryPiecesTable
             ])
             ->filtersFormColumns(3)
             ->recordActions([
-                ViewAction::make(),
+                ViewAction::make()->slideOver(),
             ])
             ->toolbarActions([
                 ExportAction::make()->exporter(InventoryPieceExporter::class),

@@ -43,12 +43,37 @@ class BranchFocus extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->records(function (int|string $page, int|string $recordsPerPage) {
-                // ->records() TIDAK auto-paginate spt ->query() - Filament hantar page/
-                // recordsPerPage terus ke closure ni, kena slice & bungkus jadi
-                // LengthAwarePaginator sendiri (rujuk Filament\Tables\Concerns\HasRecords).
+            ->records(function (int|string $page, int|string $recordsPerPage, ?array $filters, ?string $search, ?string $sortColumn, ?string $sortDirection) {
+                // ->records() TIDAK auto-paginate/filter/search/sort spt ->query() - Filament
+                // hantar SEMUA parameter ni terus ke closure, closure WAJIB uruskan semuanya
+                // sendiri (rujuk Filament\Tables\Concerns\HasRecords::getTableRecords()).
                 $all = BranchFocusCalculator::focus()
                     ->map(fn ($r, $i) => $r + ['InventoryCode' => 'bf_'.$i]);
+
+                if ($storeCode = $filters['store_code']['value'] ?? null) {
+                    $all = $all->where('store_code', $storeCode);
+                }
+
+                if ($categoryCode = $filters['category_code']['value'] ?? null) {
+                    $all = $all->where('category_code', $categoryCode);
+                }
+
+                if ($focusArea = $filters['focus_area']['value'] ?? null) {
+                    $all = $all->where('focus_area', $focusArea);
+                }
+
+                if (filled($search)) {
+                    $needle = mb_strtolower($search);
+                    $all = $all->filter(fn ($r) => str_contains(mb_strtolower((string) $r['category_name']), $needle));
+                }
+
+                if (filled($sortColumn)) {
+                    $all = $sortDirection === 'desc'
+                        ? $all->sortByDesc($sortColumn)
+                        : $all->sortBy($sortColumn);
+                }
+
+                $all = $all->values();
 
                 $page = (int) $page;
                 $recordsPerPage = (int) $recordsPerPage;
