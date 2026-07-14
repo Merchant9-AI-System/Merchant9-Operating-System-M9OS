@@ -10,6 +10,7 @@ use App\Models\Jemisys\Vendor;
 use Filament\Actions\ExportAction;
 use Filament\Actions\ViewAction;
 use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\Summarizers\Sum;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\Filter;
@@ -69,11 +70,13 @@ class InventoryPiecesTable
                 TextColumn::make('GoldWeight')
                     ->label('Berat (g)')
                     ->numeric(2)
-                    ->sortable(),
+                    ->sortable()
+                    ->summarize(Sum::make()),
                 TextColumn::make('TotalCost')
                     ->label('Kos (RM)')
                     ->money('MYR')
-                    ->sortable(),
+                    ->sortable()
+                    ->summarize(Sum::make()),
                 TextColumn::make('PurchDate')
                     ->label('Tarikh Beli')
                     ->date('d/m/Y')
