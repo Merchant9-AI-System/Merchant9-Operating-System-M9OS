@@ -93,6 +93,10 @@ class StockRearrangementRecommender
                         ? "Ada stok di {$bestDonor->StoreCode} ({$bestDonor->stock} unit), sold out di {$receiver->StoreCode} (pernah jual {$soldAtReceiver}x)"
                         : "Ada stok di {$bestDonor->StoreCode} ({$bestDonor->stock} unit), sold out di {$receiver->StoreCode} (tiada rekod jualan lagi)",
                     'priority' => $priority,
+                    // Sama gaya label spt RearrangeCalculator (receivers/suggestion) - konsisten
+                    // dgn page Rearrange, walaupun di sini SATU pasangan from->to sahaja per baris.
+                    'receiver_label' => "{$receiver->StoreCode} (pernah jual {$soldAtReceiver}x)",
+                    'suggestion' => "1 unit: {$bestDonor->StoreCode} -> {$receiver->StoreCode}",
                 ]);
             }
         }
