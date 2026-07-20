@@ -130,7 +130,7 @@ class BranchFocus extends Page implements HasTable
             ->filters([
                 SelectFilter::make('store_code')->label('Cawangan')
                     ->native()
-                    ->multiple()
+                    // ->multiple()
                     ->searchable('StoreCode')
                     ->options(fn () => Store::whereNotIn('StoreCode', ['WEB', 'web'])->orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
                 SelectFilter::make('category_code')->label('Kategori')

@@ -134,7 +134,7 @@ class RestockBySize extends Page implements HasTable
                     ->options(fn () => Category::where('CategoryCode', '!=', '')->pluck('Description', 'CategoryCode')),
                 SelectFilter::make('store_code')->label('Cawangan')
                     ->native()
-                    ->multiple()
+                    // ->multiple()
                     ->searchable('StoreCode')
                     ->options(fn () => Store::orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
                 SelectFilter::make('verdict')->label('Cadangan')->options([
