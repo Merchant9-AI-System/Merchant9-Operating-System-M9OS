@@ -40,7 +40,7 @@ class BestSellerLostOpportunityCalculator
 
     protected static function compute(): array
     {
-        $designs = StockoutReorderCandidate::all();
+        $designs = StockoutReorderCandidate::candidateQuery()->get();
 
         if ($designs->isEmpty()) {
             return [
@@ -80,13 +80,19 @@ class BestSellerLostOpportunityCalculator
             : null;
 
         $categoryNames = Category::pluck('Description', 'CategoryCode');
-        $vendorNames = Vendor::pluck('Description', 'VendorCode');
+        // trim() VendorCode - jemisys_vendor_mirror simpan kod berpad ruang, tapi
+        // StockoutReorderCandidate::vendorCodes() pulangkan kod yg sudah trim (rujuk model tsb).
+        $vendorNames = Vendor::get()->mapWithKeys(fn ($v) => [trim($v->VendorCode) => $v->Description]);
 
         $top10 = $designs->sortByDesc('sold_count')->take(10)->values()->map(fn ($r) => [
             'internal_code' => $r->InternalCode,
             'description' => $r->Description,
             'category_name' => $categoryNames[$r->CategoryCode] ?? $r->CategoryCode,
-            'vendor_name' => $vendorNames[$r->VendorCode] ?? $r->VendorCode,
+            // Design boleh ada >1 vendor (rujuk StockoutReorderCandidate::vendorCodes()) -
+            // gabung semua nama vendor drpd senarai vendor_codes, bukan satu VendorCode tunggal.
+            'vendor_name' => collect($r->vendorCodes())
+                ->map(fn (string $code) => $vendorNames[$code] ?? $code)
+                ->implode(', '),
             'sold_count' => (int) $r->sold_count,
             // ->toDateTimeString() (bukan Carbon object terus) - $r->last_sale_date datang drpd
             // cast 'datetime' StockoutReorderCandidate, jadi objek Carbon PENUH. toArray() di

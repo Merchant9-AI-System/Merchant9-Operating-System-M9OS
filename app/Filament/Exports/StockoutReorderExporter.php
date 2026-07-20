@@ -18,7 +18,10 @@ class StockoutReorderExporter extends Exporter
             ExportColumn::make('InternalCode')->label('Kod Design'),
             ExportColumn::make('Description')->label('Jenis Item'),
             ExportColumn::make('category.Description')->label('Kategori'),
-            ExportColumn::make('vendor.Description')->label('Supplier'),
+            ExportColumn::make('vendor_codes')
+                ->label('Supplier')
+                ->formatStateUsing(fn (?string $state): string => str_replace(',', ', ', (string) $state)),
+            ExportColumn::make('repair_qty_on_hand')->label('Stok Repair'),
             ExportColumn::make('sold_count')->label('Pernah Terjual'),
             ExportColumn::make('last_sale_date')->label('Jualan Terkini'),
         ];

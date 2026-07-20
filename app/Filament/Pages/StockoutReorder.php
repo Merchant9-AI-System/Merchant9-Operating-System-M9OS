@@ -16,6 +16,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
@@ -28,14 +29,18 @@ use Illuminate\Support\Facades\Cache;
  * segera. Dipindah keluar drpd dashboard (list terlalu panjang) ke page sendiri supaya staff
  * boleh filter ikut kategori/supplier/jenis item & eksport senarai lepas filter.
  *
- * Baca terus drpd stockout_reorder_candidates (snapshot pra-agregat, rujuk
- * App\Support\StockoutReorderMaterializer) - BUKAN agregat live 481K baris jemisys_inventory_mirror
- * setiap page load/filter/sort/paginate. Page ni SATU-SATUNYA di seluruh app yg tiada caching
- * langsung sebelum ni sebab guna ->query() (perlu utk filter/sort/eksport Filament standard,
- * rujuk Filament\Tables\Concerns\HasRecords::getTableRecords() cabang "! hasQuery()") - realVendor()
- * padan 91% baris jemisys_inventory_mirror, jadi tiada index boleh percepatkan agregat tsb
- * (disahkan via EXPLAIN, ~50 saat setiap panggilan). Materialize ke jadual kecil menyelesaikan
- * ni tanpa perlu ubah apa-apa mekanisme filter/sort/eksport sedia ada - hanya sumber data ditukar.
+ * Baca drpd stockout_reorder_candidates (snapshot pra-agregat per (InternalCode, VendorCode),
+ * rujuk App\Support\StockoutReorderMaterializer) - BUKAN agregat live 481K baris
+ * jemisys_inventory_mirror setiap page load/filter/sort/paginate (realVendor() padan 91% baris,
+ * jadi tiada index boleh percepatkan agregat tsb, disahkan via EXPLAIN ~50 saat setiap panggilan).
+ *
+ * Filter Supplier/Exclude Supplier INTERAKTIF - StockoutReorderCandidate::candidateQuery() kira
+ * SEMULA sold_count & kelayakan "stok=0" secara live drpd jadual kecil ni (~39.8K baris, jauh
+ * lebih kecil drpd 481K asal, jadi GROUP BY/HAVING live tetap pantas) ikut vendor
+ * dipilih/dikecualikan - BUKAN sekadar tapis baris drpd senarai vendor statik (rujuk sejarah:
+ * exclude 1 vendor minor pernah sembunyikan seluruh design walaupun vendor lain [cth. GRJ] masih
+ * bekalkan majoriti piece - fixed dgn re-grain jadual ni drpd satu-baris-setiap-design kpd
+ * satu-baris-setiap-vendor).
  */
 class StockoutReorder extends Page implements HasTable
 {
@@ -83,7 +88,19 @@ class StockoutReorder extends Page implements HasTable
                 TextColumn::make('InternalCode')->label('Kod Design')->searchable()->sortable(),
                 TextColumn::make('Description')->label('Jenis Item')->limit(30)->searchable()->sortable(),
                 TextColumn::make('category.Description')->label('Kategori')->badge(),
-                TextColumn::make('vendor.Description')->label('Supplier')->searchable(),
+                TextColumn::make('vendor_codes')
+                    ->label('Supplier')
+                    ->state(fn (StockoutReorderCandidate $record): array => $record->vendorCodes())
+                    ->limitList(3)
+                    ->badge(),
+                TextColumn::make('repair_qty_on_hand')
+                    ->label('Stok Repair')
+                    ->state(fn (StockoutReorderCandidate $record): ?string => $record->hasRepairStock()
+                        ? "{$record->repair_qty_on_hand} pcs in stock"
+                        : null)
+                    ->badge()
+                    ->color('warning')
+                    ->placeholder('-'),
                 TextColumn::make('sold_count')->label('Pernah Terjual')->numeric()->sortable()->badge()->color('danger'),
                 TextColumn::make('last_sale_date')->label('Jualan Terkini')->date('d/m/Y')->sortable(),
             ])
@@ -100,11 +117,25 @@ class StockoutReorder extends Page implements HasTable
 
                 SelectFilter::make('VendorCode')
                     ->label('Supplier')
-                    ->searchable()
-                    ->options(fn () => Cache::remember('stockout_reorder_vendor_options', 600, fn () => Vendor::where('VendorCode', '!=', '.')
-                        ->pluck('Description', 'VendorCode')
-                        ->sort()
-                        ->toArray())),
+                    ->native()
+                    ->multiple()
+                    ->searchable('VendorCode')
+                    ->options(fn () => self::vendorOptions())
+                    ->query(fn (Builder $query, array $data): Builder => $query->when(
+                        filled($data['values'] ?? []),
+                        fn (Builder $q) => $q->whereIn('VendorCode', $data['values']),
+                    )),
+
+                SelectFilter::make('VendorCodeExclude')
+                    ->label('Exclude Supplier')
+                    ->native()
+                    ->multiple()
+                    ->searchable('VendorCode')
+                    ->options(fn () => self::vendorOptions())
+                    ->query(fn (Builder $query, array $data): Builder => $query->when(
+                        filled($data['values'] ?? []),
+                        fn (Builder $q) => $q->whereNotIn('VendorCode', $data['values']),
+                    )),
 
                 // SelectFilter::make('Description')
                 //     ->label('Jenis Item')
@@ -115,10 +146,10 @@ class StockoutReorder extends Page implements HasTable
                 //         ->distinct()
                 //         ->orderBy('Description')
                 //         ->pluck('Description', 'Description'))),
-            ])
+                ], layout: FiltersLayout::AboveContentCollapsible)
             ->filtersFormColumns(3)
             ->toolbarActions([
-                ExportAction::make()->exporter(StockoutReorderExporter::class),
+                ExportAction::make()->label('Export')->icon(Heroicon::OutlinedArrowDownTray)->exporter(StockoutReorderExporter::class),
             ])
             ->defaultSort('sold_count', 'desc')
             ->paginated([10, 25, 50])
@@ -127,6 +158,18 @@ class StockoutReorder extends Page implements HasTable
 
     private static function baseQuery(): Builder
     {
-        return StockoutReorderCandidate::query();
+        return StockoutReorderCandidate::candidateQuery();
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function vendorOptions(): array
+    {
+        return Cache::remember('stockout_reorder_vendor_options', 600, fn () => Vendor::where('VendorCode', '!=', '.')
+            ->get()
+            ->mapWithKeys(fn (Vendor $v) => [trim($v->VendorCode) => trim($v->VendorCode).' - '.$v->Description])
+            ->sort()
+            ->toArray());
     }
 }
