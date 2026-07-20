@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
+use App\Models\Jemisys\Vendor;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
@@ -28,6 +29,7 @@ class BranchFocusCalculator
     protected static function compute(): Collection
     {
         $salesWindowDays = SalesVelocityHelper::salesWindowDays();
+        $monthStart = now()->startOfMonth();
 
         $grp = InventoryPiece::query()
             ->realVendor()
@@ -35,7 +37,8 @@ class BranchFocusCalculator
             ->selectRaw('StoreCode, CategoryCode, '.
                 'COUNT(*) as pieces_received, '.
                 'SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as pieces_sold, '.
-                'SUM(QtyOnHand) as current_stock')
+                'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold_this_month, '.
+                'SUM(QtyOnHand) as current_stock', [$monthStart])
             ->groupBy('StoreCode', 'CategoryCode')
             ->get();
 
@@ -44,9 +47,10 @@ class BranchFocusCalculator
         $out = $grp->map(function ($r) use ($salesWindowDays, $categoryNames) {
             $piecesReceived = (int) $r->pieces_received;
             $piecesSold = (int) $r->pieces_sold;
+            $piecesSoldThisMonth = (int) $r->pieces_sold_this_month;
             $currentStock = (int) $r->current_stock;
             $velocity = SalesVelocityHelper::velocity($piecesSold, $salesWindowDays);
-            $sellThrough = SalesVelocityHelper::sellThroughRate($piecesSold, $piecesReceived);
+            $sellThrough = SalesVelocityHelper::sellThroughRate($piecesSold, $piecesReceived); // TODO salah
             $targetStock = SalesVelocityHelper::targetStock($velocity, self::TARGET_COVER_MONTHS);
             $gap = $targetStock - $currentStock;
 
@@ -61,6 +65,7 @@ class BranchFocusCalculator
                 'category_name' => $categoryNames[$r->CategoryCode] ?? $r->CategoryCode,
                 'pieces_received' => $piecesReceived,
                 'pieces_sold' => $piecesSold,
+                'pieces_sold_this_month' => $piecesSoldThisMonth,
                 'current_stock' => $currentStock,
                 'sell_through_rate' => $sellThrough,
                 'velocity_per_month' => $velocity,
@@ -71,5 +76,40 @@ class BranchFocusCalculator
         });
 
         return $out->sortByDesc(fn ($r) => abs($r['gap']))->values();
+    }
+
+    /**
+     * Senarai design (InternalCode) individu bagi satu (Cawangan, Kategori) - utk jawab "yang
+     * perlu fokus tu, design MANA sebenarnya" (rujuk baris focus() yang cuma tunjuk kategori/
+     * cawangan, bukan design tertentu). TIDAK di-cache spt focus() sbb ini drill-down on-demand.
+     */
+    public static function designsForFocus(string $storeCode, string $categoryCode): Collection
+    {
+        $monthStart = now()->startOfMonth();
+        $vendorNames = Vendor::pluck('Description', 'VendorCode');
+
+        return InventoryPiece::query()
+            ->realVendor()
+            ->physicalStore()
+            ->where('StoreCode', $storeCode)
+            ->where('CategoryCode', $categoryCode)
+            ->get(['InternalCode', 'VendorCode', 'Description', 'QtyOnHand', 'SalesDate'])
+            ->groupBy('InternalCode')
+            ->map(function ($group) use ($monthStart, $vendorNames) {
+                $first = $group->first();
+                $piecesSold = $group->filter(fn ($r) => $r->SalesDate !== null)->count();
+                $soldThisMonth = $group->filter(fn ($r) => $r->SalesDate !== null && $r->SalesDate->greaterThanOrEqualTo($monthStart))->count();
+
+                return [
+                    'internal_code' => $first->InternalCode,
+                    'description' => $first->Description,
+                    'vendor_name' => $vendorNames[$first->VendorCode] ?? $first->VendorCode,
+                    'current_stock' => (int) $group->sum('QtyOnHand'),
+                    'pieces_sold' => $piecesSold,
+                    'sold_this_month' => $soldThisMonth,
+                ];
+            })
+            ->sortByDesc('sold_this_month')
+            ->values();
     }
 }

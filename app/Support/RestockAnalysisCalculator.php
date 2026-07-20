@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
+use App\Models\Jemisys\Vendor;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -80,6 +81,75 @@ class RestockAnalysisCalculator
             })->values();
 
         return static::finalize($merged);
+    }
+
+    /**
+     * Senarai design (InternalCode) individu di dalam satu bucket Kategori+Cawangan+Saiz - utk
+     * jawab "yang perlu restock tu, design MANA sebenarnya" (rujuk BySize row punya gap, yang
+     * cuma tunjuk kategori/cawangan/saiz, bukan design tertentu). TIDAK di-cache (rememberForever)
+     * spt bySize() sbb ini drill-down on-demand per baris, bukan senarai penuh.
+     */
+    public static function designsForSizeBucket(string $categoryCode, string $storeCode, string $bucket): Collection
+    {
+        $monthStart = now()->startOfMonth();
+        $vendorNames = Vendor::pluck('Description', 'VendorCode');
+
+        return InventoryPiece::query()
+            ->realVendor()
+            ->where('CategoryCode', $categoryCode)
+            ->where('StoreCode', $storeCode)
+            ->get(['InternalCode', 'VendorCode', 'Description', 'JewelSize', 'QtyOnHand', 'SalesDate'])
+            ->filter(fn ($r) => static::sizeLabel($r->JewelSize) === $bucket)
+            ->groupBy('InternalCode')
+            ->map(function ($group) use ($monthStart, $vendorNames) {
+                $first = $group->first();
+                $piecesSold = $group->filter(fn ($r) => $r->SalesDate !== null)->count();
+                $soldThisMonth = $group->filter(fn ($r) => $r->SalesDate !== null && $r->SalesDate->greaterThanOrEqualTo($monthStart))->count();
+
+                return [
+                    'internal_code' => $first->InternalCode,
+                    'description' => $first->Description,
+                    'vendor_name' => $vendorNames[$first->VendorCode] ?? $first->VendorCode,
+                    'current_stock' => (int) $group->sum('QtyOnHand'),
+                    'pieces_sold' => $piecesSold,
+                    'sold_this_month' => $soldThisMonth,
+                ];
+            })
+            ->sortByDesc('sold_this_month')
+            ->values();
+    }
+
+    /**
+     * Sama spt designsForSizeBucket() tapi bucket ikut Berat Emas (GoldWeight) - utk RestockByWeight.
+     */
+    public static function designsForWeightBucket(string $categoryCode, string $storeCode, string $bucket): Collection
+    {
+        $monthStart = now()->startOfMonth();
+        $vendorNames = Vendor::pluck('Description', 'VendorCode');
+
+        return InventoryPiece::query()
+            ->realVendor()
+            ->where('CategoryCode', $categoryCode)
+            ->where('StoreCode', $storeCode)
+            ->get(['InternalCode', 'VendorCode', 'Description', 'GoldWeight', 'QtyOnHand', 'SalesDate'])
+            ->filter(fn ($r) => static::weightBucket($r->GoldWeight) === $bucket)
+            ->groupBy('InternalCode')
+            ->map(function ($group) use ($monthStart, $vendorNames) {
+                $first = $group->first();
+                $piecesSold = $group->filter(fn ($r) => $r->SalesDate !== null)->count();
+                $soldThisMonth = $group->filter(fn ($r) => $r->SalesDate !== null && $r->SalesDate->greaterThanOrEqualTo($monthStart))->count();
+
+                return [
+                    'internal_code' => $first->InternalCode,
+                    'description' => $first->Description,
+                    'vendor_name' => $vendorNames[$first->VendorCode] ?? $first->VendorCode,
+                    'current_stock' => (int) $group->sum('QtyOnHand'),
+                    'pieces_sold' => $piecesSold,
+                    'sold_this_month' => $soldThisMonth,
+                ];
+            })
+            ->sortByDesc('sold_this_month')
+            ->values();
     }
 
     public static function sizeLabel(mixed $value): string

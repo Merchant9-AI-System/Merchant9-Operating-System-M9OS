@@ -12,6 +12,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Read-only: data ini datang terus daripada JEMiSys (TblInventory), diurus di sistem POS.
@@ -55,10 +56,12 @@ class InventoryPieceResource extends Resource
         ];
     }
 
-    public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
+    public static function getEloquentQuery(): Builder
     {
-        // Default: papar stok semasa sahaja dengan vendor sah (sepadan procurement_report.py).
-        return parent::getEloquentQuery()->onHand()->realVendor();
+        // Stok Semasa = SEMUA stok fizikal on-hand, termasuk VendorCode placeholder ("."). Jangan
+        // scope realVendor() di sini - itu untuk kiraan analitik (velocity/sell-through/procurement),
+        // bukan senarai stok mentah. Staff Back Office perlu nampak SEMUA item fizikal yang ada.
+        return parent::getEloquentQuery()->onHand();
     }
 
     public static function canCreate(): bool

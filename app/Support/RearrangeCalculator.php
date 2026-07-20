@@ -35,9 +35,12 @@ class RearrangeCalculator
     protected static function compute(): Collection
     {
         // Agregat stock+sold per (InternalCode, StoreCode) - sepadan df.groupby Python.
+        // HQ (back-office) & SECURITY (vault/holding) dikecualikan khusus di sini - bukan
+        // cawangan jualan sebenar, jadi tak sesuai jadi donor/receiver rearrange stok.
         $rows = InventoryPiece::query()
             ->realVendor()
             ->physicalStore()
+            ->whereNotIn('StoreCode', ['HQ', 'hq', 'SECURITY', 'security'])
             ->selectRaw('InternalCode, StoreCode, SUM(QtyOnHand) as stock, '.
                 'SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as sold')
             ->groupBy('InternalCode', 'StoreCode')

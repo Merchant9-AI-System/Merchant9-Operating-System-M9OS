@@ -2,12 +2,20 @@
 
 namespace App\Filament\Pages;
 
+use App\Jobs\SyncJemisysMirrors;
 use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Store;
+use App\Models\User;
 use App\Support\RestockAnalysisCalculator;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
+use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Infolists\Components\RepeatableEntry;
+use Filament\Infolists\Components\TextEntry;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -15,7 +23,9 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Saiz apa perlu restock (atau tidak), silang Kategori x Cawangan - 100% drpd data JEMiSys
@@ -35,9 +45,18 @@ class RestockBySize extends Page implements HasTable
 
     protected static ?int $navigationSort = 1;
 
+    /** Bilangan design maksimum dipaparkan dlm modal "Lihat Design" - senarai penuh boleh capai beratus baris. */
+    private const DESIGNS_MODAL_LIMIT = 20;
+
     public function getSubheading(): ?string
     {
-        return 'Cadangan restock ikut Saiz, silang Kategori x Cawangan - dikira 100% drpd data JEMiSys sebenar.';
+        $base = 'Cadangan restock ikut Saiz, silang Kategori x Cawangan - dikira 100% drpd data JEMiSys sebenar.';
+
+        if (Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING)) {
+            return $base.' ⚠️ Data JEMiSys sedang disegerakkan sekarang - angka/senarai design mungkin tidak lengkap sementara sync berjalan.';
+        }
+
+        return $base;
     }
 
     public function table(Table $table): Table
@@ -92,10 +111,13 @@ class RestockBySize extends Page implements HasTable
                 TextColumn::make('store_code')->label('Cawangan')->badge()->sortable(),
                 TextColumn::make('bucket')->label('Saiz')->sortable(),
                 TextColumn::make('current_stock')->label('Stok Semasa')->numeric()->sortable(),
-                TextColumn::make('target_stock')->label('Stok Optimum')->numeric()->sortable(),
+                TextColumn::make('target_stock')->label('Stok Disyorkan (1.5 bulan)')->numeric()->sortable()
+                    ->tooltip('Tahap stok disyorkan utk lindungi jualan 1.5 bulan pada kadar jualan semasa (Jualan/Bulan x 1.5)'),
                 TextColumn::make('gap')->label('Gap')->numeric()->sortable()
+                    ->tooltip('Stok Disyorkan - Stok Semasa. Positif = kurang stok (perlu restock), 0/negatif = cukup atau lebih.')
                     ->color(fn ($state) => $state > 0 ? 'danger' : ($state < 0 ? 'warning' : 'success')),
-                TextColumn::make('velocity_per_month')->label('Jualan/Bulan')->numeric(2),
+                TextColumn::make('velocity_per_month')->label('Jualan/Bulan')->numeric(2)
+                    ->tooltip('Purata jualan sebulan, dikira drpd SEMUA sejarah jualan (bukan bulan ini sahaja)'),
                 TextColumn::make('verdict')->label('Cadangan')->badge()
                     ->color(fn ($state) => match ($state) {
                         RestockAnalysisCalculator::VERDICT_SOLD_OUT => 'danger',
@@ -116,6 +138,86 @@ class RestockBySize extends Page implements HasTable
                     RestockAnalysisCalculator::VERDICT_OK => RestockAnalysisCalculator::VERDICT_OK,
                     RestockAnalysisCalculator::VERDICT_OVERSTOCK => RestockAnalysisCalculator::VERDICT_OVERSTOCK,
                     RestockAnalysisCalculator::VERDICT_NO_DATA => RestockAnalysisCalculator::VERDICT_NO_DATA,
+                ]),
+            ])
+            ->recordActions([
+                Action::make('viewDesigns')
+                    ->slideOver()
+                    ->label('Lihat Design')
+                    ->icon(Heroicon::OutlinedMagnifyingGlass)
+                    ->color('gray')
+                    ->modalHeading(fn ($record) => "Design: {$record->category_name} · {$record->store_code} · Saiz {$record->bucket}")
+                    ->modalSubmitAction(false)
+                    ->modalCancelActionLabel('Tutup')
+                    ->schema(function ($record) {
+                        $all = RestockAnalysisCalculator::designsForSizeBucket($record->category_code, $record->store_code, $record->bucket);
+                        $shown = $all->take(self::DESIGNS_MODAL_LIMIT)->values()->all();
+                        $remaining = $all->count() - count($shown);
+
+                        return [
+                            TextEntry::make('scope_note')
+                                ->hiddenLabel()
+                                ->state($remaining > 0
+                                    ? 'Menunjukkan '.self::DESIGNS_MODAL_LIMIT." design TERATAS drpd {$all->count()} jumlah keseluruhan - disusun ikut Terjual Bulan Ini tertinggi dahulu."
+                                    : "Menunjukkan kesemua {$all->count()} design dlm bucket ini.")
+                                ->weight('bold')
+                                ->color('warning')
+                                ->visible($all->isNotEmpty()),
+                            RepeatableEntry::make('designs')
+                                ->hiddenLabel()
+                                ->state($shown)
+                                ->schema([
+                                    TextEntry::make('internal_code')->label('Kod Design')->weight('bold'),
+                                    TextEntry::make('description')->label('Jenis Item'),
+                                    TextEntry::make('vendor_name')->label('Supplier'),
+                                    TextEntry::make('current_stock')->label('Stok')->numeric(),
+                                    TextEntry::make('pieces_sold')->label('Terjual')->numeric(),
+                                    TextEntry::make('sold_this_month')->label('Terjual Bulan Ini')->numeric(),
+                                ])
+                                ->columns(3),
+                            TextEntry::make('empty_note')
+                                ->hiddenLabel()
+                                ->state('Tiada design dijumpai dalam bucket ini.')
+                                ->color('gray')
+                                ->visible($all->isEmpty()),
+                            TextEntry::make('remaining_note')
+                                ->hiddenLabel()
+                                ->state("+ {$remaining} design lain tidak dipaparkan.")
+                                ->color('gray')
+                                ->visible($remaining > 0),
+                        ];
+                    }),
+            ])
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    BulkAction::make('notifyBackOffice')
+                        ->label('Notify Back Office')
+                        ->icon(Heroicon::OutlinedBellAlert)
+                        ->color('warning')
+                        ->requiresConfirmation()
+                        ->modalDescription('Hantar notifikasi kepada Back Office (CEO) utk semak item restock yang dipilih?')
+                        ->deselectRecordsAfterCompletion()
+                        ->action(function (Collection $records) {
+                            $lines = $records->map(fn ($r) => "- {$r->category_name} · {$r->store_code} · Saiz {$r->bucket} (gap: {$r->gap})")->implode("\n");
+
+                            $recipients = User::role('ceo')->get()->all();
+
+                            Notification::make()
+                                ->title($records->count().' item perlu restock - sila semak (Restock ikut Saiz)')
+                                ->body($lines)
+                                ->warning()
+                                ->actions([
+                                    Action::make('gotoPage')->label('View')
+                                        ->url(route('filament.admin.pages.restock-by-size'))
+                                        ->button(),
+                                ])
+                                ->sendToDatabase($recipients);
+
+                            Notification::make()
+                                ->title('Notifikasi dihantar ke Back Office')
+                                ->success()
+                                ->send();
+                        }),
                 ]),
             ])
             ->defaultSort('gap', 'desc')
