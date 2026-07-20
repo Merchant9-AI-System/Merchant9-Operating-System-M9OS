@@ -37,6 +37,9 @@ class RestockAnalysisCalculator
 
     public const VERDICT_NO_DATA = 'Data Tak Cukup';
 
+    /** Tempoh "3 bulan terkini" utk Jualan/Bulan - atas permintaan (bukan sejarah penuh). */
+    public const TREND_MONTHS = 3;
+
     public static function bySize(): Collection
     {
         return collect(Cache::rememberForever('restock_by_size', function () {
@@ -57,12 +60,14 @@ class RestockAnalysisCalculator
         // kumpul RAW dulu dlm SQL (selamat, bukan combinatorial explosion spt berat), kemudian
         // normalize label (sizeLabel()) & gabung semula dlm PHP - sepadan pendekatan Python
         // analytics.py _size_label() (buang trailing ".0", "(tiada)" utk kosong).
+        $trendStart = now()->subMonths(self::TREND_MONTHS);
+
         $raw = InventoryPiece::query()
             ->realVendor()
             ->selectRaw('CategoryCode, StoreCode, JewelSize, '.
-                'COUNT(*) as pieces_received, '.
-                'SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as pieces_sold, '.
-                'SUM(QtyOnHand) as current_stock')
+                'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received, '.
+                'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold, '.
+                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart])
             ->groupBy('CategoryCode', 'StoreCode', 'JewelSize')
             ->get();
 
@@ -175,12 +180,14 @@ class RestockAnalysisCalculator
 
         // GROUP BY kena ulang $caseExpr penuh, bukan alias 'bucket' - SQLite/MySQL benarkan
         // GROUP BY rujuk alias SELECT, tapi SQL Server tak (throw "Invalid column name").
+        $trendStart = now()->subMonths(self::TREND_MONTHS);
+
         $raw = InventoryPiece::query()
             ->realVendor()
             ->selectRaw("CategoryCode, StoreCode, {$caseExpr} as bucket, ".
-                'COUNT(*) as pieces_received, '.
-                'SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as pieces_sold, '.
-                'SUM(QtyOnHand) as current_stock')
+                'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received, '.
+                'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold, '.
+                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart])
             ->groupBy('CategoryCode', 'StoreCode', DB::raw($caseExpr))
             ->get();
 
@@ -220,15 +227,16 @@ class RestockAnalysisCalculator
 
     protected static function finalize(Collection $raw): Collection
     {
-        $salesWindowDays = SalesVelocityHelper::salesWindowDays();
+        $trendStart = now()->subMonths(self::TREND_MONTHS);
+        $trendWindowDays = max((int) $trendStart->diffInDays(now()), 1);
         $categoryNames = Category::pluck('Description', 'CategoryCode');
 
-        $out = $raw->map(function ($r) use ($salesWindowDays, $categoryNames) {
+        $out = $raw->map(function ($r) use ($trendWindowDays, $categoryNames) {
             $piecesReceived = (int) $r->pieces_received;
             $piecesSold = (int) $r->pieces_sold;
             $currentStock = (int) $r->current_stock;
 
-            $velocity = SalesVelocityHelper::velocity($piecesSold, $salesWindowDays);
+            $velocity = SalesVelocityHelper::velocity($piecesSold, $trendWindowDays);
             $targetStock = SalesVelocityHelper::targetStock($velocity, self::TARGET_COVER_MONTHS);
 
             if ($piecesReceived < self::MIN_SAMPLE) {

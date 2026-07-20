@@ -114,10 +114,10 @@ class BranchFocus extends Page implements HasTable
                 TextColumn::make('gap')->label('Gap')->numeric()->sortable()
                     ->tooltip('Stok Disyorkan - Stok Semasa. Positif = kurang stok (perlu restock), 0/negatif = cukup atau lebih.'),
                 TextColumn::make('sell_through_rate')->label('% Terjual')
-                    ->tooltip('Peratus item yang pernah diterima dan sudah terjual (Terjual / Diterima)')
+                    ->tooltip('Peratus item yang diterima & terjual dlm 3 bulan terkini sahaja (Terjual / Diterima, bukan sejarah penuh)')
                     ->formatStateUsing(fn ($state) => number_format($state * 100, 1).'%'),
                 TextColumn::make('velocity_per_month')->label('Jualan/Bulan')->numeric(2)
-                    ->tooltip('Purata jualan sebulan, dikira drpd SEMUA sejarah jualan (bukan bulan ni sahaja)'),
+                    ->tooltip('Purata jualan sebulan, dikira drpd 3 BULAN TERKINI sahaja (bukan sejarah penuh)'),
                 TextColumn::make('pieces_sold_this_month')->label('Terjual Bulan Ini')->numeric()->sortable(),
                 TextColumn::make('focus_area')->label('Cadangan Fokus')->badge()
                     ->color(fn ($state) => match ($state) {
@@ -129,8 +129,14 @@ class BranchFocus extends Page implements HasTable
             ])
             ->filters([
                 SelectFilter::make('store_code')->label('Cawangan')
+                    ->native()
+                    ->multiple()
+                    ->searchable('StoreCode')
                     ->options(fn () => Store::whereNotIn('StoreCode', ['WEB', 'web'])->orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
                 SelectFilter::make('category_code')->label('Kategori')
+                    ->native()
+                    // ->multiple()
+                    ->searchable('CategoryCode')
                     ->options(fn () => Category::where('CategoryCode', '!=', '')->pluck('Description', 'CategoryCode')),
                 SelectFilter::make('focus_area')->label('Cadangan Fokus')->options([
                     'Understock - Fokus Beli' => 'Understock - Fokus Beli',

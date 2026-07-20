@@ -26,30 +26,34 @@ class BranchFocusCalculator
         }));
     }
 
+    /** Tempoh "3 bulan terkini" utk % Terjual & Jualan/Bulan - atas permintaan (bukan sejarah penuh). */
+    public const TREND_MONTHS = 3;
+
     protected static function compute(): Collection
     {
-        $salesWindowDays = SalesVelocityHelper::salesWindowDays();
         $monthStart = now()->startOfMonth();
+        $trendStart = now()->subMonths(self::TREND_MONTHS);
+        $trendWindowDays = max((int) $trendStart->diffInDays(now()), 1);
 
         $grp = InventoryPiece::query()
             ->realVendor()
             ->physicalStore()
             ->selectRaw('StoreCode, CategoryCode, '.
-                'COUNT(*) as pieces_received, '.
-                'SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as pieces_sold, '.
+                'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received, '.
+                'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold, '.
                 'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold_this_month, '.
-                'SUM(QtyOnHand) as current_stock', [$monthStart])
+                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart, $monthStart])
             ->groupBy('StoreCode', 'CategoryCode')
             ->get();
 
         $categoryNames = Category::pluck('Description', 'CategoryCode');
 
-        $out = $grp->map(function ($r) use ($salesWindowDays, $categoryNames) {
+        $out = $grp->map(function ($r) use ($trendWindowDays, $categoryNames) {
             $piecesReceived = (int) $r->pieces_received;
             $piecesSold = (int) $r->pieces_sold;
             $piecesSoldThisMonth = (int) $r->pieces_sold_this_month;
             $currentStock = (int) $r->current_stock;
-            $velocity = SalesVelocityHelper::velocity($piecesSold, $salesWindowDays);
+            $velocity = SalesVelocityHelper::velocity($piecesSold, $trendWindowDays);
             $sellThrough = SalesVelocityHelper::sellThroughRate($piecesSold, $piecesReceived); // TODO salah
             $targetStock = SalesVelocityHelper::targetStock($velocity, self::TARGET_COVER_MONTHS);
             $gap = $targetStock - $currentStock;

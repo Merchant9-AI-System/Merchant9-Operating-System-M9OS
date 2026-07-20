@@ -117,7 +117,7 @@ class RestockBySize extends Page implements HasTable
                     ->tooltip('Stok Disyorkan - Stok Semasa. Positif = kurang stok (perlu restock), 0/negatif = cukup atau lebih.')
                     ->color(fn ($state) => $state > 0 ? 'danger' : ($state < 0 ? 'warning' : 'success')),
                 TextColumn::make('velocity_per_month')->label('Jualan/Bulan')->numeric(2)
-                    ->tooltip('Purata jualan sebulan, dikira drpd SEMUA sejarah jualan (bukan bulan ini sahaja)'),
+                    ->tooltip('Purata jualan sebulan, dikira drpd 3 BULAN TERKINI sahaja (bukan sejarah penuh)'),
                 TextColumn::make('verdict')->label('Cadangan')->badge()
                     ->color(fn ($state) => match ($state) {
                         RestockAnalysisCalculator::VERDICT_SOLD_OUT => 'danger',
@@ -129,8 +129,13 @@ class RestockBySize extends Page implements HasTable
             ])
             ->filters([
                 SelectFilter::make('category_code')->label('Kategori')
+                    ->native()
+                    ->searchable('CategoryCode')
                     ->options(fn () => Category::where('CategoryCode', '!=', '')->pluck('Description', 'CategoryCode')),
                 SelectFilter::make('store_code')->label('Cawangan')
+                    ->native()
+                    ->multiple()
+                    ->searchable('StoreCode')
                     ->options(fn () => Store::orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
                 SelectFilter::make('verdict')->label('Cadangan')->options([
                     RestockAnalysisCalculator::VERDICT_SOLD_OUT => RestockAnalysisCalculator::VERDICT_SOLD_OUT,

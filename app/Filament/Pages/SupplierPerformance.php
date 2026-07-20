@@ -85,8 +85,10 @@ class SupplierPerformance extends Page implements HasTable
                     ->color(fn ($state) => $state === null ? 'gray' : ($state >= 20 ? 'success' : ($state >= 0 ? 'warning' : 'danger'))),
                 TextColumn::make('margin_sample_size')->label('Sampel Margin')->numeric()
                     ->tooltip('Bilangan baris terjual dgn SalesAmount tersedia - margin kurang tepat kalau sampel kecil'),
-                TextColumn::make('velocity_per_month')->label('Fast-Moving Rating (Jualan/Bulan)')->numeric(2)->sortable(),
+                TextColumn::make('velocity_per_month')->label('Fast-Moving Rating (Jualan/Bulan)')->numeric(2)->sortable()
+                    ->tooltip('Purata jualan sebulan, dikira drpd 3 BULAN TERKINI sahaja (bukan sejarah penuh)'),
                 TextColumn::make('sell_through_rate')->label('% Terjual')
+                    ->tooltip('Peratus item yang diterima & terjual dlm 3 bulan terkini sahaja (Terjual / Diterima, bukan sejarah penuh)')
                     ->formatStateUsing(fn ($state) => number_format($state * 100, 1).'%')
                     ->sortable(),
                 TextColumn::make('current_stock')->label('Stok Semasa')->numeric(),

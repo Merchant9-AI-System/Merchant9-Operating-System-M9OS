@@ -18,6 +18,9 @@ use Illuminate\Support\Facades\Cache;
  */
 class SupplierPerformanceCalculator
 {
+    /** Tempoh "3 bulan terkini" utk % Terjual & Fast-Moving Rating - atas permintaan (bukan sejarah penuh). */
+    public const TREND_MONTHS = 3;
+
     public static function performance(): Collection
     {
         return collect(Cache::rememberForever('supplier_performance_jemisys', function () {
@@ -27,16 +30,17 @@ class SupplierPerformanceCalculator
 
     protected static function compute(): Collection
     {
-        $salesWindowDays = SalesVelocityHelper::salesWindowDays();
+        $trendStart = now()->subMonths(self::TREND_MONTHS);
+        $trendWindowDays = max((int) $trendStart->diffInDays(now()), 1);
 
         $grp = InventoryPiece::query()
             ->realVendor()
             ->selectRaw('VendorCode, '.
-                'COUNT(*) as pieces_received, '.
-                'SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as pieces_sold, '.
+                'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received, '.
+                'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold, '.
                 'SUM(QtyOnHand) as current_stock, '.
                 'AVG(TotalCost) as avg_unit_cost, '.
-                'SUM(CASE WHEN QtyOnHand=1 THEN TotalCost ELSE 0 END) as stock_value')
+                'SUM(CASE WHEN QtyOnHand=1 THEN TotalCost ELSE 0 END) as stock_value', [$trendStart, $trendStart])
             ->groupBy('VendorCode')
             ->get();
 
@@ -54,8 +58,8 @@ class SupplierPerformanceCalculator
 
         $vendorNames = Vendor::pluck('Description', 'VendorCode');
 
-        return $grp->map(function ($r) use ($salesWindowDays, $marginRows, $vendorNames) {
-            $velocity = SalesVelocityHelper::velocity((int) $r->pieces_sold, $salesWindowDays);
+        return $grp->map(function ($r) use ($trendWindowDays, $marginRows, $vendorNames) {
+            $velocity = SalesVelocityHelper::velocity((int) $r->pieces_sold, $trendWindowDays);
             $sellThrough = SalesVelocityHelper::sellThroughRate((int) $r->pieces_sold, (int) $r->pieces_received);
 
             $margin = $marginRows->get($r->VendorCode);
