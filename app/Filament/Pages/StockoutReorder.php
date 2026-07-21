@@ -89,11 +89,6 @@ class StockoutReorder extends Page implements HasTable
                 TextColumn::make('sold_count')->label('Pernah Terjual')->numeric()->sortable()->badge()->color('danger'),
                 TextColumn::make('Description')->label('Jenis Item')->limit(30)->searchable()->sortable(),
                 TextColumn::make('category.Description')->label('Kategori')->badge(),
-                TextColumn::make('vendor_codes')
-                    ->label('Supplier')
-                    ->state(fn(StockoutReorderCandidate $record): array => $record->vendorCodes())
-                    ->limitList(3)
-                    ->badge(),
                 TextColumn::make('repair_qty_on_hand')
                     ->label('Stok Repair')
                     ->state(fn(StockoutReorderCandidate $record): ?string => $record->hasRepairStock()
@@ -103,6 +98,11 @@ class StockoutReorder extends Page implements HasTable
                     ->color('warning')
                     ->placeholder('-'),
                 TextColumn::make('last_sale_date')->label('Jualan Terkini')->date('d/m/Y')->sortable(),
+                TextColumn::make('vendor_codes')
+                    ->label('Supplier')
+                    ->state(fn(StockoutReorderCandidate $record): array => $record->vendorCodes())
+                    ->limitList(3)
+                    ->badge(),
             ])
             ->filters([
                 SelectFilter::make('CategoryCode')
