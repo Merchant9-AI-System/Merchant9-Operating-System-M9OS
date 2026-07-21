@@ -7,10 +7,12 @@ use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
+use App\Support\ProductImageFetcher;
 use Filament\Actions\ExportAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\TextInput;
 use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\Summarizers\Sum;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\FiltersLayout;
@@ -38,6 +40,15 @@ class InventoryPiecesTable
                 Group::make('category.Description')->label('Kategori')->collapsible(),
             ])
             ->columns([
+                ImageColumn::make('InternalCodeImage')
+                    ->label('Imej')
+                    ->state(fn (InventoryPiece $record) => ProductImageFetcher::firstImageUrlFor($record->InternalCode))
+                    ->circular()
+                    ->stacked()
+                    ->extraImgAttributes(['loading' => 'lazy'])
+                    ->url(fn (string $state): string => $state)
+                    ->openUrlInNewTab()
+                    ->placeholder('No image'),
                 TextColumn::make('InternalCode')
                     ->label('Kod Design')
                     ->searchable()
@@ -84,39 +95,39 @@ class InventoryPiecesTable
                     ->sortable(),
                 TextColumn::make('age_days')
                     ->label('Umur (hari)')
-                    ->state(fn (InventoryPiece $record) => $record->age_days)
+                    ->state(fn(InventoryPiece $record) => $record->age_days)
                     ->badge()
-                    ->color(fn (?int $state) => match (true) {
+                    ->color(fn(?int $state) => match (true) {
                         $state === null => 'gray',
                         $state > 365 => 'danger',
                         $state > 180 => 'warning',
                         default => 'success',
                     })
-                    ->sortable(query: fn (Builder $q, string $direction) => $q->orderBy('PurchDate', $direction === 'asc' ? 'desc' : 'asc')),
+                    ->sortable(query: fn(Builder $q, string $direction) => $q->orderBy('PurchDate', $direction === 'asc' ? 'desc' : 'asc')),
             ])
             ->filters([
                 SelectFilter::make('StoreCode')
                     ->label('Cawangan')
-                    ->options(fn () => Store::orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
+                    ->options(fn() => Store::orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
 
                 SelectFilter::make('CategoryCode')
                     ->label('Kategori')
-                    ->options(fn () => Category::where('CategoryCode', '!=', '')
+                    ->options(fn() => Category::where('CategoryCode', '!=', '')
                         ->orderBy('Description')
                         ->get()
-                        ->mapWithKeys(fn ($c) => [$c->CategoryCode => $c->Description ?? $c->CategoryCode])),
+                        ->mapWithKeys(fn($c) => [$c->CategoryCode => $c->Description ?? $c->CategoryCode])),
 
                 SelectFilter::make('VendorCode')
                     ->label('Supplier')
                     ->searchable()
-                    ->options(fn () => Vendor::query()
+                    ->options(fn() => Vendor::query()
                         ->get()
-                        ->mapWithKeys(fn ($v) => [$v->VendorCode => $v->Description ?? $v->VendorCode])
+                        ->mapWithKeys(fn($v) => [$v->VendorCode => $v->Description ?? $v->VendorCode])
                         ->sort()),
 
                 SelectFilter::make('ClassCode')
                     ->label('Purity')
-                    ->options(fn () => InventoryPiece::query()->onHand()
+                    ->options(fn() => InventoryPiece::query()->onHand()
                         ->whereNotNull('ClassCode')->distinct()
                         ->orderBy('ClassCode')->pluck('ClassCode', 'ClassCode')),
 
@@ -147,8 +158,8 @@ class InventoryPiecesTable
                     ])
                     ->query(function (Builder $query, array $data): Builder {
                         return $query
-                            ->when($data['cost_min'] ?? null, fn ($q, $v) => $q->where('TotalCost', '>=', $v))
-                            ->when($data['cost_max'] ?? null, fn ($q, $v) => $q->where('TotalCost', '<=', $v));
+                            ->when($data['cost_min'] ?? null, fn($q, $v) => $q->where('TotalCost', '>=', $v))
+                            ->when($data['cost_max'] ?? null, fn($q, $v) => $q->where('TotalCost', '<=', $v));
                     }),
 
                 Filter::make('weight_range')
@@ -159,8 +170,8 @@ class InventoryPiecesTable
                     ])
                     ->query(function (Builder $query, array $data): Builder {
                         return $query
-                            ->when($data['weight_min'] ?? null, fn ($q, $v) => $q->where('GoldWeight', '>=', $v))
-                            ->when($data['weight_max'] ?? null, fn ($q, $v) => $q->where('GoldWeight', '<=', $v));
+                            ->when($data['weight_min'] ?? null, fn($q, $v) => $q->where('GoldWeight', '>=', $v))
+                            ->when($data['weight_max'] ?? null, fn($q, $v) => $q->where('GoldWeight', '<=', $v));
                     }),
             ], layout: FiltersLayout::AboveContentCollapsible)
             ->filtersFormColumns(3)

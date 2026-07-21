@@ -13,6 +13,7 @@ use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
+use Filament\Forms\Components\Select;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
@@ -208,11 +209,19 @@ class BranchFocus extends Page implements HasTable
                         ->color('warning')
                         ->requiresConfirmation()
                         ->modalDescription('Hantar notifikasi kepada Back Office (CEO) utk semak item fokus yang dipilih?')
+                        ->schema([
+                            Select::make('recipient_user_ids')
+                                ->label('Notify Users')
+                                ->multiple()
+                                ->searchable()
+                                ->options(fn () => User::notifiable()->orderBy('name')->pluck('name', 'id'))
+                                ->required(),
+                        ])
                         ->deselectRecordsAfterCompletion()
-                        ->action(function (Collection $records) {
+                        ->action(function (Collection $records, array $data) {
                             $lines = $records->map(fn ($r) => "- {$r->category_name} · {$r->store_code} (gap: {$r->gap}, {$r->focus_area})")->implode("\n");
 
-                            $recipients = User::role('ceo')->get()->all();
+                            $recipients = User::whereIn('id', $data['recipient_user_ids'])->get()->all();
 
                             Notification::make()
                                 ->title($records->count().' item perlu fokus - sila semak (Branch Focus)')

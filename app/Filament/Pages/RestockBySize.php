@@ -13,6 +13,7 @@ use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
+use Filament\Forms\Components\Select;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
@@ -201,11 +202,19 @@ class RestockBySize extends Page implements HasTable
                         ->color('warning')
                         ->requiresConfirmation()
                         ->modalDescription('Hantar notifikasi kepada Back Office (CEO) utk semak item restock yang dipilih?')
+                        ->schema([
+                            Select::make('recipient_user_ids')
+                                ->label('Notify Users')
+                                ->multiple()
+                                ->searchable()
+                                ->options(fn () => User::notifiable()->orderBy('name')->pluck('name', 'id'))
+                                ->required(),
+                        ])
                         ->deselectRecordsAfterCompletion()
-                        ->action(function (Collection $records) {
+                        ->action(function (Collection $records, array $data) {
                             $lines = $records->map(fn ($r) => "- {$r->category_name} · {$r->store_code} · Saiz {$r->bucket} (gap: {$r->gap})")->implode("\n");
 
-                            $recipients = User::role('ceo')->get()->all();
+                            $recipients = User::whereIn('id', $data['recipient_user_ids'])->get()->all();
 
                             Notification::make()
                                 ->title($records->count().' item perlu restock - sila semak (Restock ikut Saiz)')

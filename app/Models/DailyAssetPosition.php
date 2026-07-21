@@ -22,6 +22,34 @@ class DailyAssetPosition extends Model
 
     // protected $guarded = [];
 
+    protected $fillable = [
+        'entry_date',
+        'opening_stock_weight',
+        'new_stock',
+        'used_gold',
+        'gold_bar',
+        'unreceived_bar',
+        'loan_received',
+        'sales',
+        'payment_to_supplier',
+        'stock_out_return',
+        'loss_from_melting',
+        'loan_out',
+        'closing_stock',
+        'supplier_hutang',
+        'supplier_overpaid',
+        'ambank_balance',
+        'affin_balance',
+        'cash',
+        'affin_rm',
+        'od_affin',
+        'locked_gold_bar',
+        'available_cash',
+        'notes',
+        'created_by',
+        'updated_by',
+    ];
+
     protected $casts = [
         'entry_date' => 'date',
         'opening_stock_weight' => 'decimal:3',

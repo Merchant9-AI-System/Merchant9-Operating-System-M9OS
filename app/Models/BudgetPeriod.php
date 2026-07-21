@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Models\Jemisys\Category;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 
 class BudgetPeriod extends Model
 {
@@ -14,7 +16,7 @@ class BudgetPeriod extends Model
 
     public function category()
     {
-        return $this->belongsTo(\App\Models\Jemisys\Category::class, 'category_code', 'CategoryCode');
+        return $this->belongsTo(Category::class, 'category_code', 'CategoryCode');
     }
 
     /**
@@ -24,9 +26,15 @@ class BudgetPeriod extends Model
      */
     public function getSpentAmountAttribute(): float
     {
+        // whereBetween drpd sempadan bulan (bukan strftime('%Y-%m', ...) - fungsi SQLite,
+        // tak wujud di MySQL) - kekal sama keputusan merentasi driver DB tanpa fungsi SQL
+        // spesifik-vendor.
+        $periodStart = Carbon::createFromFormat('Y-m', $this->period_label)->startOfMonth();
+        $periodEnd = $periodStart->copy()->endOfMonth();
+
         $query = PurchaseOrder::query()
             ->where('status', '!=', PurchaseOrder::STATUS_CANCELLED)
-            ->whereRaw("strftime('%Y-%m', created_at) = ?", [$this->period_label])
+            ->whereBetween('created_at', [$periodStart, $periodEnd])
             ->with('lines');
 
         if ($this->category_code) {

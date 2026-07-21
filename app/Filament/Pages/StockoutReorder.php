@@ -6,6 +6,7 @@ use App\Filament\Exports\StockoutReorderExporter;
 use App\Filament\Widgets\BestSellerLostOpportunityStats;
 use App\Filament\Widgets\BestSellerLostOpportunityTable;
 use App\Models\Jemisys\Category;
+use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
 use App\Models\StockoutReorderCandidate;
 use BackedEnum;
@@ -29,18 +30,27 @@ use Illuminate\Support\Facades\Cache;
  * segera. Dipindah keluar drpd dashboard (list terlalu panjang) ke page sendiri supaya staff
  * boleh filter ikut kategori/supplier/jenis item & eksport senarai lepas filter.
  *
- * Baca drpd stockout_reorder_candidates (snapshot pra-agregat per (InternalCode, VendorCode),
- * rujuk App\Support\StockoutReorderMaterializer) - BUKAN agregat live 481K baris
+ * Baca drpd stockout_reorder_candidates (snapshot pra-agregat per (InternalCode, VendorCode,
+ * StoreCode), rujuk App\Support\StockoutReorderMaterializer) - BUKAN agregat live 481K baris
  * jemisys_inventory_mirror setiap page load/filter/sort/paginate (realVendor() padan 91% baris,
  * jadi tiada index boleh percepatkan agregat tsb, disahkan via EXPLAIN ~50 saat setiap panggilan).
  *
- * Filter Supplier/Exclude Supplier INTERAKTIF - StockoutReorderCandidate::candidateQuery() kira
- * SEMULA sold_count & kelayakan "stok=0" secara live drpd jadual kecil ni (~39.8K baris, jauh
- * lebih kecil drpd 481K asal, jadi GROUP BY/HAVING live tetap pantas) ikut vendor
- * dipilih/dikecualikan - BUKAN sekadar tapis baris drpd senarai vendor statik (rujuk sejarah:
- * exclude 1 vendor minor pernah sembunyikan seluruh design walaupun vendor lain [cth. GRJ] masih
- * bekalkan majoriti piece - fixed dgn re-grain jadual ni drpd satu-baris-setiap-design kpd
- * satu-baris-setiap-vendor).
+ * Filter Supplier/Exclude Supplier & Exclude Cawangan INTERAKTIF - StockoutReorderCandidate::
+ * candidateQuery() kira SEMULA sold_count & kelayakan "stok=0" secara live drpd jadual kecil ni
+ * (~131.8K baris, jauh lebih kecil drpd 481K asal, jadi GROUP BY/HAVING live tetap pantas) ikut
+ * vendor/cawangan dipilih/dikecualikan - BUKAN sekadar tapis baris drpd senarai statik (rujuk
+ * sejarah: exclude 1 vendor minor pernah sembunyikan seluruh design walaupun vendor lain [cth.
+ * GRJ] masih bekalkan majoriti piece - fixed dgn re-grain jadual ni drpd satu-baris-setiap-
+ * design kpd satu-baris-setiap-vendor, kemudian satu-baris-setiap-cawangan).
+ *
+ * "Stok Repair"/"Sold By Branch" turut ikut serta bila supplier/cawangan di-exclude/include
+ * (exclude cawangan bermaksud "pretend cawangan tu tak wujud" merentasi SEMUA angka pd baris,
+ * bukan sebahagian sahaja) - TAPI dikira BERASINGAN per-rekod yg dipaparkan (rujuk
+ * StockoutReorderCandidate::repairQtyOnHandFor()/soldByBranchFor()), BUKAN dimasukkan terus dlm
+ * candidateQuery(). Percubaan awal (subquery berkorelasi/leftJoinSub dlm candidateQuery()
+ * sendiri) buat COUNT()/pagination ambil 7-10+ saat (kira utk SEMUA ~27K design walhal cuma
+ * 10-50 dipaparkan setiap page) & leftJoinSub turut pecahkan carian/susun lalai Filament pd
+ * lajur InternalCode (wujud dlm >1 jadual serentak selepas join - "ambiguous column").
  */
 class StockoutReorder extends Page implements HasTable
 {
@@ -83,7 +93,7 @@ class StockoutReorder extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->query(fn(): Builder => self::baseQuery())
+            ->query(fn (): Builder => self::baseQuery())
             ->columns([
                 TextColumn::make('InternalCode')->label('Kod Design')->searchable()->sortable(),
                 TextColumn::make('sold_count')->label('Pernah Terjual')->numeric()->sortable()->badge()->color('danger'),
@@ -91,17 +101,37 @@ class StockoutReorder extends Page implements HasTable
                 TextColumn::make('category.Description')->label('Kategori')->badge(),
                 TextColumn::make('repair_qty_on_hand')
                     ->label('Stok Repair')
-                    ->state(fn(StockoutReorderCandidate $record): ?string => $record->hasRepairStock()
-                        ? "{$record->repair_qty_on_hand} pcs in stock"
-                        : null)
+                    ->state(function (StockoutReorderCandidate $record): ?string {
+                        $excludedStoreCodes = $this->getTableFilterState('StoreCodeExclude')['values'] ?? [];
+                        $qty = StockoutReorderCandidate::repairQtyOnHandFor($record->InternalCode, excludedStoreCodes: $excludedStoreCodes);
+
+                        return $qty > 0 ? "{$qty} pcs in stock" : null;
+                    })
                     ->badge()
-                    ->color('warning')
+                    ->color('info')
                     ->placeholder('-'),
                 TextColumn::make('last_sale_date')->label('Jualan Terkini')->date('d/m/Y')->sortable(),
                 TextColumn::make('vendor_codes')
                     ->label('Supplier')
-                    ->state(fn(StockoutReorderCandidate $record): array => $record->vendorCodes())
+                    ->state(fn (StockoutReorderCandidate $record): array => $record->vendorCodes())
                     ->limitList(3)
+                    ->badge(),
+                TextColumn::make('sold_by_branch')
+                    ->label('Sold By Branch')
+                    ->state(function (StockoutReorderCandidate $record): array {
+                        $includedVendorCodes = $this->getTableFilterState('VendorCode')['values'] ?? [];
+                        $excludedVendorCodes = $this->getTableFilterState('VendorCodeExclude')['values'] ?? [];
+                        $excludedStoreCodes = $this->getTableFilterState('StoreCodeExclude')['values'] ?? [];
+
+                        return StockoutReorderCandidate::soldByBranchFor(
+                            $record->InternalCode,
+                            $includedVendorCodes,
+                            $excludedVendorCodes,
+                            excludedStoreCodes: $excludedStoreCodes,
+                        );
+                    })
+                    ->wrap()
+                    ->color('secondary')
                     ->badge(),
             ])
             ->filters([
@@ -109,7 +139,7 @@ class StockoutReorder extends Page implements HasTable
                     ->label('Kategori')
                     ->native()
                     ->searchable('CategoryCode')
-                    ->options(fn() => Cache::remember('stockout_reorder_category_options', 600, fn() => Category::where('CategoryCode', '!=', '')
+                    ->options(fn () => Cache::remember('stockout_reorder_category_options', 600, fn () => Category::where('CategoryCode', '!=', '')
                         ->orderBy('Description')
                         ->pluck('Description', 'CategoryCode')
                         ->toArray())),
@@ -119,10 +149,10 @@ class StockoutReorder extends Page implements HasTable
                     ->native()
                     ->multiple()
                     ->searchable('VendorCode')
-                    ->options(fn() => self::vendorOptions())
-                    ->query(fn(Builder $query, array $data): Builder => $query->when(
+                    ->options(fn () => self::vendorOptions())
+                    ->query(fn (Builder $query, array $data): Builder => $query->when(
                         filled($data['values'] ?? []),
-                        fn(Builder $q) => $q->whereIn('VendorCode', $data['values']),
+                        fn (Builder $q) => $q->whereIn('VendorCode', $data['values']),
                     )),
 
                 SelectFilter::make('VendorCodeExclude')
@@ -130,10 +160,21 @@ class StockoutReorder extends Page implements HasTable
                     ->native()
                     ->multiple()
                     ->searchable('VendorCode')
-                    ->options(fn() => self::vendorOptions())
-                    ->query(fn(Builder $query, array $data): Builder => $query->when(
+                    ->options(fn () => self::vendorOptions())
+                    ->query(fn (Builder $query, array $data): Builder => $query->when(
                         filled($data['values'] ?? []),
-                        fn(Builder $q) => $q->whereNotIn('VendorCode', $data['values']),
+                        fn (Builder $q) => $q->whereNotIn('VendorCode', $data['values']),
+                    )),
+
+                SelectFilter::make('StoreCodeExclude')
+                    ->label('Exclude Cawangan')
+                    ->native()
+                    ->multiple()
+                    ->searchable('StoreCode')
+                    ->options(fn () => Store::orderBy('StoreCode')->pluck('StoreCode', 'StoreCode'))
+                    ->query(fn (Builder $query, array $data): Builder => $query->when(
+                        filled($data['values'] ?? []),
+                        fn (Builder $q) => $q->whereNotIn('StoreCode', $data['values']),
                     )),
 
                 // SelectFilter::make('Description')
@@ -146,7 +187,7 @@ class StockoutReorder extends Page implements HasTable
                 //         ->orderBy('Description')
                 //         ->pluck('Description', 'Description'))),
             ], layout: FiltersLayout::AboveContentCollapsible)
-            ->filtersFormColumns(3)
+            ->filtersFormColumns(4)
             ->toolbarActions([
                 ExportAction::make()->label('Export')->icon(Heroicon::OutlinedArrowDownTray)->exporter(StockoutReorderExporter::class),
             ])
@@ -165,9 +206,9 @@ class StockoutReorder extends Page implements HasTable
      */
     private static function vendorOptions(): array
     {
-        return Cache::remember('stockout_reorder_vendor_options', 600, fn() => Vendor::where('VendorCode', '!=', '.')
+        return Cache::remember('stockout_reorder_vendor_options', 600, fn () => Vendor::where('VendorCode', '!=', '.')
             ->get()
-            ->mapWithKeys(fn(Vendor $v) => [trim($v->VendorCode) => trim($v->VendorCode) . ' - ' . $v->Description])
+            ->mapWithKeys(fn (Vendor $v) => [trim($v->VendorCode) => trim($v->VendorCode).' - '.$v->Description])
             ->sort()
             ->toArray());
     }

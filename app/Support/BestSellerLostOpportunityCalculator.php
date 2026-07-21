@@ -6,6 +6,7 @@ use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Vendor;
 use App\Models\StockoutReorderCandidate;
+use App\Models\StockoutReorderQualifyingDesign;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -56,13 +57,16 @@ class BestSellerLostOpportunityCalculator
         $codes = $designs->pluck('InternalCode');
 
         // Purata harga jualan realized (SalesAmount>0) sejarah bagi design terlibat sahaja.
-        // whereIn() guna SUBQUERY (bukan senarai literal ribuan kod) - senarai literal ~14K
-        // placeholder buat MySQL ambil >900 saat (disahkan EXPLAIN/timing) sebab query planner
-        // tak dapat optimumkan IN literal sebesar ni; subquery dibenarkan MySQL materialize/
-        // index sekali sbg semi-join, jauh lebih pantas.
+        // whereIn() guna subquery drpd stockout_reorder_qualifying_designs (jadual kecil unik-
+        // key InternalCode SEMATA-MATA utk tujuan semi-join ni, rujuk migration create_..._table)
+        // - BUKAN senarai literal ribuan kod (>900 saat, disahkan) MAHUPUN
+        // StockoutReorderCandidate::candidateInternalCodesQuery() (GROUP BY/HAVING live atas
+        // jadual 131.8K baris sbg subquery JOIN ke 481K baris InventoryPiece - turut lembab,
+        // 55+ saat, disahkan). Jadual unik-key kecil dibenarkan MySQL materialize/index sekali
+        // sbg semi-join, jauh lebih pantas drpd kedua-dua alternatif tsb.
         $avgPrices = InventoryPiece::query()
             ->realVendor()
-            ->whereIn('InternalCode', fn ($q) => $q->select('InternalCode')->from('stockout_reorder_candidates'))
+            ->whereIn('InternalCode', StockoutReorderQualifyingDesign::query()->select('InternalCode'))
             ->whereNotNull('SalesDate')
             ->whereNotNull('SalesAmount')
             ->where('SalesAmount', '>', 0)
@@ -107,7 +111,7 @@ class BestSellerLostOpportunityCalculator
         $topBranches = InventoryPiece::query()
             ->realVendor()
             ->physicalStore()
-            ->whereIn('InternalCode', fn ($q) => $q->select('InternalCode')->from('stockout_reorder_candidates'))
+            ->whereIn('InternalCode', StockoutReorderQualifyingDesign::query()->select('InternalCode'))
             ->whereNotNull('SalesDate')
             ->selectRaw('StoreCode, COUNT(*) as past_sales')
             ->groupBy('StoreCode')

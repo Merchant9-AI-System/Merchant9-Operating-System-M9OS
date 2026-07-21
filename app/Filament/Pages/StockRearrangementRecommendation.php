@@ -3,7 +3,9 @@
 namespace App\Filament\Pages;
 
 use App\Models\Jemisys\InventoryPiece;
+use App\Models\Jemisys\Store;
 use App\Models\StockTransfer;
+use App\Support\ProductImageFetcher;
 use App\Support\StockRearrangementRecommender;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
@@ -14,9 +16,11 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -81,6 +85,16 @@ class StockRearrangementRecommendation extends Page implements HasTable
                     $all = $all->where('priority', $priority);
                 }
 
+                if (filled($excludedStores = $filters['store_code']['values'] ?? [])) {
+                    // strtolower() kedua-dua belah - StoreCode kadangkala wujud dlm case berbeza
+                    // antara jemisys_store_mirror (cth. "SECURITY") vs jemisys_inventory_mirror
+                    // sebenar (cth. "security"), sama isu spt "WEB"/"web" (rujuk
+                    // InventoryPiece::scopePhysicalStore()) - padanan case-sensitive x match.
+                    $excludedStoresLower = array_map('strtolower', $excludedStores);
+                    $all = $all->reject(fn ($r) => in_array(strtolower($r['from_branch']), $excludedStoresLower)
+                        || in_array(strtolower($r['to_branch']), $excludedStoresLower));
+                }
+
                 if (filled($columnSearches['internal_code'] ?? null)) {
                     $needle = mb_strtolower($columnSearches['internal_code']);
                     $all = $all->filter(fn ($r) => str_contains(mb_strtolower((string) $r['internal_code']), $needle));
@@ -115,6 +129,16 @@ class StockRearrangementRecommendation extends Page implements HasTable
                 );
             })
             ->columns([
+                // ImageColumn::make('InternalCodeImage')
+                //     ->label('Imej')
+                //     ->state(fn ($record) => ProductImageFetcher::firstImageUrlFor($record->internal_code))
+                //     // ->imageHeight(40)
+                //     ->circular()
+                //     ->stacked()
+                //     ->extraImgAttributes(['loading' => 'lazy'])
+                //     ->url(fn ($record) => ProductImageFetcher::firstImageUrlFor($record->internal_code))
+                //     ->openUrlInNewTab()
+                //     ->placeholder('No image'),
                 TextColumn::make('from_branch')->label('From Branch')->badge()->color('success'),
                 TextColumn::make('to_branch')->label('To Branch')->badge()->color('danger'),
                 TextColumn::make('internal_code')->label('Design / SKU')->searchable(isIndividual: true),
@@ -135,12 +159,25 @@ class StockRearrangementRecommendation extends Page implements HasTable
                     ->options(fn () => StockRearrangementRecommender::recommendations()->pluck('from_branch', 'from_branch')->unique()->sort()),
                 SelectFilter::make('to_branch')->label('To Branch')
                     ->options(fn () => StockRearrangementRecommender::recommendations()->pluck('to_branch', 'to_branch')->unique()->sort()),
+
+                // Tiada ->query() di sini sengaja - table ni guna ->records() (bukan ->query()),
+                // jadi Filament TIDAK PERNAH panggil closure ->query() filter (rujuk
+                // Filament\Tables\Concerns\HasRecords::getTableRecords() cabang "! hasQuery()" -
+                // terus evaluate getDataSource(), tak pernah applyFiltersToTableQuery()). Logik
+                // sebenar exclude Cawangan (from_branch/to_branch, BUKAN StoreCode - lajur tsb
+                // tiada pd baris rekomendasi) dikendalikan terus dlm closure ->records() di atas.
+                SelectFilter::make('store_code')->label('Exclude Cawangan')
+                    ->native()
+                    ->multiple()
+                    ->searchable('StoreCode')
+                    ->options(fn () => Store::orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
                 SelectFilter::make('priority')->label('Priority')->options([
                     StockRearrangementRecommender::HIGH => StockRearrangementRecommender::HIGH,
                     StockRearrangementRecommender::MEDIUM => StockRearrangementRecommender::MEDIUM,
                     StockRearrangementRecommender::LOW => StockRearrangementRecommender::LOW,
                 ]),
-            ])
+            ], layout: FiltersLayout::AboveContentCollapsible)
+            ->filtersFormColumns(4)
             ->recordActions([
                 Action::make('view')
                     ->label('View')

@@ -13,6 +13,7 @@ use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
+use Filament\Forms\Components\Select;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
@@ -53,7 +54,7 @@ class RestockByWeight extends Page implements HasTable
         $base = 'Cadangan restock ikut Berat Emas, silang Kategori x Cawangan - dikira 100% drpd data JEMiSys sebenar.';
 
         if (Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING)) {
-            return $base . ' ⚠️ Data JEMiSys sedang disegerakkan sekarang - angka/senarai design mungkin tidak lengkap sementara sync berjalan.';
+            return $base.' ⚠️ Data JEMiSys sedang disegerakkan sekarang - angka/senarai design mungkin tidak lengkap sementara sync berjalan.';
         }
 
         return $base;
@@ -67,7 +68,7 @@ class RestockByWeight extends Page implements HasTable
                 // hantar SEMUA parameter ni terus ke closure, closure WAJIB uruskan semuanya
                 // sendiri (rujuk Filament\Tables\Concerns\HasRecords::getTableRecords()).
                 $all = RestockAnalysisCalculator::byWeight()
-                    ->map(fn($r, $i) => $r + ['InventoryCode' => 'rbw_' . $i]);
+                    ->map(fn ($r, $i) => $r + ['InventoryCode' => 'rbw_'.$i]);
 
                 if ($categoryCode = $filters['category_code']['value'] ?? null) {
                     $all = $all->where('category_code', $categoryCode);
@@ -83,7 +84,7 @@ class RestockByWeight extends Page implements HasTable
 
                 if (filled($search)) {
                     $needle = mb_strtolower($search);
-                    $all = $all->filter(fn($r) => str_contains(mb_strtolower((string) $r['category_name']), $needle));
+                    $all = $all->filter(fn ($r) => str_contains(mb_strtolower((string) $r['category_name']), $needle));
                 }
 
                 if (filled($sortColumn)) {
@@ -113,11 +114,11 @@ class RestockByWeight extends Page implements HasTable
                     ->tooltip('Tahap stok disyorkan utk lindungi jualan 1.5 bulan pada kadar jualan semasa (Jualan/Bulan x 1.5)'),
                 TextColumn::make('gap')->label('Gap')->numeric()->sortable()
                     ->tooltip('Stok Disyorkan - Stok Semasa. Positif = kurang stok (perlu restock), 0/negatif = cukup atau lebih.')
-                    ->color(fn($state) => $state > 0 ? 'danger' : ($state < 0 ? 'warning' : 'success')),
+                    ->color(fn ($state) => $state > 0 ? 'danger' : ($state < 0 ? 'warning' : 'success')),
                 TextColumn::make('velocity_per_month')->label('Jualan/Bulan')->numeric(2)
                     ->tooltip('Purata jualan sebulan, dikira drpd 3 BULAN TERKINI sahaja (bukan sejarah penuh)'),
                 TextColumn::make('verdict')->label('Cadangan')->badge()
-                    ->color(fn($state) => match ($state) {
+                    ->color(fn ($state) => match ($state) {
                         RestockAnalysisCalculator::VERDICT_SOLD_OUT => 'danger',
                         RestockAnalysisCalculator::VERDICT_RESTOCK => 'warning',
                         RestockAnalysisCalculator::VERDICT_OVERSTOCK => 'info',
@@ -129,12 +130,12 @@ class RestockByWeight extends Page implements HasTable
                 SelectFilter::make('category_code')->label('Kategori')
                     ->native()
                     ->searchable('CategoryCode')
-                    ->options(fn() => Category::where('CategoryCode', '!=', '')->pluck('Description', 'CategoryCode')),
+                    ->options(fn () => Category::where('CategoryCode', '!=', '')->pluck('Description', 'CategoryCode')),
                 SelectFilter::make('store_code')->label('Cawangan')
                     ->native()
                     // ->multiple()
                     ->searchable('StoreCode')
-                    ->options(fn() => Store::orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
+                    ->options(fn () => Store::orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
                 SelectFilter::make('verdict')->label('Cadangan')->options([
                     RestockAnalysisCalculator::VERDICT_SOLD_OUT => RestockAnalysisCalculator::VERDICT_SOLD_OUT,
                     RestockAnalysisCalculator::VERDICT_RESTOCK => RestockAnalysisCalculator::VERDICT_RESTOCK,
@@ -149,7 +150,7 @@ class RestockByWeight extends Page implements HasTable
                     ->label('Lihat Design')
                     ->icon(Heroicon::OutlinedMagnifyingGlass)
                     ->color('gray')
-                    ->modalHeading(fn($record) => "Design: {$record->category_name} · {$record->store_code} · Berat {$record->bucket}")
+                    ->modalHeading(fn ($record) => "Design: {$record->category_name} · {$record->store_code} · Berat {$record->bucket}")
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('Tutup')
                     ->schema(function ($record) {
@@ -161,7 +162,7 @@ class RestockByWeight extends Page implements HasTable
                             TextEntry::make('scope_note')
                                 ->hiddenLabel()
                                 ->state($remaining > 0
-                                    ? 'Menunjukkan ' . self::DESIGNS_MODAL_LIMIT . " design TERATAS drpd {$all->count()} jumlah keseluruhan - disusun ikut Terjual Bulan Ini tertinggi dahulu."
+                                    ? 'Menunjukkan '.self::DESIGNS_MODAL_LIMIT." design TERATAS drpd {$all->count()} jumlah keseluruhan - disusun ikut Terjual Bulan Ini tertinggi dahulu."
                                     : "Menunjukkan kesemua {$all->count()} design dlm bucket ini.")
                                 ->weight('bold')
                                 ->color('warning')
@@ -199,14 +200,22 @@ class RestockByWeight extends Page implements HasTable
                         ->color('warning')
                         ->requiresConfirmation()
                         ->modalDescription('Hantar notifikasi kepada Back Office (CEO) utk semak item restock yang dipilih?')
+                        ->schema([
+                            Select::make('recipient_user_ids')
+                                ->label('Notify Users')
+                                ->multiple()
+                                ->searchable()
+                                ->options(fn () => User::notifiable()->orderBy('name')->pluck('name', 'id'))
+                                ->required(),
+                        ])
                         ->deselectRecordsAfterCompletion()
-                        ->action(function (Collection $records) {
-                            $lines = $records->map(fn($r) => "- {$r->category_name} · {$r->store_code} · Berat {$r->bucket} (gap: {$r->gap})")->implode("\n");
+                        ->action(function (Collection $records, array $data) {
+                            $lines = $records->map(fn ($r) => "- {$r->category_name} · {$r->store_code} · Berat {$r->bucket} (gap: {$r->gap})")->implode("\n");
 
-                            $recipients = User::role('ceo')->get()->all();
+                            $recipients = User::whereIn('id', $data['recipient_user_ids'])->get()->all();
 
                             Notification::make()
-                                ->title($records->count() . ' item perlu restock - sila semak (Restock ikut Berat)')
+                                ->title($records->count().' item perlu restock - sila semak (Restock ikut Berat)')
                                 ->body($lines)
                                 ->warning()
                                 ->actions([

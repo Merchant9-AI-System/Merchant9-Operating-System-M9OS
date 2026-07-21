@@ -2,6 +2,9 @@
 
 namespace App\Filament\Resources\InventoryPieces\Schemas;
 
+use App\Models\Jemisys\InventoryPiece;
+use App\Support\ProductImageFetcher;
+use Filament\Infolists\Components\ImageEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Schema;
@@ -14,6 +17,7 @@ class InventoryPieceInfolist
             ->components([
                 Grid::make(3)
                     ->schema([
+                        ImageEntry::make('InternalCodeImage')->label('Imej')->state(fn (InventoryPiece $record) => ProductImageFetcher::firstImageUrlFor($record->InternalCode))->extraImgAttributes(['loading' => 'lazy']),
                         TextEntry::make('InternalCode')->label('Kod Design'),
                         TextEntry::make('Description')->label('Jenis Item'),
                         TextEntry::make('category.Description')->label('Kategori'),

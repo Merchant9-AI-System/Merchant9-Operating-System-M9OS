@@ -44,4 +44,10 @@ class User extends Authenticatable implements FilamentUser
     {
         return $this->hasRole(config('filament-shield.super_admin.name'));
     }
+
+    /** Kecualikan super_admin drpd senarai boleh dipilih utk notifikasi (cth. picker "Notify Back Office"). */
+    public function scopeNotifiable($query)
+    {
+        return $query->whereDoesntHave('roles', fn ($q) => $q->where('name', config('filament-shield.super_admin.name')));
+    }
 }
