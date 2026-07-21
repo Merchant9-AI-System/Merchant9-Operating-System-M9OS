@@ -24,7 +24,7 @@ class SupplierPerformance extends Page implements HasTable
 
     protected string $view = 'filament.pages.supplier-performance';
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCurrencyDollar;
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBriefcase;
 
     protected static ?string $navigationLabel = 'Prestasi Supplier';
 

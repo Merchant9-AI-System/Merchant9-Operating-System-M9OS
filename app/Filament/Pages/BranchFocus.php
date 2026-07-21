@@ -38,7 +38,7 @@ class BranchFocus extends Page implements HasTable
 
     protected string $view = 'filament.pages.branch-focus';
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedMapPin;
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBuildingStorefront;
 
     protected static ?string $navigationLabel = 'Branch Focus';
 

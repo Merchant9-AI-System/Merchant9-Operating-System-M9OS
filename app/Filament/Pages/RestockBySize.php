@@ -37,7 +37,7 @@ class RestockBySize extends Page implements HasTable
 
     protected string $view = 'filament.pages.restock-by-size';
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedSquares2x2;
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedCurrencyDollar;
 
     protected static ?string $navigationLabel = 'Restock ikut Saiz';
 
