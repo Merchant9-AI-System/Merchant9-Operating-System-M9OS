@@ -119,10 +119,11 @@ class StockRearrangementRecommendation extends Page implements HasTable
                 TextColumn::make('to_branch')->label('To Branch')->badge()->color('danger'),
                 TextColumn::make('internal_code')->label('Design / SKU')->searchable(isIndividual: true),
                 TextColumn::make('item_desc')->label('Jenis Item')->limit(25)->searchable(isIndividual: true),
-                TextColumn::make('current_stock')->label('Current Stock')->numeric(),
+                TextColumn::make('current_stock')->label('Current Stock')->numeric()->sortable(),
                 TextColumn::make('reason')->label('Reason')->wrap(),
                 TextColumn::make('priority')->label('Priority')
                     ->badge()
+                    ->sortable()
                     ->color(fn (string $state) => match ($state) {
                         StockRearrangementRecommender::HIGH => 'danger',
                         StockRearrangementRecommender::MEDIUM => 'warning',
