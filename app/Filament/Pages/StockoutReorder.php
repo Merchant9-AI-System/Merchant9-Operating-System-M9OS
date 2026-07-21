@@ -107,9 +107,8 @@ class StockoutReorder extends Page implements HasTable
             ->filters([
                 SelectFilter::make('CategoryCode')
                     ->label('Kategori')
-                    // ->toArray() sengaja - elak isu unserialize __PHP_Incomplete_Class bila
-                    // cache Collection ditulis dari konteks CLI & dibaca dari konteks web
-                    // (php artisan serve) atau sebaliknya (sama nota spt RearrangeCalculator).
+                    ->native()
+                    ->searchable('CategoryCode')
                     ->options(fn() => Cache::remember('stockout_reorder_category_options', 600, fn() => Category::where('CategoryCode', '!=', '')
                         ->orderBy('Description')
                         ->pluck('Description', 'CategoryCode')
