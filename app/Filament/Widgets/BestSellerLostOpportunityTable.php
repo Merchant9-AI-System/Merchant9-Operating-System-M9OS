@@ -25,14 +25,14 @@ class BestSellerLostOpportunityTable extends TableWidget
     public function table(Table $table): Table
     {
         return $table
-            ->records(fn () => BestSellerLostOpportunityCalculator::summary()['top10']->all())
+            ->records(fn() => BestSellerLostOpportunityCalculator::summary()['top10']->all())
             ->columns([
                 TextColumn::make('internal_code')->label('Kod Design'),
+                TextColumn::make('sold_count')->label('Pernah Terjual')->numeric()->badge()->color('danger'),
                 TextColumn::make('description')->label('Jenis Item')->limit(30),
                 TextColumn::make('category_name')->label('Kategori')->badge(),
-                TextColumn::make('vendor_name')->label('Supplier'),
-                TextColumn::make('sold_count')->label('Pernah Terjual')->numeric()->badge()->color('danger'),
                 TextColumn::make('last_sale_date')->label('Jualan Terkini')->date('d/m/Y'),
+                TextColumn::make('vendor_name')->label('Supplier')->limit(30),
             ])
             ->paginated(false);
     }

@@ -83,25 +83,25 @@ class StockoutReorder extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->query(fn (): Builder => self::baseQuery())
+            ->query(fn(): Builder => self::baseQuery())
             ->columns([
                 TextColumn::make('InternalCode')->label('Kod Design')->searchable()->sortable(),
+                TextColumn::make('sold_count')->label('Pernah Terjual')->numeric()->sortable()->badge()->color('danger'),
                 TextColumn::make('Description')->label('Jenis Item')->limit(30)->searchable()->sortable(),
                 TextColumn::make('category.Description')->label('Kategori')->badge(),
                 TextColumn::make('vendor_codes')
                     ->label('Supplier')
-                    ->state(fn (StockoutReorderCandidate $record): array => $record->vendorCodes())
+                    ->state(fn(StockoutReorderCandidate $record): array => $record->vendorCodes())
                     ->limitList(3)
                     ->badge(),
                 TextColumn::make('repair_qty_on_hand')
                     ->label('Stok Repair')
-                    ->state(fn (StockoutReorderCandidate $record): ?string => $record->hasRepairStock()
+                    ->state(fn(StockoutReorderCandidate $record): ?string => $record->hasRepairStock()
                         ? "{$record->repair_qty_on_hand} pcs in stock"
                         : null)
                     ->badge()
                     ->color('warning')
                     ->placeholder('-'),
-                TextColumn::make('sold_count')->label('Pernah Terjual')->numeric()->sortable()->badge()->color('danger'),
                 TextColumn::make('last_sale_date')->label('Jualan Terkini')->date('d/m/Y')->sortable(),
             ])
             ->filters([
@@ -110,7 +110,7 @@ class StockoutReorder extends Page implements HasTable
                     // ->toArray() sengaja - elak isu unserialize __PHP_Incomplete_Class bila
                     // cache Collection ditulis dari konteks CLI & dibaca dari konteks web
                     // (php artisan serve) atau sebaliknya (sama nota spt RearrangeCalculator).
-                    ->options(fn () => Cache::remember('stockout_reorder_category_options', 600, fn () => Category::where('CategoryCode', '!=', '')
+                    ->options(fn() => Cache::remember('stockout_reorder_category_options', 600, fn() => Category::where('CategoryCode', '!=', '')
                         ->orderBy('Description')
                         ->pluck('Description', 'CategoryCode')
                         ->toArray())),
@@ -120,10 +120,10 @@ class StockoutReorder extends Page implements HasTable
                     ->native()
                     ->multiple()
                     ->searchable('VendorCode')
-                    ->options(fn () => self::vendorOptions())
-                    ->query(fn (Builder $query, array $data): Builder => $query->when(
+                    ->options(fn() => self::vendorOptions())
+                    ->query(fn(Builder $query, array $data): Builder => $query->when(
                         filled($data['values'] ?? []),
-                        fn (Builder $q) => $q->whereIn('VendorCode', $data['values']),
+                        fn(Builder $q) => $q->whereIn('VendorCode', $data['values']),
                     )),
 
                 SelectFilter::make('VendorCodeExclude')
@@ -131,10 +131,10 @@ class StockoutReorder extends Page implements HasTable
                     ->native()
                     ->multiple()
                     ->searchable('VendorCode')
-                    ->options(fn () => self::vendorOptions())
-                    ->query(fn (Builder $query, array $data): Builder => $query->when(
+                    ->options(fn() => self::vendorOptions())
+                    ->query(fn(Builder $query, array $data): Builder => $query->when(
                         filled($data['values'] ?? []),
-                        fn (Builder $q) => $q->whereNotIn('VendorCode', $data['values']),
+                        fn(Builder $q) => $q->whereNotIn('VendorCode', $data['values']),
                     )),
 
                 // SelectFilter::make('Description')
@@ -146,7 +146,7 @@ class StockoutReorder extends Page implements HasTable
                 //         ->distinct()
                 //         ->orderBy('Description')
                 //         ->pluck('Description', 'Description'))),
-                ], layout: FiltersLayout::AboveContentCollapsible)
+            ], layout: FiltersLayout::AboveContentCollapsible)
             ->filtersFormColumns(3)
             ->toolbarActions([
                 ExportAction::make()->label('Export')->icon(Heroicon::OutlinedArrowDownTray)->exporter(StockoutReorderExporter::class),
@@ -166,9 +166,9 @@ class StockoutReorder extends Page implements HasTable
      */
     private static function vendorOptions(): array
     {
-        return Cache::remember('stockout_reorder_vendor_options', 600, fn () => Vendor::where('VendorCode', '!=', '.')
+        return Cache::remember('stockout_reorder_vendor_options', 600, fn() => Vendor::where('VendorCode', '!=', '.')
             ->get()
-            ->mapWithKeys(fn (Vendor $v) => [trim($v->VendorCode) => trim($v->VendorCode).' - '.$v->Description])
+            ->mapWithKeys(fn(Vendor $v) => [trim($v->VendorCode) => trim($v->VendorCode) . ' - ' . $v->Description])
             ->sort()
             ->toArray());
     }
