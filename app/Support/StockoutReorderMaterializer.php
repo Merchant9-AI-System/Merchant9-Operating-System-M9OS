@@ -33,12 +33,41 @@ use Illuminate\Support\Facades\DB;
  * create_stockout_reorder_qualifying_designs_table utk sejarah kenapa stockout_reorder_candidates
  * [grain per-vendor-per-cawangan] tak lagi sesuai utk tujuan ni selepas re-grain (GROUP BY/HAVING
  * live sbg subquery JOIN ke jemisys_inventory_mirror [481K baris] ambil 55+ saat).
+ *
+ * cursor() + buffer (BUKAN toBase()->get() tunggal) utk main/repair rows - ->get() tetap simpan
+ * SELURUH result set (~131.8K baris) dlm SATU array PHP serentak; cukup besar utk exhaust
+ * memory_limit 512M pd server production (disahkan) walaupun toBase() dah elak overhead hidrat
+ * Eloquent. cursor() stream satu baris pd satu masa drpd DB (guna PDO unbuffered/generator),
+ * jadi memory yg dipegang PHP kekal ~saiz buffer (500 baris) tanpa mengira jumlah keseluruhan -
+ * sama pattern spt App\Jobs\SyncJemisysMirrors::syncInventory() yg dah wujud dlm codebase ni.
+ * Senarai qualifying designs turut dipisah jadi query LANGSUNG (GROUP BY InternalCode sahaja,
+ * bukan derive drpd $rows dlm PHP) - lebih ringan memori. NAMUN kolasi lajur InternalCode
+ * jemisys_inventory_mirror TIDAK PAD SPACE-insensitive spt disangka pd mulanya (disahkan
+ * production: GROUP BY InternalCode sahaja MASIH keluarkan baris berasingan utk variasi padding
+ * mengekor cth. "6018" vs "6018 ") - rujuk materializeQualifyingDesigns() utk insertOrIgnore()
+ * sbg net keselamatan lepas trim() normalize kedua kpd kunci sama.
  */
 class StockoutReorderMaterializer
 {
+    private const INSERT_CHUNK_SIZE = 500;
+
     public static function materialize(): int
     {
-        $rows = InventoryPiece::query()
+        $total = static::materializeCandidates();
+        static::materializeQualifyingDesigns();
+        static::materializeRepairStock();
+
+        return $total;
+    }
+
+    private static function materializeCandidates(): int
+    {
+        StockoutReorderCandidate::truncate();
+
+        $buffer = [];
+        $total = 0;
+
+        InventoryPiece::query()
             ->realVendor()
             ->select([
                 'InternalCode',
@@ -51,59 +80,78 @@ class StockoutReorderMaterializer
                 DB::raw('MAX(SalesDate) as last_sale_date'),
             ])
             ->groupBy('InternalCode', DB::raw('TRIM(VendorCode)'), DB::raw('TRIM(StoreCode)'))
-            // toBase() - elak overhead hidrat setiap 131.8K baris jadi Model InventoryPiece
-            // penuh (146 lajur, casts, dll) - kita cuma perlu attribute mentah utk map() di
-            // bawah, bukan ciri Eloquent. Punca sebenar "memory exhausted" bila cuba get()
-            // Eloquent-hydrated pd grain (VendorCode,StoreCode) yg 3x lebih besar drpd asal.
             ->toBase()
-            ->get()
-            ->map(fn ($r) => [
-                'InternalCode' => $r->InternalCode,
-                'VendorCode' => $r->VendorCode,
-                'StoreCode' => $r->StoreCode,
-                'Description' => $r->Description,
-                'CategoryCode' => $r->CategoryCode,
-                'sold_count' => (int) $r->sold_count,
-                'qty_on_hand' => (int) $r->qty_on_hand,
-                'last_sale_date' => $r->last_sale_date,
-                'synced_at' => now(),
-            ])
-            ->all();
+            ->cursor()
+            ->each(function ($r) use (&$buffer, &$total) {
+                $buffer[] = [
+                    'InternalCode' => $r->InternalCode,
+                    'VendorCode' => $r->VendorCode,
+                    'StoreCode' => $r->StoreCode,
+                    'Description' => $r->Description,
+                    'CategoryCode' => $r->CategoryCode,
+                    'sold_count' => (int) $r->sold_count,
+                    'qty_on_hand' => (int) $r->qty_on_hand,
+                    'last_sale_date' => $r->last_sale_date,
+                    'synced_at' => now(),
+                ];
+                $total++;
 
-        StockoutReorderCandidate::truncate();
+                if (count($buffer) >= self::INSERT_CHUNK_SIZE) {
+                    StockoutReorderCandidate::insert($buffer);
+                    $buffer = [];
+                }
+            });
 
-        // insert() satu batch gergasi boleh lebihi had placeholder statement disediakan MySQL
-        // (1390 "too many placeholders") bila baris banyak - chunk 500 baris x 9 lajur = selamat.
-        foreach (array_chunk($rows, 500) as $chunk) {
-            StockoutReorderCandidate::insert($chunk);
+        if ($buffer !== []) {
+            StockoutReorderCandidate::insert($buffer);
         }
 
-        // Senarai InternalCode layak ikut definisi LALAI (semua vendor/cawangan) - dikira
-        // terus drpd $rows yg dah ada dlm memori (bukan query DB tambahan). Jadual kecil
-        // unik-key ni SEMATA-MATA sumber semi-join murah utk
-        // BestSellerLostOpportunityCalculator (rujuk migration create_stockout_reorder_
-        // qualifying_designs_table utk sejarah kenapa stockout_reorder_candidates [grain
-        // per-vendor-per-cawangan] tak lagi sesuai utk tujuan ni selepas re-grain).
-        // groupBy() guna closure trim() (bukan 'InternalCode' terus) - MySQL GROUP BY
-        // InternalCode di atas guna PAD SPACE collation (ruang mengekor diabaikan bila banding),
-        // jadi baris utk SATU design boleh keluar dgn variasi padding berbeza (cth. "6018" &
-        // "6018 ") merentasi sub-group VendorCode/StoreCode berlainan - PHP groupBy() banding
-        // byte-tepat, jadi tanpa trim() ni jadi 2 kunci berlainan yg lepas insert jadi
-        // "Duplicate entry" (PK InternalCode jadual ni turut guna PAD SPACE MySQL).
-        $qualifyingCodes = collect($rows)
-            ->groupBy(fn (array $r) => trim((string) $r['InternalCode']))
-            ->filter(fn ($group) => $group->sum('sold_count') >= 3 && $group->sum('qty_on_hand') === 0)
-            ->keys()
-            ->map(fn ($code) => ['InternalCode' => $code, 'synced_at' => now()])
-            ->all();
+        return $total;
+    }
 
+    /**
+     * Query BERASINGAN drpd materializeCandidates() - GROUP BY InternalCode SAHAJA (bukan
+     * derive drpd baris (InternalCode,VendorCode,StoreCode) dlm memori PHP). NAMUN: MySQL GROUP
+     * BY InternalCode SAHAJA TIDAK menyatukan variasi padding whitespace mengekor (cth.
+     * "6018" vs "6018 ") - disahkan production hasilkan baris x2 utk kod sama lepas trim()
+     * (kolasi lajur ni bukan PAD SPACE-insensitive spt disangka). trim() di sini NORMALKAN kedua
+     * variasi jadi kunci sama - itu punca conflict, bukan bug - insertOrIgnore() (bukan insert())
+     * jadi net keselamatan supaya baris pendua (lepas trim) senyap diabaikan, bukan crash.
+     */
+    private static function materializeQualifyingDesigns(): void
+    {
         StockoutReorderQualifyingDesign::truncate();
 
-        foreach (array_chunk($qualifyingCodes, 500) as $chunk) {
-            StockoutReorderQualifyingDesign::insert($chunk);
-        }
+        $buffer = [];
 
-        $repairRows = InventoryPiece::query()
+        InventoryPiece::query()
+            ->realVendor()
+            ->select('InternalCode')
+            ->groupBy('InternalCode')
+            ->havingRaw('SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) >= 3 AND SUM(QtyOnHand) = 0')
+            ->toBase()
+            ->cursor()
+            ->each(function ($r) use (&$buffer) {
+                $buffer[] = ['InternalCode' => trim($r->InternalCode), 'synced_at' => now()];
+
+                if (count($buffer) >= self::INSERT_CHUNK_SIZE) {
+                    StockoutReorderQualifyingDesign::insertOrIgnore($buffer);
+                    $buffer = [];
+                }
+            });
+
+        if ($buffer !== []) {
+            StockoutReorderQualifyingDesign::insertOrIgnore($buffer);
+        }
+    }
+
+    private static function materializeRepairStock(): void
+    {
+        StockoutReorderRepairStock::truncate();
+
+        $buffer = [];
+
+        InventoryPiece::query()
             ->whereRaw("TRIM(VendorCode) = '.'")
             ->select([
                 'InternalCode',
@@ -112,21 +160,23 @@ class StockoutReorderMaterializer
             ])
             ->groupBy('InternalCode', DB::raw('TRIM(StoreCode)'))
             ->toBase()
-            ->get()
-            ->map(fn ($r) => [
-                'InternalCode' => $r->InternalCode,
-                'StoreCode' => $r->StoreCode,
-                'repair_qty' => (int) $r->repair_qty,
-                'synced_at' => now(),
-            ])
-            ->all();
+            ->cursor()
+            ->each(function ($r) use (&$buffer) {
+                $buffer[] = [
+                    'InternalCode' => $r->InternalCode,
+                    'StoreCode' => $r->StoreCode,
+                    'repair_qty' => (int) $r->repair_qty,
+                    'synced_at' => now(),
+                ];
 
-        StockoutReorderRepairStock::truncate();
+                if (count($buffer) >= self::INSERT_CHUNK_SIZE) {
+                    StockoutReorderRepairStock::insert($buffer);
+                    $buffer = [];
+                }
+            });
 
-        foreach (array_chunk($repairRows, 500) as $chunk) {
-            StockoutReorderRepairStock::insert($chunk);
+        if ($buffer !== []) {
+            StockoutReorderRepairStock::insert($buffer);
         }
-
-        return count($rows);
     }
 }
