@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 /**
  * "Daily Company Asset Position" - lapisan kawalan/reconciliation harian yg dikeyin accountant
@@ -18,7 +20,7 @@ use Illuminate\Support\Facades\Auth;
  */
 class DailyAssetPosition extends Model
 {
-    use HasFactory;
+    use HasFactory, LogsActivity;
 
     // protected $guarded = [];
 
@@ -108,6 +110,12 @@ class DailyAssetPosition extends Model
                 $entry->writeAudit('updated', $changes);
             }
         });
+    }
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logAll();
     }
 
     protected function writeAudit(string $action, array $changes): void

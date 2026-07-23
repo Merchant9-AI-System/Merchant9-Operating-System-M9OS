@@ -5,9 +5,13 @@ namespace App\Models;
 use App\Models\Jemisys\Category;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class BudgetPeriod extends Model
 {
+    use LogsActivity;
+
     protected $guarded = [];
 
     protected $casts = [
@@ -17,6 +21,12 @@ class BudgetPeriod extends Model
     public function category()
     {
         return $this->belongsTo(Category::class, 'category_code', 'CategoryCode');
+    }
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logAll();
     }
 
     /**

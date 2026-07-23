@@ -3,9 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class StockTransfer extends Model
 {
+    use LogsActivity;
+
     public const STATUS_REQUESTED = 'Requested';
 
     public const STATUS_IN_TRANSIT = 'In Transit';
@@ -36,6 +40,12 @@ class StockTransfer extends Model
         });
     }
 
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logAll();
+    }
+
     public static function generateTransferNumber(): string
     {
         $year = now()->year;
@@ -48,8 +58,11 @@ class StockTransfer extends Model
     public function advance(string $actor): void
     {
         $idx = array_search($this->status, self::STATUS_FLOW, true);
-        abort_if($idx === false || $idx >= count(self::STATUS_FLOW) - 1, 422,
-            'Transfer ni tak boleh dinaikkan status lagi.');
+        abort_if(
+            $idx === false || $idx >= count(self::STATUS_FLOW) - 1,
+            422,
+            'Transfer ni tak boleh dinaikkan status lagi.'
+        );
 
         $next = self::STATUS_FLOW[$idx + 1];
         $update = ['status' => $next];

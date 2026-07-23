@@ -2,6 +2,9 @@
 
 namespace App\Providers\Filament;
 
+use AlizHarb\ActivityLog\ActivityLogPlugin;
+use AlizHarb\ActivityLog\Widgets\ActivityChartWidget;
+use AlizHarb\ActivityLog\Widgets\LatestActivityWidget;
 use App\Filament\Widgets\ActionAlerts;
 use App\Filament\Widgets\BranchHealthTable;
 use App\Filament\Widgets\CapitalAgingChart;
@@ -110,6 +113,11 @@ class AdminPanelProvider extends PanelProvider
                 DispatchServingFilamentEvent::class,
             ])
             ->plugins([
+                ActivityLogPlugin::make()
+                    ->label('Log')
+                    ->pluralLabel('Logs')
+                    ->navigationGroup('Data Management'),
+                // ->cluster('System'),
                 FilamentShieldPlugin::make()
                     ->navigationLabel('Roles')
                     ->navigationGroup('Data Management')
@@ -132,5 +140,13 @@ class AdminPanelProvider extends PanelProvider
             ->authMiddleware([
                 Authenticate::class,
             ]);
+    }
+
+    public function getWidgets(): array
+    {
+        return [
+            LatestActivityWidget::class,
+            ActivityChartWidget::class,
+        ];
     }
 }

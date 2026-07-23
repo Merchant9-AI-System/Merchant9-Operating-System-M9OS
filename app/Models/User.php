@@ -11,6 +11,8 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Permission\Traits\HasRoles;
 
 #[Fillable(['name', 'email', 'password'])]
@@ -18,15 +20,8 @@ use Spatie\Permission\Traits\HasRoles;
 class User extends Authenticatable implements FilamentUser
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, HasRoles, Notifiable;
-
-    public function canAccessPanel(Panel $panel): bool
-    {
-        // Semua staff berdaftar boleh log masuk; kawalan ciri ikut role
-        // (manager/buyer/staff) dikendalikan pada setiap Resource/Widget (§7 plan).
-        return true;
-    }
-
+    use HasFactory, HasRoles, Notifiable, LogsActivity;
+    
     /**
      * Get the attributes that should be cast.
      *
@@ -38,6 +33,17 @@ class User extends Authenticatable implements FilamentUser
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logAll();
+    }
+
+    public function canAccessPanel(Panel $panel): bool
+    {
+        return true;
     }
 
     public function isSuperAdmin(): bool

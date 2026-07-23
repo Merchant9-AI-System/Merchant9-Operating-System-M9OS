@@ -5,10 +5,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class PurchaseOrder extends Model
 {
-    use HasFactory;
+    use HasFactory, LogsActivity;
 
     public const STATUS_DRAFT = 'Draft';
 
@@ -62,9 +64,15 @@ class PurchaseOrder extends Model
         return $this->hasMany(GoodsReceipt::class);
     }
 
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logAll();
+    }
+
     public function getTotalAmountAttribute(): float
     {
-        return $this->lines->sum(fn ($l) => $l->qty_ordered * $l->unit_cost);
+        return $this->lines->sum(fn($l) => $l->qty_ordered * $l->unit_cost);
     }
 
     public function getTotalOrderedAttribute(): int
@@ -79,7 +87,7 @@ class PurchaseOrder extends Model
 
     public function isFullyReceived(): bool
     {
-        return $this->lines->every(fn ($l) => $l->qty_received >= $l->qty_ordered);
+        return $this->lines->every(fn($l) => $l->qty_received >= $l->qty_ordered);
     }
 
     public function hasPartialReceipt(): bool
