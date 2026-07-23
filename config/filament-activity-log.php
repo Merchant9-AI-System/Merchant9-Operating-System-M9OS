@@ -7,6 +7,7 @@ use AlizHarb\ActivityLog\Widgets\ActivityChartWidget;
 use AlizHarb\ActivityLog\Widgets\ActivityHeatmapWidget;
 use AlizHarb\ActivityLog\Widgets\ActivityStatsWidget;
 use AlizHarb\ActivityLog\Widgets\LatestActivityWidget;
+use App\Authorizer\ActivityLogAuthorizer;
 
 return [
     /*
@@ -227,7 +228,7 @@ return [
          *
          * Example: 'App\Support\ActivityLogAuthorization' (class with __invoke(User $user): bool)
          */
-        'custom_authorization' => null,
+        'custom_authorization' => ActivityLogAuthorizer::class,
 
         'view_any' => 'view_any_activity',
         'view' => 'view_activity',

@@ -142,11 +142,11 @@ class AdminPanelProvider extends PanelProvider
             ]);
     }
 
-    public function getWidgets(): array
-    {
-        return [
-            LatestActivityWidget::class,
-            ActivityChartWidget::class,
-        ];
-    }
+    // public function getWidgets(): array
+    // {
+    //     return [
+    //         LatestActivityWidget::class,
+    //         ActivityChartWidget::class,
+    //     ];
+    // }
 }
