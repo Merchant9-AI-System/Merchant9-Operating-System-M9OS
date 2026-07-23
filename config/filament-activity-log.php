@@ -267,20 +267,20 @@ return [
     |
     */
     'widgets' => [
-        'enabled' => true,
+        'enabled' => false,
         'dashboard' => false,
         'widgets' => [
-            ActivityChartWidget::class,
-            LatestActivityWidget::class,
-            ActivityHeatmapWidget::class,
-            ActivityStatsWidget::class,
+            // ActivityChartWidget::class,
+            // LatestActivityWidget::class,
+            // ActivityHeatmapWidget::class,
+            // ActivityStatsWidget::class,
         ],
 
         /**
          * Activity Chart Widget Configuration
          */
         'activity_chart' => [
-            'enabled' => true,
+            'enabled' => false,
             'heading' => 'Activity Over Time',
             'sort' => 1,
             'max_height' => '300px',
@@ -314,7 +314,7 @@ return [
          * Latest Activity Widget Configuration
          */
         'latest_activity' => [
-            'enabled' => true,
+            'enabled' => false,
             'heading' => null, // null uses translation key
             'sort' => 2,
             'polling_interval' => null, // e.g., '10s', '1m', null to disable
