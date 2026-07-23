@@ -141,12 +141,4 @@ class AdminPanelProvider extends PanelProvider
                 Authenticate::class,
             ]);
     }
-
-    // public function getWidgets(): array
-    // {
-    //     return [
-    //         LatestActivityWidget::class,
-    //         ActivityChartWidget::class,
-    //     ];
-    // }
 }

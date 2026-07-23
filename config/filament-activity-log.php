@@ -268,7 +268,7 @@ return [
     */
     'widgets' => [
         'enabled' => true,
-        'dashboard' => true,
+        'dashboard' => false,
         'widgets' => [
             ActivityChartWidget::class,
             LatestActivityWidget::class,
