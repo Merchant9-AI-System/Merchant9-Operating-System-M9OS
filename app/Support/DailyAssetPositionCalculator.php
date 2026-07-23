@@ -60,6 +60,7 @@ class DailyAssetPositionCalculator
             'net_weight' => (float) $latest->net_weight,
             'total_cash_bank' => $totalCashBank,
             'available_cash' => (float) $latest->available_cash,
+            'cash_for_gb' => (float) $latest->cash_for_gb,
             'supplier_hutang' => (float) $latest->supplier_hutang,
             'supplier_overpaid' => (float) $latest->supplier_overpaid,
             'stock_movement_difference' => $stockMovementDifference,
@@ -71,7 +72,7 @@ class DailyAssetPositionCalculator
     /**
      * Siri harian (menaik ikut tarikh) utk chart trend - N hari kebelakangan drpd rekod terkini.
      *
-     * @return Collection<int, array{entry_date: Carbon, closing_stock: float, sales: float, available_cash: float, supplier_hutang: float, supplier_overpaid: float}>
+     * @return Collection<int, array{entry_date: Carbon, closing_stock: float, sales: float, available_cash: float, cash_for_gb: float, supplier_hutang: float, supplier_overpaid: float}>
      */
     public static function trend(int $days = 30): Collection
     {
@@ -86,6 +87,7 @@ class DailyAssetPositionCalculator
                 'closing_stock' => (float) $r->closing_stock,
                 'sales' => (float) $r->sales,
                 'available_cash' => (float) $r->available_cash,
+                'cash_for_gb' => (float) $r->cash_for_gb,
                 'supplier_hutang' => (float) $r->supplier_hutang,
                 'supplier_overpaid' => (float) $r->supplier_overpaid,
             ]);

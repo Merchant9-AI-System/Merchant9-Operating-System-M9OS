@@ -25,6 +25,7 @@ class DailyAssetPositionInfolist
                             TextEntry::make('total_stock_in')->label('Total Stock In')->numeric(2)->suffix(' g')->color('success'),
                             TextEntry::make('total_stock_out')->label('Total Stock Out')->numeric(2)->suffix(' g')->color('danger'),
                             TextEntry::make('available_cash')->label('Available Cash')->money('MYR'),
+                            TextEntry::make('cash_for_gb')->label('Cash For GB')->money('MYR'),
                             TextEntry::make('mismatch')
                                 ->label('Status')
                                 ->state(fn (DailyAssetPosition $r) => $r->hasAnyMismatch() ? 'Ada Mismatch' : 'Sepadan')

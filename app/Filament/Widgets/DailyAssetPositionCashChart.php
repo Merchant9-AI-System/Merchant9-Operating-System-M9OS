@@ -26,6 +26,12 @@ class DailyAssetPositionCashChart extends ChartWidget
                     'borderColor' => '#1D9E75',
                     'backgroundColor' => '#1D9E75',
                 ],
+                [
+                    'label' => 'Cash For GB (RM)',
+                    'data' => $trend->pluck('cash_for_gb')->all(),
+                    'borderColor' => '#B45309',
+                    'backgroundColor' => '#B45309',
+                ],
             ],
             'labels' => $trend->pluck('entry_date')->map(fn ($d) => $d->format('d/m'))->all(),
         ];

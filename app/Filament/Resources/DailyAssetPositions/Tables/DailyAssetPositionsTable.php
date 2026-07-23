@@ -27,6 +27,7 @@ class DailyAssetPositionsTable
                 TextColumn::make('closing_stock')->label('Closing (g)')->numeric(2)->sortable(),
                 TextColumn::make('net_weight')->label('Net Weight (g)')->numeric(2)->sortable(),
                 TextColumn::make('available_cash')->label('Available Cash')->money('MYR')->sortable(),
+                TextColumn::make('cash_for_gb')->label('Cash For GB')->money('MYR')->sortable()->toggleable(),
                 TextColumn::make('supplier_hutang')->label('Hutang (g)')->numeric(2)->toggleable(),
                 TextColumn::make('supplier_overpaid')->label('Overpaid (g)')->numeric(2)->toggleable(),
                 IconColumn::make('mismatch')

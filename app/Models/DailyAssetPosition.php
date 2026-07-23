@@ -48,6 +48,7 @@ class DailyAssetPosition extends Model
         'od_affin',
         'locked_gold_bar',
         'available_cash',
+        'cash_for_gb',
         'notes',
         'created_by',
         'updated_by',
@@ -80,10 +81,21 @@ class DailyAssetPosition extends Model
         'od_affin' => 'decimal:2',
         'locked_gold_bar' => 'decimal:2',
         'available_cash' => 'decimal:2',
+        'cash_for_gb' => 'decimal:2',
     ];
 
     /** Toleransi bulat float utk banding mismatch (elak false-positive drpd floating point). */
     private const EPSILON = 0.005;
+
+    /**
+     * Rizab tetap ditolak drpd Available Cash utk dapatkan "Cash For GB" - bukan drpd medan
+     * borang mana-mana (cth. BUKAN medan "Cash"). Dikongsi dgn DailyAssetPositionForm supaya
+     * preview borang & nilai simpanan sentiasa selari (rujuk App\Filament\Resources\
+     * DailyAssetPositions\Schemas\DailyAssetPositionForm::availableCash()).
+     */
+    public const CASH_FOR_GB_RESERVE_WORKING_CAPITAL = 600000.0;
+
+    public const CASH_FOR_GB_RESERVE_FIXED = 1000000.0;
 
     protected static function booted(): void
     {
@@ -92,6 +104,7 @@ class DailyAssetPosition extends Model
             $entry->total_stock_out = $entry->calculateTotalStockOut();
             $entry->net_weight = $entry->calculateNetWeight();
             $entry->available_cash = $entry->calculateAvailableCash();
+            $entry->cash_for_gb = $entry->calculateCashForGb();
         });
 
         static::created(function (DailyAssetPosition $entry) {
@@ -167,9 +180,20 @@ class DailyAssetPosition extends Model
 
     public function calculateAvailableCash(): float
     {
+        // affin_rm: Affin FD RM.
         return round(
             (float) $this->ambank_balance + (float) $this->affin_balance + (float) $this->cash
-            + (float) $this->affin_rm - (float) $this->od_affin - (float) $this->locked_gold_bar,
+            - (float) $this->affin_rm - (float) $this->od_affin - (float) $this->locked_gold_bar,
+            2
+        );
+    }
+
+    public function calculateCashForGb(): float
+    {
+        return round(
+            $this->calculateAvailableCash()
+            - self::CASH_FOR_GB_RESERVE_WORKING_CAPITAL
+            - self::CASH_FOR_GB_RESERVE_FIXED,
             2
         );
     }

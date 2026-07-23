@@ -38,6 +38,7 @@ class DailyAssetPositionSummary extends StatsOverviewWidget
             Stat::make('Net Weight', number_format($s['net_weight'], 3).' g'),
             Stat::make('Total Cash / Bank', 'RM '.number_format($s['total_cash_bank'], 2)),
             Stat::make('Available Cash', 'RM '.number_format($s['available_cash'], 2)),
+            Stat::make('Cash For GB', 'RM '.number_format($s['cash_for_gb'], 2)),
             Stat::make('Supplier Hutang', number_format($s['supplier_hutang'], 3).' g')
                 ->color($s['supplier_hutang'] > 0 ? 'warning' : 'gray'),
             Stat::make('Supplier Overpaid', number_format($s['supplier_overpaid'], 3).' g')

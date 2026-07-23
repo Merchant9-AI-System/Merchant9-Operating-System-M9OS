@@ -118,19 +118,13 @@ class DailyAssetPositionForm
                             TextInput::make('locked_gold_bar')->label('Unpaid Gold Bar RM')->numeric()->placeholder(0)->required(),
                         ]),
                         Placeholder::make('available_cash_preview')
-                            ->label('Available Cash (auto = Amb + afb balance + cash - afb FD - OD - unpaid)') // Ambank Balance + Affin Balance + Cash + Affin FD - OD - Unpaid Gold Bar
+                            ->label('Available Cash (auto = Amb + afb balance + cash - afb FD - OD - unpaid)') // Ambank Balance + Affin Balance + Cash - Affin FD - OD - Unpaid Gold Bar
                             ->live()
                             ->content(fn (Get $get) => 'RM '.number_format(static::availableCash($get), 2)),
                         Placeholder::make('available_cash_for_gb_preview')
-                            ->label('Cash For GB (auto = Available Cash - 600k - Cash)')
+                            ->label('Cash For GB (auto = Available Cash - RM600k - RM1,000,000)')
                             ->live()
-                            ->content(function (Get $get) {
-                                $cashForGb = static::availableCash($get)
-                                    - (float) (600000 ?? 0) // RM 600k
-                                    - (float) (1000000 ?? 0); // RM 1J
-
-                                return 'RM '.number_format($cashForGb, 2);
-                            }),
+                            ->content(fn (Get $get) => 'RM '.number_format(static::cashForGb($get), 2)),
                     ]),
 
                 Section::make('Stok Penutup & Baki Bersih')
@@ -225,6 +219,17 @@ class DailyAssetPositionForm
             - (float) ($get('affin_rm') ?? 0)
             - (float) ($get('od_affin') ?? 0)
             - (float) ($get('locked_gold_bar') ?? 0);
+    }
+
+    /** Sepadan App\Models\DailyAssetPosition::calculateCashForGb() - rizab dikongsi drpd konstanta model. */
+    private static function cashForGb(Get $get): float
+    {
+        return round(
+            static::availableCash($get)
+            - DailyAssetPosition::CASH_FOR_GB_RESERVE_WORKING_CAPITAL
+            - DailyAssetPosition::CASH_FOR_GB_RESERVE_FIXED,
+            2
+        );
     }
 
     private static function hasMismatch(Get $get): bool
