@@ -129,16 +129,14 @@ class StockRearrangementRecommendation extends Page implements HasTable
                 );
             })
             ->columns([
-                // ImageColumn::make('InternalCodeImage')
-                //     ->label('Imej')
-                //     ->state(fn ($record) => ProductImageFetcher::firstImageUrlFor($record->internal_code))
-                //     // ->imageHeight(40)
-                //     ->circular()
-                //     ->stacked()
-                //     ->extraImgAttributes(['loading' => 'lazy'])
-                //     ->url(fn ($record) => ProductImageFetcher::firstImageUrlFor($record->internal_code))
-                //     ->openUrlInNewTab()
-                //     ->placeholder('No image'),
+                ImageColumn::make('InternalCodeImage')
+                    ->label('Imej')
+                    ->state(fn ($record) => ProductImageFetcher::firstImageUrlFor($record->internal_code))
+                    ->imageHeight(50)
+                    ->extraImgAttributes(['loading' => 'lazy'])
+                    ->url(fn ($record) => ProductImageFetcher::firstImageUrlFor($record->internal_code))
+                    ->openUrlInNewTab()
+                    ->placeholder('No image'),
                 TextColumn::make('from_branch')->label('From Branch')->badge()->color('success'),
                 TextColumn::make('to_branch')->label('To Branch')->badge()->color('danger'),
                 TextColumn::make('internal_code')->label('Design / SKU')->searchable(isIndividual: true),

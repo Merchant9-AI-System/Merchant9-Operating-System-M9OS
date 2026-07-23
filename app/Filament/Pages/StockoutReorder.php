@@ -9,11 +9,13 @@ use App\Models\Jemisys\Category;
 use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
 use App\Models\StockoutReorderCandidate;
+use App\Support\ProductImageFetcher;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\ExportAction;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
@@ -95,6 +97,14 @@ class StockoutReorder extends Page implements HasTable
         return $table
             ->query(fn (): Builder => self::baseQuery())
             ->columns([
+                ImageColumn::make('InternalCodeImage')
+                    ->label('Imej')
+                    ->state(fn (StockoutReorderCandidate $record) => ProductImageFetcher::firstImageUrlFor($record->InternalCode))
+                    ->imageHeight(50)
+                    ->extraImgAttributes(['loading' => 'lazy'])
+                    ->url(fn (?string $state): ?string => $state)
+                    ->openUrlInNewTab()
+                    ->placeholder('No image'),
                 TextColumn::make('InternalCode')->label('Kod Design')->searchable()->sortable(),
                 TextColumn::make('sold_count')->label('Pernah Terjual')->numeric()->sortable()->badge()->color('danger'),
                 TextColumn::make('Description')->label('Jenis Item')->limit(30)->searchable()->sortable(),

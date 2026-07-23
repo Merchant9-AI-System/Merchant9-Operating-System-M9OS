@@ -23,7 +23,7 @@ use Illuminate\Support\HtmlString;
  */
 class DailyAssetPositionForm
 {
-    private const STOCK_IN_FIELDS = ['new_stock', 'used_gold', 'gold_bar', 'unreceived_bar', 'loan_received'];
+    private const STOCK_IN_FIELDS = ['new_stock', 'used_gold', 'gold_bar', 'unpaid_unreceived_bar', 'paid_unreceived_bar', 'loan_received'];
 
     private const STOCK_OUT_FIELDS = ['sales', 'payment_to_supplier', 'stock_out_return', 'loss_from_melting', 'loan_out'];
 
@@ -39,6 +39,7 @@ class DailyAssetPositionForm
                                 ->required()
                                 ->live()
                                 ->unique(ignoreRecord: true)
+                                // ->min()
                                 ->default(now())
                                 ->afterStateUpdated(function (Get $get, $set) {
                                     // Auto isi opening stock drpd closing stock rekod terdekat sebelum tarikh ni,
@@ -52,7 +53,7 @@ class DailyAssetPositionForm
                                 ->numeric()
                                 ->required()
                                 ->live(onBlur: true)
-                                ->default(fn () => DailyAssetPosition::closingStockBefore(null) ?? 0),
+                                ->placeholder(fn () => DailyAssetPosition::closingStockBefore(null) ?? 0),
                         ]),
                         Placeholder::make('opening_stock_mismatch_warning')
                             ->label('')
@@ -72,36 +73,64 @@ class DailyAssetPositionForm
                             })
                             ->visible(fn (Get $get) => $get('opening_stock_weight') !== null),
                     ])
-                    ->columns(1),
+                    ->columns(1)
+                    ->columnSpan('full'),
 
                 Section::make('Stok Masuk (Stock In)')
                     ->schema([
                         Grid::make(3)->schema([
-                            TextInput::make('new_stock')->label('New Stock (g)')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('used_gold')->label('Used Gold (g)')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('gold_bar')->label('Gold Bar (g)')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('unreceived_bar')->label('Unreceived Bar (g)')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('loan_received')->label('Loan Received (g)')->numeric()->default(0)->required()->live(onBlur: true),
+                            TextInput::make('new_stock')->label('New Stock (g)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('used_gold')->label('Used Gold (g)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('gold_bar')->label('Gold Bar (g)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('unpaid_unreceived_bar')->label('Unpaid Unreceived Bar (g)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('paid_unreceived_bar')->label('Paid Unreceived Bar (g)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('loan_received')->label('Loan Received (g)')->numeric()->placeholder(0)->required()->live(onBlur: true),
                         ]),
                         Placeholder::make('total_stock_in_preview')
                             ->label('Total Stock In (auto)')
                             ->live()
-                            ->content(fn (Get $get) => number_format(static::sum($get, self::STOCK_IN_FIELDS), 3).' g'),
+                            ->content(fn (Get $get) => number_format(static::sum($get, self::STOCK_IN_FIELDS), 2).' g'),
                     ]),
 
                 Section::make('Stok Keluar (Stock Out)')
                     ->schema([
                         Grid::make(3)->schema([
-                            TextInput::make('sales')->label('Sales (g)')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('payment_to_supplier')->label('Payment To Supplier (g)')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('stock_out_return')->label('Stock Out / Return (g)')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('loss_from_melting')->label('Loss From Melting (g)')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('loan_out')->label('Loan Out (g)')->numeric()->default(0)->required()->live(onBlur: true),
+                            TextInput::make('sales')->label('Sales (g)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('payment_to_supplier')->label('Payment To Supplier (g)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('stock_out_return')->label('Stock Out / Return (g)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('loss_from_melting')->label('Loss From Melting (g)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('loan_out')->label('Loan Out (g)')->numeric()->placeholder(0)->required()->live(onBlur: true),
                         ]),
                         Placeholder::make('total_stock_out_preview')
                             ->label('Total Stock Out (auto)')
                             ->live()
-                            ->content(fn (Get $get) => number_format(static::sum($get, self::STOCK_OUT_FIELDS), 3).' g'),
+                            ->content(fn (Get $get) => number_format(static::sum($get, self::STOCK_OUT_FIELDS), 2).' g'),
+                    ]),
+
+                Section::make('Tunai & Bank (RM)')
+                    ->schema([
+                        Grid::make(3)->schema([
+                            TextInput::make('ambank_balance')->label('Ambank Balance (RM)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('affin_balance')->label('Affin Balance (RM)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('cash')->label('Cash (RM)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('affin_rm')->label('Affin FD RM')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('od_affin')->label('Affin OD (RM)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('locked_gold_bar')->label('Unpaid Gold Bar RM')->numeric()->placeholder(0)->required(),
+                        ]),
+                        Placeholder::make('available_cash_preview')
+                            ->label('Available Cash (auto = Amb + afb balance + cash - afb FD - OD - unpaid)') // Ambank Balance + Affin Balance + Cash + Affin FD - OD - Unpaid Gold Bar
+                            ->live()
+                            ->content(fn (Get $get) => 'RM '.number_format(static::availableCash($get), 2)),
+                        Placeholder::make('available_cash_for_gb_preview')
+                            ->label('Cash For GB (auto = Available Cash - 600k - Cash)')
+                            ->live()
+                            ->content(function (Get $get) {
+                                $cashForGb = static::availableCash($get)
+                                    - (float) (600000 ?? 0) // RM 600k
+                                    - (float) (1000000 ?? 0); // RM 1J
+
+                                return 'RM '.number_format($cashForGb, 2);
+                            }),
                     ]),
 
                 Section::make('Stok Penutup & Baki Bersih')
@@ -112,8 +141,8 @@ class DailyAssetPositionForm
                                 ->numeric()
                                 ->required()
                                 ->live(onBlur: true),
-                            TextInput::make('supplier_hutang')->label('Supplier Hutang (g)')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('supplier_overpaid')->label('Supplier Overpaid (g)')->numeric()->default(0)->required()->live(onBlur: true),
+                            TextInput::make('supplier_hutang')->label('Supplier Hutang (g)')->numeric()->placeholder(0)->required()->live(onBlur: true),
+                            TextInput::make('supplier_overpaid')->label('Supplier Overpaid (g)')->numeric()->placeholder(0)->required()->live(onBlur: true),
                         ]),
                         Placeholder::make('closing_stock_computed_preview')
                             ->label('Closing Stock ikut formula (Opening + In - Out)')
@@ -123,7 +152,7 @@ class DailyAssetPositionForm
                                     + static::sum($get, self::STOCK_IN_FIELDS)
                                     - static::sum($get, self::STOCK_OUT_FIELDS);
 
-                                return number_format($computed, 3).' g';
+                                return number_format($computed, 2).' g';
                             }),
                         Placeholder::make('closing_stock_mismatch_warning')
                             ->label('')
@@ -140,8 +169,8 @@ class DailyAssetPositionForm
 
                                 return new HtmlString(
                                     '<span class="text-sm text-warning-600 font-medium">⚠️ Closing stock yg dikeyin ('.
-                                    number_format($keyed, 3).'g) tak sepadan dgn pengiraan formula ('.
-                                    number_format($computed, 3).'g). Sila isi Notes utk terangkan sebab (cth. timbang semula fizikal).</span>'
+                                    number_format($keyed, 2).'g) tak sepadan dgn pengiraan formula ('.
+                                    number_format($computed, 2).'g). Sila isi Notes utk terangkan sebab (cth. timbang semula fizikal).</span>'
                                 );
                             }),
                         Placeholder::make('net_weight_preview')
@@ -152,31 +181,7 @@ class DailyAssetPositionForm
                                     - (float) ($get('supplier_hutang') ?? 0)
                                     + (float) ($get('supplier_overpaid') ?? 0);
 
-                                return number_format($net, 3).' g';
-                            }),
-                    ]),
-
-                Section::make('Tunai & Bank (RM)')
-                    ->schema([
-                        Grid::make(3)->schema([
-                            TextInput::make('ambank_balance')->label('Ambank Balance (RM)')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('affin_balance')->label('Affin Balance (RM)')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('cash')->label('Cash (RM)')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('affin_rm')->label('Affin RM')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('od_affin')->label('OD Affin (RM)')->numeric()->default(0)->required()->live(onBlur: true),
-                            TextInput::make('locked_gold_bar')->label('Locked Gold Bar (g)')->numeric()->default(0)->required(),
-                        ]),
-                        Placeholder::make('available_cash_preview')
-                            ->label('Available Cash (auto = Ambank + Affin + Cash + Affin RM - OD Affin)')
-                            ->live()
-                            ->content(function (Get $get) {
-                                $cash = (float) ($get('ambank_balance') ?? 0)
-                                    + (float) ($get('affin_balance') ?? 0)
-                                    + (float) ($get('cash') ?? 0)
-                                    + (float) ($get('affin_rm') ?? 0)
-                                    - (float) ($get('od_affin') ?? 0);
-
-                                return 'RM '.number_format($cash, 2);
+                                return number_format($net, 2).' g';
                             }),
                     ]),
 
@@ -189,17 +194,37 @@ class DailyAssetPositionForm
                             ->helperText('Wajib diisi jika ada amaran mismatch di atas.'),
                         TextInput::make('created_by')
                             ->label('Created By')
+                            ->readOnly()
                             ->default(fn () => Auth::user()?->name)
                             ->required()
                             ->disabledOn('edit')
                             ->dehydrated(),
-                    ]),
+                    ])
+                    ->columnSpan('full'),
             ]);
     }
 
     private static function sum(Get $get, array $fields): float
     {
         return array_sum(array_map(fn ($f) => (float) ($get($f) ?? 0), $fields));
+    }
+
+    /**
+     * Dikongsi antara 'available_cash_preview' & 'available_cash_for_gb_preview' - JANGAN cuba
+     * $get() nilai Placeholder lain (cth. $get('available_cash_preview')), Placeholder tak
+     * daftar apa-apa dlm state borang (cuma paparan, bukan medan input) - $get() atas nama
+     * Placeholder sentiasa pulangkan null/0 senyap (punca bug asal "Cash For GB" - formula
+     * runtuh jadi 0 - od_affin - cash tanpa ralat). Sepadan App\Models\DailyAssetPosition::
+     * calculateAvailableCash() - KEKALKAN kedua-duanya selari bila formula berubah.
+     */
+    private static function availableCash(Get $get): float
+    {
+        return (float) ($get('ambank_balance') ?? 0)
+            + (float) ($get('affin_balance') ?? 0)
+            + (float) ($get('cash') ?? 0)
+            - (float) ($get('affin_rm') ?? 0)
+            - (float) ($get('od_affin') ?? 0)
+            - (float) ($get('locked_gold_bar') ?? 0);
     }
 
     private static function hasMismatch(Get $get): bool

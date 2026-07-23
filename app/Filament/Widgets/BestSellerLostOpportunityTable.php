@@ -3,7 +3,9 @@
 namespace App\Filament\Widgets;
 
 use App\Support\BestSellerLostOpportunityCalculator;
+use App\Support\ProductImageFetcher;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
+use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
@@ -27,6 +29,14 @@ class BestSellerLostOpportunityTable extends TableWidget
         return $table
             ->records(fn () => BestSellerLostOpportunityCalculator::summary()['top10']->all())
             ->columns([
+                ImageColumn::make('InternalCodeImage')
+                    ->label('Imej')
+                    ->state(fn (array $record) => ProductImageFetcher::firstImageUrlFor($record['internal_code']))
+                    ->imageHeight(50)
+                    ->extraImgAttributes(['loading' => 'lazy'])
+                    ->url(fn (?string $state): ?string => $state)
+                    ->openUrlInNewTab()
+                    ->placeholder('No image'),
                 TextColumn::make('internal_code')->label('Kod Design'),
                 TextColumn::make('sold_count')->label('Pernah Terjual')->numeric()->badge()->color('danger'),
                 TextColumn::make('description')->label('Jenis Item')->limit(30),

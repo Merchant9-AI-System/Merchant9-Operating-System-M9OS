@@ -21,14 +21,14 @@ class DailyAssetPositionsTable
         return $table
             ->columns([
                 TextColumn::make('entry_date')->label('Tarikh')->date('d/m/Y')->sortable(),
-                TextColumn::make('opening_stock_weight')->label('Opening (g)')->numeric(3)->toggleable(),
-                TextColumn::make('total_stock_in')->label('In (g)')->numeric(3)->color('success')->toggleable(),
-                TextColumn::make('total_stock_out')->label('Out (g)')->numeric(3)->color('danger')->toggleable(),
-                TextColumn::make('closing_stock')->label('Closing (g)')->numeric(3)->sortable(),
-                TextColumn::make('net_weight')->label('Net Weight (g)')->numeric(3)->sortable(),
+                TextColumn::make('opening_stock_weight')->label('Opening (g)')->numeric(2)->toggleable(),
+                TextColumn::make('total_stock_in')->label('In (g)')->numeric(2)->color('success')->toggleable(),
+                TextColumn::make('total_stock_out')->label('Out (g)')->numeric(2)->color('danger')->toggleable(),
+                TextColumn::make('closing_stock')->label('Closing (g)')->numeric(2)->sortable(),
+                TextColumn::make('net_weight')->label('Net Weight (g)')->numeric(2)->sortable(),
                 TextColumn::make('available_cash')->label('Available Cash')->money('MYR')->sortable(),
-                TextColumn::make('supplier_hutang')->label('Hutang (g)')->numeric(3)->toggleable(),
-                TextColumn::make('supplier_overpaid')->label('Overpaid (g)')->numeric(3)->toggleable(),
+                TextColumn::make('supplier_hutang')->label('Hutang (g)')->numeric(2)->toggleable(),
+                TextColumn::make('supplier_overpaid')->label('Overpaid (g)')->numeric(2)->toggleable(),
                 IconColumn::make('mismatch')
                     ->label('Mismatch')
                     ->state(fn (DailyAssetPosition $record) => $record->hasAnyMismatch())

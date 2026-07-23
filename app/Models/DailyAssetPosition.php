@@ -28,7 +28,8 @@ class DailyAssetPosition extends Model
         'new_stock',
         'used_gold',
         'gold_bar',
-        'unreceived_bar',
+        'unpaid_unreceived_bar',
+        'paid_unreceived_bar',
         'loan_received',
         'sales',
         'payment_to_supplier',
@@ -52,29 +53,30 @@ class DailyAssetPosition extends Model
 
     protected $casts = [
         'entry_date' => 'date',
-        'opening_stock_weight' => 'decimal:3',
-        'new_stock' => 'decimal:3',
-        'used_gold' => 'decimal:3',
-        'gold_bar' => 'decimal:3',
-        'unreceived_bar' => 'decimal:3',
-        'loan_received' => 'decimal:3',
-        'total_stock_in' => 'decimal:3',
-        'sales' => 'decimal:3',
-        'payment_to_supplier' => 'decimal:3',
-        'stock_out_return' => 'decimal:3',
-        'loss_from_melting' => 'decimal:3',
-        'loan_out' => 'decimal:3',
-        'total_stock_out' => 'decimal:3',
-        'closing_stock' => 'decimal:3',
-        'supplier_hutang' => 'decimal:3',
-        'supplier_overpaid' => 'decimal:3',
-        'net_weight' => 'decimal:3',
+        'opening_stock_weight' => 'decimal:2',
+        'new_stock' => 'decimal:2',
+        'used_gold' => 'decimal:2',
+        'gold_bar' => 'decimal:2',
+        'unpaid_unreceived_bar' => 'decimal:2',
+        'paid_unreceived_bar' => 'decimal:2',
+        'loan_received' => 'decimal:2',
+        'total_stock_in' => 'decimal:2',
+        'sales' => 'decimal:2',
+        'payment_to_supplier' => 'decimal:2',
+        'stock_out_return' => 'decimal:2',
+        'loss_from_melting' => 'decimal:2',
+        'loan_out' => 'decimal:2',
+        'total_stock_out' => 'decimal:2',
+        'closing_stock' => 'decimal:2',
+        'supplier_hutang' => 'decimal:2',
+        'supplier_overpaid' => 'decimal:2',
+        'net_weight' => 'decimal:2',
         'ambank_balance' => 'decimal:2',
         'affin_balance' => 'decimal:2',
         'cash' => 'decimal:2',
         'affin_rm' => 'decimal:2',
         'od_affin' => 'decimal:2',
-        'locked_gold_bar' => 'decimal:3',
+        'locked_gold_bar' => 'decimal:2',
         'available_cash' => 'decimal:2',
     ];
 
@@ -126,8 +128,9 @@ class DailyAssetPosition extends Model
     {
         return round(
             (float) $this->new_stock + (float) $this->used_gold + (float) $this->gold_bar
-            + (float) $this->unreceived_bar + (float) $this->loan_received,
-            3
+            + (float) $this->unpaid_unreceived_bar + (float) $this->paid_unreceived_bar
+            + (float) $this->loan_received,
+            2
         );
     }
 
@@ -136,7 +139,7 @@ class DailyAssetPosition extends Model
         return round(
             (float) $this->sales + (float) $this->payment_to_supplier + (float) $this->stock_out_return
             + (float) $this->loss_from_melting + (float) $this->loan_out,
-            3
+            2
         );
     }
 
@@ -145,20 +148,20 @@ class DailyAssetPosition extends Model
     {
         return round(
             (float) $this->opening_stock_weight + $this->calculateTotalStockIn() - $this->calculateTotalStockOut(),
-            3
+            2
         );
     }
 
     public function calculateNetWeight(): float
     {
-        return round((float) $this->closing_stock - (float) $this->supplier_hutang + (float) $this->supplier_overpaid, 3);
+        return round((float) $this->closing_stock - (float) $this->supplier_hutang + (float) $this->supplier_overpaid, 2);
     }
 
     public function calculateAvailableCash(): float
     {
         return round(
             (float) $this->ambank_balance + (float) $this->affin_balance + (float) $this->cash
-            + (float) $this->affin_rm - (float) $this->od_affin,
+            + (float) $this->affin_rm - (float) $this->od_affin - (float) $this->locked_gold_bar,
             2
         );
     }
