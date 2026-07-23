@@ -1,0 +1,35 @@
+<?php
+
+namespace App\Filament\Resources\PhysicalGoldPurities\Tables;
+
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
+use Filament\Tables\Columns\IconColumn;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Table;
+
+class PhysicalGoldPuritiesTable
+{
+    public static function configure(Table $table): Table
+    {
+        return $table
+            ->columns([
+                TextColumn::make('sort_order')->label('#')->sortable(),
+                TextColumn::make('code')->label('Kod')->searchable(),
+                TextColumn::make('factor')->label('Faktor Tulen')->numeric(4)->sortable(),
+                IconColumn::make('active')->label('Aktif')->boolean(),
+            ])
+            ->recordActions([
+                ViewAction::make(),
+                EditAction::make(),
+            ])
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
+                ]),
+            ])
+            ->defaultSort('sort_order');
+    }
+}

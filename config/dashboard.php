@@ -10,6 +10,7 @@ return [
         'lost_opportunity' => env('CEO_LOST_OPPORTUNITY_ENABLED', true),
         'rearrangement' => env('CEO_REARRANGEMENT_ENABLED', true),
         'daily_asset_position' => env('CEO_DAILY_ASSET_POSITION_ENABLED', true),
+        'physical_gold_balance' => env('CEO_PHYSICAL_GOLD_BALANCE_ENABLED', true),
     ],
 
     // Threshold % beza (accountant vs JEMiSys) utk status reconciliation Daily Asset Position -
@@ -17,5 +18,12 @@ return [
     'daily_asset_position' => [
         'reconciliation_yellow_pct' => (float) env('DAP_RECON_YELLOW_PCT', 2.0),
         'reconciliation_red_pct' => (float) env('DAP_RECON_RED_PCT', 5.0),
+    ],
+
+    // Threshold % beza (Physical Net Pure Gold vs Book Net Weight) utk status Gold Reconciliation -
+    // rujuk App\Support\PhysicalGoldReconciliationCalculator.
+    'physical_gold_balance' => [
+        'reconciliation_yellow_pct' => (float) env('PGB_RECON_YELLOW_PCT', 2.0),
+        'reconciliation_red_pct' => (float) env('PGB_RECON_RED_PCT', 5.0),
     ],
 ];

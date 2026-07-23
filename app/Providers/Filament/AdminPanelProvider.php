@@ -3,8 +3,6 @@
 namespace App\Providers\Filament;
 
 use AlizHarb\ActivityLog\ActivityLogPlugin;
-use AlizHarb\ActivityLog\Widgets\ActivityChartWidget;
-use AlizHarb\ActivityLog\Widgets\LatestActivityWidget;
 use App\Filament\Widgets\ActionAlerts;
 use App\Filament\Widgets\BranchHealthTable;
 use App\Filament\Widgets\CapitalAgingChart;
@@ -17,6 +15,7 @@ use App\Filament\Widgets\DailyAssetPositionSummary;
 use App\Filament\Widgets\DailyAssetPositionSupplierChart;
 use App\Filament\Widgets\GoldVsIdealByBranch;
 use App\Filament\Widgets\InventoryKpiStats;
+use App\Filament\Widgets\PhysicalGoldBalanceSummary;
 use App\Filament\Widgets\StockVsOptimumChart;
 use App\Filament\Widgets\UserWidget;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
@@ -71,6 +70,9 @@ class AdminPanelProvider extends PanelProvider
                 NavigationGroup::make()
                     ->label('Accounting')
                     ->collapsible(false),
+                // NavigationGroup::make()
+                //     ->label('Gold Control')
+                //     ->collapsible(false),
                 NavigationGroup::make()
                     ->label('Procurement')
                     ->collapsible(false),
@@ -100,6 +102,9 @@ class AdminPanelProvider extends PanelProvider
                 DailyAssetPositionCashChart::class,
                 DailyAssetPositionSupplierChart::class,
                 DailyAssetPositionReconciliation::class,
+                // Physical Gold Balance (Gold Control) - boleh dimatikan via .env
+                // CEO_PHYSICAL_GOLD_BALANCE_ENABLED=false (config/dashboard.php).
+                PhysicalGoldBalanceSummary::class,
             ])
             ->middleware([
                 EncryptCookies::class,

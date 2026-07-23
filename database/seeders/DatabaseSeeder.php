@@ -29,6 +29,8 @@ class DatabaseSeeder extends Seeder
 
         $this->call([
             ShieldSeeder::class,
+            PhysicalGoldPuritySeeder::class,
+            PhysicalGoldCategorySeeder::class,
         ]);
     }
 }
