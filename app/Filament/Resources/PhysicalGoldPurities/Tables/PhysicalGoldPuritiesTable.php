@@ -19,6 +19,7 @@ class PhysicalGoldPuritiesTable
                 TextColumn::make('sort_order')->label('#')->sortable(),
                 TextColumn::make('code')->label('Kod')->searchable(),
                 TextColumn::make('factor')->label('Faktor Tulen')->numeric(4)->sortable(),
+                IconColumn::make('is_base_purity')->label('Gred Asas')->boolean()->toggleable(),
                 IconColumn::make('active')->label('Aktif')->boolean(),
             ])
             ->recordActions([

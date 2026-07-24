@@ -17,7 +17,6 @@ use Filament\Support\Enums\IconSize;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
 class UsersTable
@@ -33,7 +32,7 @@ class UsersTable
                     ->searchable(),
                 TextColumn::make('roles.name')
                     ->label('Role')
-                    ->formatStateUsing(fn($state): string => Str::headline($state))
+                    ->formatStateUsing(fn ($state): string => Str::headline($state))
                     ->colors(['info'])
                     ->badge()
                     ->toggleable(),
@@ -68,20 +67,19 @@ class UsersTable
                         ->form([
                             Select::make('roles')
                                 ->relationship('roles', 'name')
-                                ->getOptionLabelFromRecordUsing(fn(Model $record) => Str::headline($record->name))
+                                ->getOptionLabelFromRecordUsing(fn (Model $record) => Str::headline($record->name))
                                 ->multiple()
                                 ->preload()
-                                ->optionsLimit(4)
                                 ->searchable(),
                         ])
                         ->action(
-                            fn() => Notification::make()
+                            fn () => Notification::make()
                                 ->success()
                                 ->title('Updated successfully')
                                 ->body('Role has been updated.')
                                 ->send()
                         )
-                        ->hidden(fn(User $record): bool => $record->isSuperAdmin() || !auth()->user()->isSuperAdmin()),
+                        ->hidden(fn (User $record): bool => $record->isSuperAdmin() || ! auth()->user()->isSuperAdmin()),
                     ActionGroup::make([
                         DeleteAction::make(),
                     ])
@@ -89,9 +87,9 @@ class UsersTable
                 ])
                     ->link()
                     ->icon('heroicon-m-ellipsis-horizontal')
-                    ->iconSize(\Filament\Support\Enums\IconSize::Large)
+                    ->iconSize(IconSize::Large)
                     ->hiddenLabel()
-                    ->tooltip('More Actions')
+                    ->tooltip('More Actions'),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

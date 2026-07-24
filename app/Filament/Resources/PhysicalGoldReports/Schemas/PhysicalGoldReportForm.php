@@ -2,13 +2,14 @@
 
 namespace App\Filament\Resources\PhysicalGoldReports\Schemas;
 
-use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
-use App\Models\PhysicalGoldCategory;
-use App\Models\PhysicalGoldPurity;
+use App\Support\PhysicalGoldReportLineMapper;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Repeater\TableColumn;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -16,8 +17,18 @@ use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
+use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 
+/**
+ * Borang disusun ikut seksyen TETAP sepadan Weekly Stock Report sebenar - TIADA pilihan
+ * kategori manual (setiap seksyen sudah tetap kategori dia), ketulenan sudah "stated" utk
+ * Used Gold at HQ & GDN (satu baris pra-isi per ketulenan aktif), cawangan pra-isi utk Stock
+ * at Branch (semua cawangan aktif kecuali HQ/SECURITY), Stock at HQ medan tunggal. New Stock
+ * & Outstanding kekal repeater bebas (supplier pelbagai), guna faktor ketulenan "blended" 930
+ * automatik (rujuk App\Support\PhysicalGoldReportLineMapper) - bukan pilihan pengguna, sbb
+ * laporan sebenar tiada lajur Purity langsung utk kategori-kategori ni.
+ */
 class PhysicalGoldReportForm
 {
     public static function configure(Schema $schema): Schema
@@ -25,6 +36,8 @@ class PhysicalGoldReportForm
         return $schema
             ->components([
                 Section::make('Maklumat Laporan')
+                    ->icon(Heroicon::OutlinedPencilSquare)
+                    ->iconColor('primary')
                     ->schema([
                         Grid::make(3)
                             ->schema([
@@ -50,33 +63,131 @@ class PhysicalGoldReportForm
                     ])
                     ->columnSpanFull(),
 
-                Section::make('Butiran Emas Fizikal')
+                Section::make('Used Gold at HQ')
+                    ->icon(Heroicon::OutlinedCurrencyDollar)
+                    ->iconColor('primary')
+                    ->collapsible()
                     ->schema([
-                        Repeater::make('lines')
+                        Repeater::make('used_gold_hq_lines')
                             ->label('')
-                            ->relationship()
+                            ->table([
+                                TableColumn::make('Ketulenan'),
+                                TableColumn::make('Berat (g)'),
+                                TableColumn::make('Berat Tulen (g)'),
+                                TableColumn::make('Catatan')->width('10rem'),
+                            ])
                             ->schema([
-                                Grid::make(4)
+                                Select::make('purity_code')
+                                    ->options(fn () => PhysicalGoldReportLineMapper::selectablePurities()->pluck('code', 'code'))
+                                    ->native(false)
+                                    ->live()
+                                    ->required(),
+                                TextInput::make('gross_weight')
+                                    ->numeric()
+                                    ->minValue(0)
+                                    ->live(onBlur: true),
+                                Placeholder::make('pure_weight_preview')
+                                    ->hiddenLabel()
+                                    ->content(fn (Get $get) => number_format(
+                                        (float) ($get('gross_weight') ?? 0) * PhysicalGoldReportLineMapper::purityFactorFor($get('purity_code')),
+                                        4
+                                    ).' g'),
+                                TextInput::make('remarks'),
+                            ])
+                            ->default(fn () => PhysicalGoldReportLineMapper::defaultUsedGoldHqRows())
+                            ->addActionLabel('Tambah Baris Lain (cth. 916 - YS/KIV)')
+                            ->reorderable(false)
+                            ->columnSpanFull(),
+                    ])
+                    ->columnSpanFull(),
+
+                Section::make('Stock at Branch')
+                    ->icon(Heroicon::OutlinedBuildingOffice2)
+                    ->iconColor('primary')
+                    ->collapsible()
+                    ->schema([
+                        Repeater::make('stock_branch_lines')
+                            ->label('')
+                            ->table([
+                                TableColumn::make('Cawangan'),
+                                TableColumn::make('Berat (g)'),
+                                TableColumn::make('Berat Tulen (g)'),
+                            ])
+                            ->schema([
+                                Hidden::make('store_code'),
+                                TextInput::make('store_label')
+                                    ->label('Cawangan')
+                                    ->disabled()
+                                    ->dehydrated(false),
+                                TextInput::make('gross_weight')
+                                    ->label('Berat (g)')
+                                    ->numeric()
+                                    ->minValue(0)
+                                    ->live(onBlur: true),
+                                Placeholder::make('pure_weight_preview')
+                                    ->hiddenLabel()
+                                    ->content(fn (Get $get) => number_format(
+                                        (float) ($get('gross_weight') ?? 0) * PhysicalGoldReportLineMapper::purityFactorFor(PhysicalGoldReportLineMapper::BLENDED_PURITY_CODE),
+                                        4
+                                    ).' g'),
+                            ])
+                            ->default(fn () => PhysicalGoldReportLineMapper::defaultBranchRows())
+                            ->addable(false)
+                            ->deletable(false)
+                            ->reorderable(false)
+                            ->columnSpanFull(),
+                    ])
+                    ->columnSpanFull(),
+
+                Section::make('Stock at HQ')
+                    ->icon(Heroicon::OutlinedBuildingStorefront)
+                    ->iconColor('primary')
+                    ->collapsible()
+                    ->compact()
+                    ->schema([
+                        Repeater::make('stock_hq_lines')
+                            ->label('')
+                            ->table([
+                                TableColumn::make('Cawangan'),
+                                TableColumn::make('Berat (g)'),
+                                TableColumn::make('Berat Tulen (g)'),
+                            ])
+                            ->schema([
+                                Hidden::make('store_code'),
+                                TextInput::make('store_label')
+                                    ->label('Cawangan')
+                                    ->disabled()
+                                    ->dehydrated(false),
+                                TextInput::make('gross_weight')
+                                    ->label('Berat (g)')
+                                    ->numeric()
+                                    ->minValue(0)
+                                    ->live(onBlur: true),
+                                Placeholder::make('pure_weight_preview')
+                                    ->hiddenLabel()
+                                    ->content(fn (Get $get) => number_format(
+                                        (float) ($get('gross_weight') ?? 0) * PhysicalGoldReportLineMapper::purityFactorFor(PhysicalGoldReportLineMapper::BLENDED_PURITY_CODE),
+                                        4
+                                    ).' g'),
+                            ])
+                            ->default(fn () => PhysicalGoldReportLineMapper::defaultStockHqRows())
+                            ->addable(false)
+                            ->deletable(false)
+                            ->reorderable(false)
+                            ->columnSpanFull(),
+                    ])
+                    ->columnSpanFull(),
+
+                Section::make('New Stock Not Yet Key-in')
+                    ->icon(Heroicon::OutlinedClock)
+                    ->iconColor('primary')
+                    ->collapsible()
+                    ->schema([
+                        Repeater::make('new_stock_lines')
+                            ->label('')
+                            ->schema([
+                                Grid::make(2)
                                     ->schema([
-                                        Select::make('physical_gold_category_id')
-                                            ->label('Kategori')
-                                            ->options(fn () => PhysicalGoldCategory::query()
-                                                ->where('active', true)
-                                                ->orderBy('sort_order')
-                                                ->pluck('name', 'id'))
-                                            ->live()
-                                            ->searchable()
-                                            ->required()
-                                            ->columnSpan(2),
-                                        Select::make('store_code')
-                                            ->label('Cawangan')
-                                            ->options(fn () => Store::query()
-                                                ->where('Active', 1)
-                                                ->where('StoreCode', '!=', 'SECURITY')
-                                                ->pluck('StoreCode', 'StoreCode'))
-                                            ->searchable()
-                                            ->visible(fn (Get $get) => static::categoryRequires($get, 'requires_branch'))
-                                            ->required(fn (Get $get) => static::categoryRequires($get, 'requires_branch')),
                                         Select::make('vendor_code')
                                             ->label('Supplier')
                                             ->options(fn () => Vendor::query()
@@ -84,72 +195,97 @@ class PhysicalGoldReportForm
                                                 ->get()
                                                 ->mapWithKeys(fn ($v) => [$v->VendorCode => "{$v->VendorCode} - {$v->Description}"]))
                                             ->searchable()
-                                            ->visible(fn (Get $get) => static::categoryRequires($get, 'requires_supplier'))
-                                            ->required(fn (Get $get) => static::categoryRequires($get, 'requires_supplier')),
-                                        Select::make('physical_gold_purity_id')
-                                            ->label('Ketulenan')
-                                            ->options(fn () => PhysicalGoldPurity::query()
-                                                ->where('active', true)
-                                                ->orderBy('sort_order')
-                                                ->pluck('code', 'id'))
-                                            ->native(false)
-                                            ->visible(fn (Get $get) => static::categoryRequires($get, 'requires_purity'))
-                                            ->required(fn (Get $get) => static::categoryRequires($get, 'requires_purity')),
-                                        DatePicker::make('date_range_from')
-                                            ->label('Dari')
-                                            ->native(false)
-                                            ->visible(fn (Get $get) => static::categoryRequires($get, 'requires_date_range')),
-                                        DatePicker::make('date_range_to')
-                                            ->label('Hingga')
-                                            ->native(false)
-                                            ->visible(fn (Get $get) => static::categoryRequires($get, 'requires_date_range')),
-                                        TextInput::make('remarks')
-                                            ->label('Catatan (cth. YS, KIV)'),
+                                            ->required(),
                                         TextInput::make('gross_weight')
-                                            ->label('Berat Kasar (g)')
+                                            ->label('Berat (g)')
                                             ->numeric()
                                             ->minValue(0)
-                                            ->visible(fn (Get $get) => static::categoryValueMode($get) === PhysicalGoldCategory::VALUE_MODE_GROSS_PURITY)
-                                            ->required(fn (Get $get) => static::categoryValueMode($get) === PhysicalGoldCategory::VALUE_MODE_GROSS_PURITY),
-                                        TextInput::make('payable_pure_weight')
-                                            ->label('Payable Tulen (g)')
-                                            ->numeric()
-                                            ->visible(fn (Get $get) => static::categoryValueMode($get) === PhysicalGoldCategory::VALUE_MODE_PAYABLE_RECEIVABLE),
-                                        TextInput::make('receivable_pure_weight')
-                                            ->label('Receivable Tulen (g)')
-                                            ->numeric()
-                                            ->visible(fn (Get $get) => static::categoryValueMode($get) === PhysicalGoldCategory::VALUE_MODE_PAYABLE_RECEIVABLE),
+                                            ->required(),
                                     ]),
                             ])
-                            ->addActionLabel('Tambah Baris')
+                            ->addActionLabel('Tambah Supplier')
                             ->reorderable(false)
-                            ->defaultItems(1)
+                            ->default([])
+                            ->columnSpanFull(),
+                    ])
+                    ->columnSpanFull(),
+
+                Section::make('GDN Not Yet Received / Not Weighed')
+                    ->icon(Heroicon::OutlinedSquaresPlus)
+                    ->iconColor('primary')
+                    ->collapsible()
+                    ->schema([
+                        Repeater::make('gdn_pending_lines')
+                            ->label('')
+                            ->table([
+                                TableColumn::make('Ketulenan'),
+                                TableColumn::make('Berat (g)'),
+                                TableColumn::make('Berat Tulen (g)'),
+                                TableColumn::make('Dari'),
+                                TableColumn::make('Hingga'),
+                                TableColumn::make('Catatan')->width('10rem'),
+                            ])
+                            ->schema([
+                                Select::make('purity_code')
+                                    ->options(fn () => PhysicalGoldReportLineMapper::selectablePurities()->pluck('code', 'code'))
+                                    ->native(false)
+                                    ->live()
+                                    ->required(),
+                                TextInput::make('gross_weight')
+                                    ->numeric()
+                                    ->minValue(0)
+                                    ->live(onBlur: true),
+                                Placeholder::make('pure_weight_preview')
+                                    ->hiddenLabel()
+                                    ->content(fn (Get $get) => number_format(
+                                        (float) ($get('gross_weight') ?? 0) * PhysicalGoldReportLineMapper::purityFactorFor($get('purity_code')),
+                                        4
+                                    ).' g'),
+                                DatePicker::make('date_range_from')
+                                    ->native(false),
+                                DatePicker::make('date_range_to')
+                                    ->native(false),
+                                TextInput::make('remarks'),
+                            ])
+                            ->default(fn () => PhysicalGoldReportLineMapper::defaultGdnRows())
+                            ->addActionLabel('Tambah Baris Lain')
+                            ->reorderable(false)
+                            ->columnSpanFull(),
+                    ])
+                    ->columnSpanFull(),
+
+                Section::make('Outstanding Gold Due to Suppliers')
+                    ->icon(Heroicon::OutlinedBriefcase)
+                    ->iconColor('primary')
+                    ->collapsible()
+                    ->schema([
+                        Repeater::make('supplier_outstanding_lines')
+                            ->label('')
+                            ->schema([
+                                Grid::make(3)
+                                    ->schema([
+                                        Select::make('vendor_code')
+                                            ->label('Supplier')
+                                            ->options(fn () => Vendor::query()
+                                                ->where('VendorCode', '!=', '.')
+                                                ->get()
+                                                ->mapWithKeys(fn ($v) => [$v->VendorCode => "{$v->VendorCode} - {$v->Description}"]))
+                                            ->searchable()
+                                            ->required(),
+                                        TextInput::make('payable_gross_weight')
+                                            ->label('Payable (g) - kita berhutang')
+                                            ->numeric(),
+                                        TextInput::make('receivable_gross_weight')
+                                            ->label('Receivable (g) - dihutang kpd kita')
+                                            ->numeric(),
+                                    ]),
+                            ])
+                            ->addActionLabel('Tambah Supplier')
+                            ->reorderable(false)
+                            ->default([])
                             ->columnSpanFull(),
                     ])
                     ->columnSpanFull(),
             ]);
-    }
-
-    /**
-     * Dikongsi antara semua closure visible()/required() Repeater - satu lookup memoized per
-     * request (bukan setiap panggilan) supaya tak N+1 setiap baris/setiap render semasa live().
-     */
-    protected static function categories()
-    {
-        static $categories = null;
-
-        return $categories ??= PhysicalGoldCategory::query()->get()->keyBy('id');
-    }
-
-    protected static function categoryRequires(Get $get, string $flag): bool
-    {
-        $category = static::categories()->get($get('physical_gold_category_id'));
-
-        return (bool) ($category?->{$flag} ?? false);
-    }
-
-    protected static function categoryValueMode(Get $get): ?string
-    {
-        return static::categories()->get($get('physical_gold_category_id'))?->value_mode;
     }
 }

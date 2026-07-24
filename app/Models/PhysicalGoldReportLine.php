@@ -30,6 +30,8 @@ class PhysicalGoldReportLine extends Model
         'date_range_to' => 'date',
         'gross_weight' => 'decimal:4',
         'pure_weight' => 'decimal:4',
+        'payable_gross_weight' => 'decimal:4',
+        'receivable_gross_weight' => 'decimal:4',
         'payable_pure_weight' => 'decimal:4',
         'receivable_pure_weight' => 'decimal:4',
     ];
@@ -37,13 +39,31 @@ class PhysicalGoldReportLine extends Model
     protected static function booted(): void
     {
         static::saving(function (PhysicalGoldReportLine $line) {
-            if ($line->category?->value_mode !== PhysicalGoldCategory::VALUE_MODE_GROSS_PURITY) {
+            $category = $line->category;
+
+            if (! $category) {
                 return;
             }
 
-            $factor = $line->purity?->factor ?? 1;
-            $line->pure_weight = $line->gross_weight !== null
-                ? round((float) $line->gross_weight * (float) $factor, 4)
+            $factor = (float) ($line->purity?->factor ?? 1);
+
+            if ($category->value_mode === PhysicalGoldCategory::VALUE_MODE_GROSS_PURITY) {
+                $line->pure_weight = $line->gross_weight !== null
+                    ? round((float) $line->gross_weight * $factor, 4)
+                    : null;
+
+                return;
+            }
+
+            // payable_receivable: borang kumpul berat KASAR payable/receivable, ditukar ke
+            // tulen guna faktor ketulenan "blended" baris ni (cth. 930 -> 0.93) - sepadan
+            // rawatan Stock at Branch/HQ/New Stock yg turut tiada pecahan ketulenan per-item.
+            $line->payable_pure_weight = $line->payable_gross_weight !== null
+                ? round((float) $line->payable_gross_weight * $factor, 4)
+                : null;
+
+            $line->receivable_pure_weight = $line->receivable_gross_weight !== null
+                ? round((float) $line->receivable_gross_weight * $factor, 4)
                 : null;
         });
     }

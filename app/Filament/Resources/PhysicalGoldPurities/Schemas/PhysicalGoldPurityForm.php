@@ -31,6 +31,11 @@ class PhysicalGoldPurityForm
                             ->numeric()
                             ->default(0),
                         Toggle::make('active')->label('Aktif')->default(true),
+                        Toggle::make('is_base_purity')
+                            ->label('Gred Asas (pra-isi automatik)')
+                            ->helperText('Aktif = sentiasa terpapar sbg baris tetap di Used Gold at HQ/GDN. Matikan utk varian pilihan manual sahaja (cth. 930, 916 - YS).')
+                            ->default(true)
+                            ->columnSpanFull(),
                     ]),
             ]);
     }

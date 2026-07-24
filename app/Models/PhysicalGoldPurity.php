@@ -17,6 +17,7 @@ class PhysicalGoldPurity extends Model
     protected $casts = [
         'factor' => 'decimal:4',
         'active' => 'boolean',
+        'is_base_purity' => 'boolean',
     ];
 
     public function lines()
