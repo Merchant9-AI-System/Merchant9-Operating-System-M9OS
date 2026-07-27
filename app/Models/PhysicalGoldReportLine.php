@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Model;
     'physical_gold_report_id',
     'physical_gold_category_id',
     'physical_gold_purity_id',
-    'vendor_id',
+    'vendor_code',
     'store_code',
     'date_range_from',
     'date_range_to',
