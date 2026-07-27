@@ -185,23 +185,48 @@ class PhysicalGoldReportForm
                     ->schema([
                         Repeater::make('new_stock_lines')
                             ->label('')
+                            ->table([
+                                TableColumn::make('Supplier'),
+                                TableColumn::make('Berat (g)'),
+                                TableColumn::make('Workmanship (RM)'),
+                                TableColumn::make('Gold Price (RM/g)'),
+                                TableColumn::make('Gold Amount (RM)'),
+                                TableColumn::make('Total Price (RM)'),
+                            ])
                             ->schema([
-                                Grid::make(2)
-                                    ->schema([
-                                        Select::make('vendor_code')
-                                            ->label('Supplier')
-                                            ->options(fn () => Vendor::query()
-                                                ->where('VendorCode', '!=', '.')
-                                                ->get()
-                                                ->mapWithKeys(fn ($v) => [$v->VendorCode => "{$v->VendorCode} - {$v->Description}"]))
-                                            ->searchable()
-                                            ->required(),
-                                        TextInput::make('gross_weight')
-                                            ->label('Berat (g)')
-                                            ->numeric()
-                                            ->minValue(0)
-                                            ->required(),
-                                    ]),
+                                Select::make('vendor_code')
+                                    ->options(fn () => Vendor::query()
+                                        ->where('VendorCode', '!=', '.')
+                                        ->get()
+                                        ->mapWithKeys(fn ($v) => [$v->VendorCode => "{$v->VendorCode} - {$v->Description}"]))
+                                    ->searchable()
+                                    ->required(),
+                                TextInput::make('gross_weight')
+                                    ->numeric()
+                                    ->minValue(0)
+                                    ->live(onBlur: true)
+                                    ->required(),
+                                TextInput::make('workmanship_amount')
+                                    ->numeric()
+                                    ->minValue(0)
+                                    ->live(onBlur: true),
+                                TextInput::make('gold_price_per_gram')
+                                    ->numeric()
+                                    ->minValue(0)
+                                    ->live(onBlur: true),
+                                Placeholder::make('gold_amount_preview')
+                                    ->hiddenLabel()
+                                    ->content(fn (Get $get) => 'RM '.number_format(
+                                        (float) ($get('gross_weight') ?? 0) * (float) ($get('gold_price_per_gram') ?? 0),
+                                        2
+                                    )),
+                                Placeholder::make('total_price_preview')
+                                    ->hiddenLabel()
+                                    ->content(fn (Get $get) => 'RM '.number_format(
+                                        (float) ($get('workmanship_amount') ?? 0)
+                                            + ((float) ($get('gross_weight') ?? 0) * (float) ($get('gold_price_per_gram') ?? 0)),
+                                        2
+                                    )),
                             ])
                             ->addActionLabel('Tambah Supplier')
                             ->reorderable(false)

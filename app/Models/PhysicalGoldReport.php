@@ -2,26 +2,11 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
-#[Fillable([
-    'report_date',
-    'prepared_by_id',
-    'prepared_by',
-    'cutoff_at',
-    'submitted_at',
-    'submitted_by_id',
-    'submitted_by',
-    'approved_at',
-    'approved_by_id',
-    'approved_by',
-    'notes',
-    'status',
-])]
 class PhysicalGoldReport extends Model
 {
     use HasFactory, LogsActivity;

@@ -4,6 +4,7 @@ namespace App\Providers\Filament;
 
 use AlizHarb\ActivityLog\ActivityLogPlugin;
 use App\Filament\Widgets\ActionAlerts;
+use App\Filament\Widgets\BookVsPhysicalGoldChart;
 use App\Filament\Widgets\BranchHealthTable;
 use App\Filament\Widgets\CapitalAgingChart;
 use App\Filament\Widgets\CapitalAgingSummary;
@@ -105,6 +106,7 @@ class AdminPanelProvider extends PanelProvider
                 // Physical Gold Balance (Gold Control) - boleh dimatikan via .env
                 // CEO_PHYSICAL_GOLD_BALANCE_ENABLED=false (config/dashboard.php).
                 PhysicalGoldBalanceSummary::class,
+                BookVsPhysicalGoldChart::class,
             ])
             ->middleware([
                 EncryptCookies::class,

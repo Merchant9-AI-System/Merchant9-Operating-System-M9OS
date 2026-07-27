@@ -206,11 +206,19 @@ class PhysicalGoldReportInfolist
                                 TableColumn::make('Supplier'),
                                 TableColumn::make('Berat Kasar (g)'),
                                 TableColumn::make('Berat Tulen (g)'),
+                                TableColumn::make('Workmanship (RM)'),
+                                TableColumn::make('Gold Price (RM/g)'),
+                                TableColumn::make('Gold Amount (RM)'),
+                                TableColumn::make('Total Price (RM)'),
                             ])
                             ->schema([
                                 TextEntry::make('vendor.VendorCode')->label('Supplier')->placeholder(fn ($record) => $record->vendor_code),
                                 TextEntry::make('gross_weight')->label('Berat Kasar')->numeric(4),
                                 TextEntry::make('pure_weight')->label('Berat Tulen')->numeric(4),
+                                TextEntry::make('workmanship_amount')->label('Workmanship')->money('MYR')->placeholder('-'),
+                                TextEntry::make('gold_price_per_gram')->label('Gold Price')->money('MYR')->placeholder('-'),
+                                TextEntry::make('gold_amount')->label('Gold Amount')->money('MYR')->placeholder('-'),
+                                TextEntry::make('total_price')->label('Total Price')->money('MYR')->placeholder('-')->weight('bold'),
                             ]),
                     ])
                     ->columnSpanFull(),

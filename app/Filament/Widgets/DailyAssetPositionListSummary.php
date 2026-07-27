@@ -24,7 +24,7 @@ class DailyAssetPositionListSummary extends StatsOverviewWidget
         if ($summary === null) {
             return [
                 Stat::make('Rekod Terkini', 'Tiada data lagi')
-                    ->description('Sila key-in rekod Daily Asset Position pertama.')
+                    ->description('Sila key-in rekod Book Balance Asset Position pertama.')
                     ->color('gray'),
             ];
         }

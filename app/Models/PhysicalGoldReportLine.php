@@ -4,23 +4,8 @@ namespace App\Models;
 
 use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
-use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 
-#[Fillable([
-    'physical_gold_report_id',
-    'physical_gold_category_id',
-    'physical_gold_purity_id',
-    'vendor_code',
-    'store_code',
-    'date_range_from',
-    'date_range_to',
-    'gross_weight',
-    'pure_weight',
-    'payable_pure_weight',
-    'receivable_pure_weight',
-    'notes',
-])]
 class PhysicalGoldReportLine extends Model
 {
     protected $guarded = [];
@@ -34,6 +19,10 @@ class PhysicalGoldReportLine extends Model
         'receivable_gross_weight' => 'decimal:4',
         'payable_pure_weight' => 'decimal:4',
         'receivable_pure_weight' => 'decimal:4',
+        'workmanship_amount' => 'decimal:4',
+        'gold_price_per_gram' => 'decimal:4',
+        'gold_amount' => 'decimal:4',
+        'total_price' => 'decimal:4',
     ];
 
     protected static function booted(): void
@@ -50,6 +39,16 @@ class PhysicalGoldReportLine extends Model
             if ($category->value_mode === PhysicalGoldCategory::VALUE_MODE_GROSS_PURITY) {
                 $line->pure_weight = $line->gross_weight !== null
                     ? round((float) $line->gross_weight * $factor, 4)
+                    : null;
+
+                // Utk New Stock Not Yet Key-in - Gold Amount & Total Price sentiasa dikira
+                // semula (bukan input terus), sepadan lajur Weekly Stock Report sebenar.
+                $line->gold_amount = ($line->gross_weight !== null && $line->gold_price_per_gram !== null)
+                    ? round((float) $line->gross_weight * (float) $line->gold_price_per_gram, 4)
+                    : null;
+
+                $line->total_price = ($line->workmanship_amount !== null || $line->gold_amount !== null)
+                    ? round((float) ($line->workmanship_amount ?? 0) + (float) ($line->gold_amount ?? 0), 4)
                     : null;
 
                 return;

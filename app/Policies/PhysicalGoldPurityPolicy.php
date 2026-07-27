@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
+use Illuminate\Foundation\Auth\User as AuthUser;
 use App\Models\PhysicalGoldPurity;
 use Illuminate\Auth\Access\HandlesAuthorization;
-use Illuminate\Foundation\Auth\User as AuthUser;
 
 class PhysicalGoldPurityPolicy
 {
     use HandlesAuthorization;
-
+    
     public function viewAny(AuthUser $authUser): bool
     {
         return $authUser->can('ViewAny:PhysicalGoldPurity');
@@ -71,4 +71,5 @@ class PhysicalGoldPurityPolicy
     {
         return $authUser->can('Reorder:PhysicalGoldPurity');
     }
+
 }

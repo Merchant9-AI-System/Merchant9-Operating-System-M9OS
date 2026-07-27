@@ -2,7 +2,9 @@
 
 namespace App\Support;
 
+use App\Models\DailyAssetPosition;
 use App\Models\PhysicalGoldReport;
+use Illuminate\Support\Collection;
 
 /**
  * Banding Physical Net Pure Gold (App\Support\PhysicalGoldReportCalculator) vs book balance
@@ -74,6 +76,43 @@ class PhysicalGoldReconciliationCalculator
         }
 
         return static::reconcile($latest);
+    }
+
+    /**
+     * Siri Book Balance (DailyAssetPosition.net_weight) vs Physical Balance (Physical Net Pure
+     * Gold drpd laporan Approved sahaja) - satu baris per tarikh yg ADA sekurang-kurangnya satu
+     * sumber, nilai yg tiada kekal null (jurang carta, bukan 0 palsu atau bawa-ke-hadapan).
+     *
+     * @return Collection<int, array{date: string, book_net_weight: float|null, physical_net_pure_gold: float|null}>
+     */
+    public static function bookVsPhysicalTrend(int $days): Collection
+    {
+        $since = now()->subDays($days)->startOfDay();
+
+        $bookByDate = DailyAssetPosition::query()
+            ->where('entry_date', '>=', $since)
+            ->get()
+            ->keyBy(fn (DailyAssetPosition $r) => $r->entry_date->toDateString())
+            ->map(fn (DailyAssetPosition $r) => (float) $r->net_weight);
+
+        $physicalByDate = PhysicalGoldReport::query()
+            ->where('status', PhysicalGoldReport::STATUS_APPROVED)
+            ->where('report_date', '>=', $since)
+            ->with('lines.category')
+            ->get()
+            ->keyBy(fn (PhysicalGoldReport $r) => $r->report_date->toDateString())
+            ->map(fn (PhysicalGoldReport $r) => PhysicalGoldReportCalculator::netPureWeight($r));
+
+        return $bookByDate->keys()
+            ->merge($physicalByDate->keys())
+            ->unique()
+            ->sort()
+            ->values()
+            ->map(fn (string $date) => [
+                'date' => $date,
+                'book_net_weight' => $bookByDate->get($date),
+                'physical_net_pure_gold' => $physicalByDate->get($date),
+            ]);
     }
 
     /** Peratusan bertanda (kekal arah surplus/kekurangan) - selamat drpd bahagi-dgn-sifar. */

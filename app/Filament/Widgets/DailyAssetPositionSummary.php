@@ -24,8 +24,8 @@ class DailyAssetPositionSummary extends StatsOverviewWidget
 
         if ($s === null) {
             return [
-                Stat::make('Daily Asset Position', 'Tiada data lagi')
-                    ->description('Accountant belum key-in sebarang rekod Daily Asset Position.')
+                Stat::make('Book Balance Asset Position', 'Tiada data lagi')
+                    ->description('Accountant belum key-in sebarang rekod Book Balance Asset Position.')
                     ->color('gray'),
             ];
         }

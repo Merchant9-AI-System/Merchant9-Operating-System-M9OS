@@ -45,7 +45,7 @@ class DailyAssetPositionCashChart extends ChartWidget
     public function getDescription(): ?string
     {
         return DailyAssetPositionCalculator::trend(30)->isEmpty()
-            ? 'Trend tidak tersedia lagi - tiada rekod Daily Asset Position dikeyin.'
+            ? 'Trend tidak tersedia lagi - tiada rekod Book Balance Asset Position dikeyin.'
             : '30 rekod terkini yg dikeyin accountant.';
     }
 }

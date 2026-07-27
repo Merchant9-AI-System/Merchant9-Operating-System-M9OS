@@ -29,7 +29,9 @@ class DailyAssetPositionResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentCheck;
 
-    protected static ?string $navigationLabel = 'Daily Asset Position';
+    protected static ?string $navigationLabel = 'Book Balance Asset Position';
+
+    protected static ?string $label = 'Book Balance Asset Position';
 
     protected static string|\UnitEnum|null $navigationGroup = 'Accounting';
 

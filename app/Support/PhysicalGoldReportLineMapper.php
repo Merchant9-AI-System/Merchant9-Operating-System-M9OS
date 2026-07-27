@@ -141,6 +141,8 @@ class PhysicalGoldReportLineMapper
             'new_stock_lines' => $newStock->map(fn ($line) => [
                 'vendor_code' => $line->vendor_code,
                 'gross_weight' => $line->gross_weight,
+                'workmanship_amount' => $line->workmanship_amount,
+                'gold_price_per_gram' => $line->gold_price_per_gram,
             ])->all(),
 
             'supplier_outstanding_lines' => $outstanding->map(fn ($line) => [
@@ -256,6 +258,8 @@ class PhysicalGoldReportLineMapper
                 'physical_gold_purity_id' => $blendedPurityId,
                 'vendor_code' => $row['vendor_code'] ?? null,
                 'gross_weight' => $row['gross_weight'] ?? null,
+                'workmanship_amount' => $row['workmanship_amount'] ?? null,
+                'gold_price_per_gram' => $row['gold_price_per_gram'] ?? null,
             ]);
         }
 

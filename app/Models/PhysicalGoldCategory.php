@@ -2,21 +2,10 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
-#[Fillable([
-    'name',
-    'requires_branch',
-    'requires_supplier',
-    'requires_purity',
-    'requires_date_range',
-    'include_in_physical_total',
-    'is_deduction',
-    'active',
-])]
 class PhysicalGoldCategory extends Model
 {
     use LogsActivity;

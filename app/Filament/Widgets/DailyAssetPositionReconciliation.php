@@ -26,7 +26,7 @@ class DailyAssetPositionReconciliation extends TableWidget
     {
         return $table
             ->description(fn () => DailyAssetPositionCalculator::reconciliation() === []
-                ? 'Reconciliation belum tersedia - tiada rekod Daily Asset Position dikeyin lagi.'
+                ? 'Reconciliation belum tersedia - tiada rekod Book Balance Asset Position dikeyin lagi.'
                 : 'JEMiSys tiada snapshot harian - "Closing Stock"/"Branch Stock Total" bandingkan stok SEKARANG vs rekod accountant terkini sahaja.')
             ->records(fn () => collect(DailyAssetPositionCalculator::reconciliation())->values()->all())
             ->columns([

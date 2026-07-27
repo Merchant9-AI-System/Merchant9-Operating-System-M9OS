@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
+use Illuminate\Foundation\Auth\User as AuthUser;
 use App\Models\PhysicalGoldCategory;
 use Illuminate\Auth\Access\HandlesAuthorization;
-use Illuminate\Foundation\Auth\User as AuthUser;
 
 class PhysicalGoldCategoryPolicy
 {
     use HandlesAuthorization;
-
+    
     public function viewAny(AuthUser $authUser): bool
     {
         return $authUser->can('ViewAny:PhysicalGoldCategory');
@@ -71,4 +71,5 @@ class PhysicalGoldCategoryPolicy
     {
         return $authUser->can('Reorder:PhysicalGoldCategory');
     }
+
 }
