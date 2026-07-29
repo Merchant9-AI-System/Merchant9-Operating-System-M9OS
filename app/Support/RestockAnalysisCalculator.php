@@ -157,6 +157,148 @@ class RestockAnalysisCalculator
             ->values();
     }
 
+    /**
+     * Cadangan restock per DESIGN (InternalCode) terus - bukan bucket Kategori+Cawangan+Saiz/Berat
+     * spt bySize()/byWeight() (design cuma nampak via drill-down "Lihat Design" di situ). Skop
+     * WAJIB satu CategoryCode (dipanggil hanya bila pengguna dah pilih kategori - rujuk
+     * RestockByCategory page).
+     *
+     * Cache rememberForever PER KATEGORI (bukan skip cache spt draf asal - terbukti salah:
+     * kategori besar cth. "CINCIN EMAS" (6298 design) ambil 5-7 saat SETIAP query GROUP BY, dan
+     * halaman ni panggil byCategory() berkali-kali setiap load - tanpa cache jadi 20-30 saat
+     * setiap tapis/muat semula). Dijana semula bila Cache::flush() drpd SyncJemisysMirrors,
+     * sama spt bySize()/byWeight().
+     */
+    public static function byCategory(string $categoryCode): Collection
+    {
+        return collect(Cache::rememberForever("restock_by_category:{$categoryCode}", function () use ($categoryCode) {
+            return retry(6, fn () => static::computeByCategory($categoryCode)->toArray(), 800);
+        }));
+    }
+
+    protected static function computeByCategory(string $categoryCode): Collection
+    {
+        $trendStart = now()->subMonths(self::TREND_MONTHS);
+
+        // Per (design, cawangan) - utk cari cawangan paling "urgent" (stok=0, jualan sejarah
+        // tertinggi) sepadan corak StockRearrangementRecommender.
+        $perBranch = InventoryPiece::query()
+            ->realVendor()
+            ->where('CategoryCode', $categoryCode)
+            ->selectRaw('InternalCode, StoreCode, SUM(QtyOnHand) as stock, '.
+                'SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as sold_all_time')
+            ->groupBy('InternalCode', 'StoreCode')
+            ->get()
+            ->groupBy('InternalCode');
+
+        $perDesign = InventoryPiece::query()
+            ->realVendor()
+            ->where('CategoryCode', $categoryCode)
+            ->selectRaw('InternalCode, MAX(Description) as Description, MAX(JewelSize) as JewelSize, '.
+                'MAX(GoldWeight) as GoldWeight, MAX(VendorCode) as VendorCode, '.
+                'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received, '.
+                'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold, '.
+                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart])
+            ->groupBy('InternalCode')
+            ->get();
+
+        $categoryNames = Category::pluck('Description', 'CategoryCode');
+        $vendorNames = Vendor::pluck('Description', 'VendorCode');
+        $trendWindowDays = max((int) $trendStart->diffInDays(now()), 1);
+        $categoryName = $categoryNames[$categoryCode] ?? $categoryCode;
+
+        return $perDesign->map(function ($r) use ($perBranch, $vendorNames, $trendWindowDays, $categoryCode, $categoryName) {
+            $piecesReceived = (int) $r->pieces_received;
+            $piecesSold = (int) $r->pieces_sold;
+            $currentStock = (int) $r->current_stock;
+
+            $velocity = SalesVelocityHelper::velocity($piecesSold, $trendWindowDays);
+            $targetStock = SalesVelocityHelper::targetStock($velocity, self::TARGET_COVER_MONTHS);
+
+            $verdict = match (true) {
+                $piecesReceived < self::MIN_SAMPLE => self::VERDICT_NO_DATA,
+                $currentStock === 0 && $velocity > 0 => self::VERDICT_SOLD_OUT,
+                $currentStock < $targetStock => self::VERDICT_RESTOCK,
+                $targetStock > 0 && $currentStock > $targetStock * 2 => self::VERDICT_OVERSTOCK,
+                default => self::VERDICT_OK,
+            };
+
+            // Cawangan paling urgent utk design ni: stok=0 DAN pernah jual paling banyak -
+            // sepadan corak StockRearrangementRecommender ("sold out, jualan sejarah tertinggi").
+            // Null bermaksud tiada cawangan sold-out (semua ada stok) - bukan "cawangan pertama".
+            $urgentBranch = ($perBranch->get($r->InternalCode) ?? collect())
+                ->filter(fn ($b) => (int) $b->stock === 0)
+                ->sortByDesc('sold_all_time')
+                ->first();
+
+            // Pecahan stok per cawangan (termasuk cawangan stok=0 - bukan "tiada rekod", sekadar
+            // habis) - guna baris $perBranch yg SAMA (bukan query tambahan), cawangan yg design
+            // ni PERNAH ada rekod inventori sahaja (bukan cross-join semua cawangan syarikat).
+            $stockByBranch = ($perBranch->get($r->InternalCode) ?? collect())
+                ->sortBy('StoreCode')
+                ->mapWithKeys(fn ($b) => [trim((string) $b->StoreCode) => (int) $b->stock])
+                ->all();
+
+            return [
+                'internal_code' => $r->InternalCode,
+                'description' => $r->Description,
+                'category_code' => $categoryCode,
+                'category_name' => $categoryName,
+                'vendor_name' => $vendorNames[$r->VendorCode] ?? $r->VendorCode,
+                'size' => static::sizeLabel($r->JewelSize),
+                'weight' => (float) $r->GoldWeight,
+                'weight_bucket' => static::weightBucket($r->GoldWeight),
+                'current_stock' => $currentStock,
+                'stock_by_branch' => $stockByBranch,
+                'pieces_sold' => $piecesSold,
+                'velocity_per_month' => $velocity,
+                'target_stock' => $targetStock,
+                'gap' => $targetStock - $currentStock,
+                'verdict' => $verdict,
+                'urgent_branch' => $urgentBranch?->StoreCode,
+                'urgent_branch_sold' => $urgentBranch ? (int) $urgentBranch->sold_all_time : null,
+            ];
+        })->sortByDesc('gap')->values();
+    }
+
+    /**
+     * Sejarah jualan SATU design (InternalCode), pecah ikut bulan x Saiz/Berat x Cawangan - jawab
+     * "item ni terjual size/berat/cawangan mana, bila" (satu InternalCode secara teori satu
+     * saiz/berat, tapi keping fizikal individu ada variasi kecil - berat khususnya - jadi
+     * pecahan ni beri isyarat sebenar, bukan andaian seragam). TIDAK cache - drill-down on-demand
+     * per baris (sepadan designsForSizeBucket()).
+     *
+     * @return Collection<int, array{month: string, size: string, weight_bucket: string, store_code: string, qty_sold: int}>
+     */
+    public static function designSalesHistory(string $internalCode, int $months = 12): Collection
+    {
+        $since = now()->subMonths($months)->startOfMonth();
+
+        return InventoryPiece::query()
+            ->realVendor()
+            ->where('InternalCode', $internalCode)
+            ->whereNotNull('SalesDate')
+            ->where('SalesDate', '>=', $since)
+            ->get(['SalesDate', 'JewelSize', 'GoldWeight', 'StoreCode'])
+            ->groupBy(fn ($r) => $r->SalesDate->format('Y-m'))
+            ->flatMap(function ($rows, $month) {
+                return $rows->groupBy(fn ($r) => static::sizeLabel($r->JewelSize).'|'.static::weightBucket($r->GoldWeight).'|'.trim((string) $r->StoreCode))
+                    ->map(function ($group, $key) use ($month) {
+                        [$size, $weightBucket, $storeCode] = explode('|', $key);
+
+                        return [
+                            'month' => $month,
+                            'size' => $size,
+                            'weight_bucket' => $weightBucket,
+                            'store_code' => $storeCode,
+                            'qty_sold' => $group->count(),
+                        ];
+                    });
+            })
+            ->sortByDesc('month')
+            ->values();
+    }
+
     public static function sizeLabel(mixed $value): string
     {
         if ($value === null || trim((string) $value) === '') {
