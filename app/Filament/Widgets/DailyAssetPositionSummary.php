@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Support\DailyAssetPositionCalculator;
+use App\Support\UsedGoldBalanceProvider;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
@@ -27,6 +28,7 @@ class DailyAssetPositionSummary extends StatsOverviewWidget
                 Stat::make('Book Balance Asset Position', 'Tiada data lagi')
                     ->description('Accountant belum key-in sebarang rekod Book Balance Asset Position.')
                     ->color('gray'),
+                $this->usedGoldTotalClosingStat(),
             ];
         }
 
@@ -55,6 +57,25 @@ class DailyAssetPositionSummary extends StatsOverviewWidget
                     $diffPct >= (float) config('dashboard.daily_asset_position.reconciliation_yellow_pct', 2.0) => 'warning',
                     default => 'success',
                 }),
+            $this->usedGoldTotalClosingStat(),
         ];
+    }
+
+    /**
+     * Baki "Used Gold" drpd sistem LUARAN berasingan (rujuk App\Support\UsedGoldBalanceProvider) -
+     * bukan drpd DailyAssetPosition, jadi ditambah di KEDUA-DUA laluan (ada/tiada rekod
+     * DailyAssetPosition) supaya ia sentiasa terpapar tak kira status ledger tempatan.
+     */
+    protected function usedGoldTotalClosingStat(): Stat
+    {
+        $month = now()->format('Y-m');
+        $total = UsedGoldBalanceProvider::totalClosing($month);
+
+        return Stat::make(
+            'Used Gold Total Closing',
+            $total !== null ? number_format($total, 3).' g' : 'Data tidak tersedia'
+        )
+            ->description("Baki tutup Used Gold bulan {$month} (sistem luaran)")
+            ->color($total !== null ? 'success' : 'gray');
     }
 }
