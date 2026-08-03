@@ -2,8 +2,8 @@
 
 namespace App\Filament\Resources\Users\Schemas;
 
+use App\Models\Jemisys\Store;
 use App\Models\User;
-use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Section;
@@ -32,6 +32,13 @@ class UserForm
                             ->unique(User::class, 'email', ignoreRecord: true)
                             ->email()
                             ->required(),
+                        Select::make('store_code')
+                            ->label('Cawangan')
+                            ->helperText('Kosongkan utk HQ/CEO - tidak terikat kepada satu cawangan.')
+                            ->options(fn () => Store::orderBy('StoreCode')->get()
+                                ->mapWithKeys(fn ($s) => [$s->StoreCode => trim($s->StoreCode).' - '.$s->Description]))
+                            ->searchable()
+                            ->native(false),
                     ])
                     ->columns(2),
                 Section::make('Roles')
@@ -41,13 +48,13 @@ class UserForm
                     ->schema([
                         Select::make('roles')
                             ->relationship('roles', 'name')
-                            ->getOptionLabelFromRecordUsing(fn(Model $record) => Str::headline($record->name))
+                            ->getOptionLabelFromRecordUsing(fn (Model $record) => Str::headline($record->name))
                             ->multiple()
                             ->preload()
                             ->searchable()
                             ->optionsLimit(5),
                     ])
-                    ->hidden(fn() => !auth()->user()->hasRole('super_admin')),
+                    ->hidden(fn () => ! auth()->user()->hasRole('super_admin')),
                 Section::make('Password')
                     ->description('Manage user password here.')
                     ->aside()
@@ -58,8 +65,8 @@ class UserForm
                             ->revealable(filament()->arePasswordsRevealable())
                             ->rule(Password::default())
                             ->autocomplete('new-password')
-                            ->dehydrated(fn($state): bool => filled($state))
-                            ->dehydrateStateUsing(fn($state): string => Hash::make($state))
+                            ->dehydrated(fn ($state): bool => filled($state))
+                            ->dehydrateStateUsing(fn ($state): string => Hash::make($state))
                             ->live(debounce: 500)
                             ->same('passwordConfirmation'),
                         TextInput::make('passwordConfirmation')
@@ -67,10 +74,10 @@ class UserForm
                             ->password()
                             ->revealable(filament()->arePasswordsRevealable())
                             ->required()
-                            ->visible(fn(Get $get): bool => filled($get('password')))
+                            ->visible(fn (Get $get): bool => filled($get('password')))
                             ->dehydrated(false),
                     ])
-                    ->hidden(fn(?User $record) => $record !== null),
+                    ->hidden(fn (?User $record) => $record !== null),
             ])
             ->columns(1);
     }

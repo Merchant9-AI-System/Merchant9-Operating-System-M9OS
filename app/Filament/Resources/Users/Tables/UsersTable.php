@@ -36,6 +36,13 @@ class UsersTable
                     ->colors(['info'])
                     ->badge()
                     ->toggleable(),
+                TextColumn::make('store_code')
+                    ->label('Cawangan')
+                    ->formatStateUsing(fn (?string $state) => filled($state) ? trim($state) : 'HQ')
+                    ->badge()
+                    ->color(fn (?string $state) => filled($state) ? 'gray' : 'info')
+                    ->sortable()
+                    ->toggleable(),
                 TextColumn::make('email_verified_at')
                     ->dateTime()
                     ->sortable(),

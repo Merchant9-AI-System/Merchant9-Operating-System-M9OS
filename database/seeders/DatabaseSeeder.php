@@ -31,6 +31,7 @@ class DatabaseSeeder extends Seeder
             ShieldSeeder::class,
             PhysicalGoldPuritySeeder::class,
             PhysicalGoldCategorySeeder::class,
+            BranchDemandRolesSeeder::class,
         ]);
     }
 }

@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\Users\Schemas;
 
-use Filament\Forms\Components\Select;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -27,6 +26,10 @@ class UserInfolist
                             ->placeholder('-'),
                         TextEntry::make('email')
                             ->label('Email address'),
+                        TextEntry::make('store_code')
+                            ->label('Cawangan')
+                            ->formatStateUsing(fn (?string $state) => filled($state) ? trim($state) : 'HQ')
+                            ->badge(),
                         TextEntry::make('email_verified_at')
                             ->dateTime()
                             ->placeholder('-'),
@@ -43,7 +46,7 @@ class UserInfolist
                             ->placeholder('-'),
                         // ->getOptionLabelFromRecordUsing(fn(Model $record) => Str::headline($record->name)),
                     ])
-                    ->hidden(fn() => !Auth::user()->hasRole('super-admin')),
+                    ->hidden(fn () => ! Auth::user()->hasRole('super-admin')),
             ])->columns(1);
     }
 }

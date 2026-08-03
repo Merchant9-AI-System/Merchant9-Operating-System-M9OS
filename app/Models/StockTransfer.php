@@ -46,6 +46,12 @@ class StockTransfer extends Model
             ->logAll();
     }
 
+    /** Null utk transfer "organik" (bukan drpd cadangan Branch Demand). */
+    public function demandLine()
+    {
+        return $this->belongsTo(BranchDemandRequestLine::class, 'branch_demand_request_line_id');
+    }
+
     public static function generateTransferNumber(): string
     {
         $year = now()->year;
