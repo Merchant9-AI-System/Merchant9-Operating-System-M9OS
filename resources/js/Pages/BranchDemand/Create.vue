@@ -1,24 +1,40 @@
 <script setup lang="ts">
-import { Link, useForm, usePage } from '@inertiajs/vue3';
-import { List, Plus, Trash2 } from '@lucide/vue';
+import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
+import { AlertTriangle, ClipboardList, List, Loader2, Paperclip, Pencil, Plus, Search, Store, Trash2, Upload, User, X } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
+import ImagePreview from '@/components/ImagePreview.vue';
+import { Badge } from '@/components/ui/badge';
+import { ButtonGroup } from '@/components/ui/button-group';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { NumberField, NumberFieldContent, NumberFieldDecrement, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field';
 import { SelectNative } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import ProductPicker, { type ProductSearchResult } from './ProductPicker.vue';
+import ProductFilters from './ProductFilters.vue';
+import ProductPicker, { type ProductSearchResult, type WebSearchResult } from './ProductPicker.vue';
 import RestockSuggestions, { type RestockSuggestion } from './RestockSuggestions.vue';
 
 interface LineItem {
-    search_query: string;
-    internal_code: string;
+    internal_code: string | null;
     item_desc: string;
     qty_requested: number;
+    remark: string;
     current_stock: number | null;
     image_url: string | null;
+    size: string | null;
+    weight: number | null;
+    category_name: string | null;
+    // 'web' = cadangan carian laman web merchant9.com; 'upload' = staf langkau carian/dua2
+    // carian TIADA hasil, muat naik gambar sendiri (rujuk ProductPicker) - kedua2 TIADA
+    // internal_code boleh dipercayai, HQ padankan ke stok sebenar semasa semakan (rujuk
+    // ViewBranchDemandRequest).
+    source_type: 'catalog' | 'web' | 'upload';
+    // Toggle staf cawangan - menentukan fulfillment_status AWAL line di server (rujuk
+    // BranchDemandRequestLine::FULFILLMENT_STOK_KRITIKAL), bukan lajur berasingan.
+    is_critical: boolean;
 }
 
 interface StoreOption {
@@ -26,23 +42,62 @@ interface StoreOption {
     label: string;
 }
 
+interface CategoryOption {
+    value: string;
+    label: string;
+}
+
 const props = defineProps<{
     stores: StoreOption[];
+    categories: CategoryOption[];
     initialStoreCode?: string | null;
 }>();
 
 const page = usePage<{ flash: { success: string | null } }>();
 
-function blankLine(): LineItem {
-    return {
-        search_query: '',
-        internal_code: '',
-        item_desc: '',
-        qty_requested: 1,
-        current_stock: null,
-        image_url: null,
-    };
+// Tapisan (jenis emas/julat berat/julat saiz) DIINGAT merentasi lawatan - staf tak perlu
+// tanda semula setiap kali nak cari (rujuk keperluan pengguna). Dikongsi antara carian item
+// (ProductPicker) & Cadangan Restock (RestockSuggestions) via satu keadaan ni.
+const FILTERS_STORAGE_KEY = 'branch-demand-filters';
+
+function loadPersistedFilters() {
+    if (typeof window === 'undefined') {
+        return { goldTypes: [], weightRanges: [], sizeRanges: [], categoryCodes: [] };
+    }
+
+    try {
+        const raw = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+
+        return {
+            goldTypes: Array.isArray(parsed.goldTypes) ? parsed.goldTypes : [],
+            weightRanges: Array.isArray(parsed.weightRanges) ? parsed.weightRanges : [],
+            sizeRanges: Array.isArray(parsed.sizeRanges) ? parsed.sizeRanges : [],
+            categoryCodes: Array.isArray(parsed.categoryCodes) ? parsed.categoryCodes : [],
+        };
+    } catch {
+        return { goldTypes: [], weightRanges: [], sizeRanges: [], categoryCodes: [] };
+    }
 }
+
+const persistedFilters = loadPersistedFilters();
+const goldTypes = ref<string[]>(persistedFilters.goldTypes);
+const weightRanges = ref<string[]>(persistedFilters.weightRanges);
+const sizeRanges = ref<string[]>(persistedFilters.sizeRanges);
+const categoryCodes = ref<string[]>(persistedFilters.categoryCodes);
+
+watch([goldTypes, weightRanges, sizeRanges, categoryCodes], () => {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    window.localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify({
+        goldTypes: goldTypes.value,
+        weightRanges: weightRanges.value,
+        sizeRanges: sizeRanges.value,
+        categoryCodes: categoryCodes.value,
+    }));
+}, { deep: true });
 
 const form = useForm({
     store_code: props.initialStoreCode ?? '',
@@ -52,37 +107,216 @@ const form = useForm({
 });
 
 const confirmOpen = ref(false);
+const searchQuery = ref('');
+
+// Item yg sedang dipilih drpd carian, BLM ditambah ke senarai - staf sahkan kuantiti/remark
+// dulu (Seksyen 1), lepas klik "Tambah ke Senarai" baru masuk form.lines (Seksyen 2).
+const stagedItem = ref<LineItem | null>(null);
 
 const canSubmit = computed(() => Boolean(form.store_code)
     && Boolean(form.submitted_by_name)
-    && form.lines.some((line) => line.internal_code && line.qty_requested > 0));
+    && form.lines.length > 0);
 
 const selectedStoreLabel = computed(() => props.stores.find((s) => s.code === form.store_code)?.label ?? form.store_code);
 
-const selectedLines = computed(() => form.lines.filter((line) => line.internal_code && line.qty_requested > 0));
-
-function onSelect(index: number, result: ProductSearchResult) {
-    form.lines[index].internal_code = result.internal_code;
-    form.lines[index].item_desc = result.description;
-    form.lines[index].current_stock = result.current_stock;
-    form.lines[index].image_url = result.image_url;
+function onSelect(result: ProductSearchResult) {
+    stagedItem.value = {
+        internal_code: result.internal_code,
+        item_desc: result.description,
+        qty_requested: 1,
+        remark: '',
+        current_stock: result.current_stock,
+        image_url: result.image_url,
+        size: result.size,
+        weight: result.weight,
+        category_name: result.category_name || null,
+        source_type: 'catalog',
+        is_critical: false,
+    };
 }
 
-function addLine() {
-    form.lines.push(blankLine());
+function onSelectWeb(result: WebSearchResult) {
+    stagedItem.value = {
+        internal_code: null,
+        item_desc: result.name,
+        qty_requested: 1,
+        remark: '',
+        current_stock: null,
+        image_url: result.image_url,
+        size: null,
+        weight: null,
+        category_name: result.category_label,
+        source_type: 'web',
+        is_critical: false,
+    };
+}
+
+// Staf langkau carian terus, ATAU carian dalaman+laman web dua2 TIADA hasil (rujuk
+// ProductPicker "selectManual") - muat naik gambar sendiri & taip keterangan manual, sama spt
+// proses Excel+gambar asal, cuma didigitalkan (rujuk BranchDemandRequestLine::SOURCE_UPLOAD).
+function onSelectManual(descriptionHint: string) {
+    stagedItem.value = {
+        internal_code: null,
+        item_desc: descriptionHint,
+        qty_requested: 1,
+        remark: '',
+        current_stock: null,
+        image_url: null,
+        size: null,
+        weight: null,
+        category_name: null,
+        source_type: 'upload',
+        is_critical: false,
+    };
+}
+
+// Line 'upload' WAJIB ada keterangan & gambar sendiri (rujuk store() validation) - tiada apa2
+// lain (kod/carian) utk HQ rujuk kalau dua2 kosong.
+const canAddStaged = computed(() => {
+    if (!stagedItem.value) {
+        return false;
+    }
+
+    if (stagedItem.value.source_type === 'upload') {
+        return stagedItem.value.item_desc.trim().length > 0 && Boolean(stagedItem.value.image_url);
+    }
+
+    return true;
+});
+
+function addStagedToList() {
+    if (!stagedItem.value || !canAddStaged.value) {
+        return;
+    }
+
+    // Line 'web'/'upload' TIADA internal_code (sentiasa null) - tak boleh gunakan utk kenal
+    // pasti pendua, setiap satu ditambah sbg baris berasingan (HQ padankan masing2 semasa semakan).
+    const existing = stagedItem.value.internal_code
+        ? form.lines.find((l) => l.internal_code === stagedItem.value?.internal_code)
+        : undefined;
+
+    if (existing) {
+        existing.qty_requested += stagedItem.value.qty_requested;
+        existing.remark = stagedItem.value.remark || existing.remark;
+    } else {
+        form.lines.push({ ...stagedItem.value });
+    }
+
+    stagedItem.value = null;
+    searchQuery.value = '';
 }
 
 function removeLine(index: number) {
-    if (form.lines.length > 1) {
-        form.lines.splice(index, 1);
+    form.lines.splice(index, 1);
+
+    if (editingIndex.value === index) {
+        editingIndex.value = null;
     }
 }
 
-// Cadangan restock (klik "+") - kalau design tu dah ada dlm senarai, tambah kuantiti sahaja
-// (elak baris berganda utk design yg sama); kalau ada baris kosong, isi baris tu dulu drpd
-// tambah baris baharu; kalau semua baris dah terisi design lain, tambah baris baharu di hujung.
+// Bnrkan satu line pd satu masa (Keterangan/Saiz/Berat/Remark) - berguna khusus utk line
+// 'web' (rujuk onSelectWeb) yg mula tanpa saiz/berat, staf isi sendiri, atau betulkan
+// keterangan drpd carian yg kurang tepat.
+const editingIndex = ref<number | null>(null);
+
+function toggleEdit(index: number) {
+    editingIndex.value = editingIndex.value === index ? null : index;
+}
+
+function getCsrfToken(): string {
+    const match = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
+
+    return match ? decodeURIComponent(match[1]) : '';
+}
+
+// Staf cawangan muat naik gambar rujukan SENDIRI (tak jumpa item dlm katalog/laman web) -
+// disimpan server (rujuk BranchDemandEntryController::uploadImage()), URL yg dikembalikan
+// terus jadi image_url line (medan SAMA dgn imej katalog/laman web).
+async function uploadImage(file: File): Promise<string | null> {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+        const response = await fetch('/branch-demand/upload-image', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'X-XSRF-TOKEN': getCsrfToken(),
+            },
+            body: formData,
+        });
+
+        if (!response.ok) {
+            return null;
+        }
+
+        const data = await response.json();
+
+        return data.image_url ?? null;
+    } catch {
+        return null;
+    }
+}
+
+const uploadingStagedImage = ref(false);
+const stagedImageError = ref('');
+
+async function onStagedImagePick(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+
+    if (!file || !stagedItem.value) {
+        return;
+    }
+
+    uploadingStagedImage.value = true;
+    stagedImageError.value = '';
+
+    const url = await uploadImage(file);
+
+    if (url) {
+        stagedItem.value.image_url = url;
+    } else {
+        stagedImageError.value = 'Muat naik gagal - cuba imej lain (jpg/png/webp, maks 5MB).';
+    }
+
+    uploadingStagedImage.value = false;
+    input.value = '';
+}
+
+const stagedFileInput = ref<HTMLInputElement | null>(null);
+const lineFileInput = ref<HTMLInputElement | null>(null);
+
+const uploadingLineImage = ref(false);
+const lineImageError = ref('');
+
+async function onLineImagePick(event: Event, index: number) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+
+    if (!file) {
+        return;
+    }
+
+    uploadingLineImage.value = true;
+    lineImageError.value = '';
+
+    const url = await uploadImage(file);
+
+    if (url) {
+        form.lines[index].image_url = url;
+    } else {
+        lineImageError.value = 'Muat naik gagal - cuba imej lain (jpg/png/webp, maks 5MB).';
+    }
+
+    uploadingLineImage.value = false;
+    input.value = '';
+}
+
+// Cadangan restock (klik "+") - tambah TERUS ke senarai (bukan ke staging Seksyen 1) - kalau
+// design tu dah ada dlm senarai, tambah kuantiti sahaja drpd baris berganda.
 function addFromSuggestion(item: RestockSuggestion) {
-    const existing = form.lines.find((line) => line.internal_code === item.internal_code);
+    const existing = form.lines.find((l) => l.internal_code === item.internal_code);
 
     if (existing) {
         existing.qty_requested += 1;
@@ -90,36 +324,31 @@ function addFromSuggestion(item: RestockSuggestion) {
         return;
     }
 
-    const blankIndex = form.lines.findIndex((line) => !line.internal_code);
-    const target = blankIndex !== -1 ? form.lines[blankIndex] : blankLine();
-
-    target.search_query = `${item.internal_code} - ${item.description}`;
-    target.internal_code = item.internal_code;
-    target.item_desc = item.description;
-    target.qty_requested = 1;
-    target.current_stock = item.current_stock;
-    target.image_url = item.image_url;
-
-    if (blankIndex === -1) {
-        form.lines.push(target);
-    }
+    form.lines.push({
+        internal_code: item.internal_code,
+        item_desc: item.description,
+        qty_requested: 1,
+        remark: '',
+        current_stock: item.current_stock,
+        image_url: item.image_url,
+        size: item.size,
+        weight: item.weight,
+        category_name: item.category_name || null,
+        source_type: 'catalog',
+        is_critical: false,
+    });
 }
 
-// Bila cawangan ditukar SELEPAS satu item dipilih, "Stok Semasa" yg dipaparkan terpegun pd
-// nilai cawangan LAMA (diambil semasa carian dijalankan) - kemaskan semula stok bagi setiap
-// line yg dah ada internal_code supaya sentiasa padan dgn cawangan yg AKTIF sekarang.
+// Bila cawangan ditukar SELEPAS item dah ditambah, "Stok Semasa" yg dipaparkan terpegun pd
+// nilai cawangan LAMA - kemaskan semula stok bagi setiap line yg dah ada.
 watch(() => form.store_code, async (newCode, oldCode) => {
     if (!newCode || newCode === oldCode) {
         return;
     }
 
-    await Promise.all(form.lines.map(async (line) => {
-        if (!line.internal_code) {
-            return;
-        }
-
+    await Promise.all(form.lines.filter((line) => line.internal_code).map(async (line) => {
         try {
-            const params = new URLSearchParams({ q: line.internal_code, store_code: newCode });
+            const params = new URLSearchParams({ q: line.internal_code as string, store_code: newCode });
             const response = await fetch(`/branch-demand/search?${params.toString()}`, {
                 headers: { Accept: 'application/json' },
             });
@@ -154,7 +383,7 @@ function submit() {
             form.reset();
             form.store_code = storeCode;
             form.submitted_by_name = picName;
-            form.lines = [blankLine()];
+            form.lines = [];
             confirmOpen.value = false;
         },
     });
@@ -162,6 +391,9 @@ function submit() {
 </script>
 
 <template>
+
+    <Head title="Form Permintaan Stok" />
+
     <div class="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-8">
         <div class="flex items-start justify-between gap-3">
             <div>
@@ -183,12 +415,15 @@ function submit() {
             {{ page.props.flash.success }}
         </div>
 
-        <div class="grid gap-4 lg:grid-cols-[1fr_320px]">
-            <form class="flex flex-col gap-4" @submit.prevent="openConfirm">
+        <div class="grid gap-4 lg:grid-cols-3">
+            <form class="flex flex-col gap-4 col-span-2" @submit.prevent="openConfirm">
                 <Card>
-                    <CardContent class="grid gap-3 pt-6 sm:grid-cols-2">
+                    <CardContent class="grid gap-3 sm:grid-cols-2">
                         <div>
-                            <Label class="mb-1.5 block">Cawangan</Label>
+                            <Label class="mb-1.5 block flex items-center gap-2">
+                                <Store class="size-4" />
+                                Cawangan
+                            </Label>
                             <SelectNative v-model="form.store_code">
                                 <option value="" disabled>Pilih cawangan...</option>
                                 <option v-for="store in stores" :key="store.code" :value="store.code">
@@ -200,7 +435,10 @@ function submit() {
                             </p>
                         </div>
                         <div>
-                            <Label class="mb-1.5 block">Nama PIC</Label>
+                            <Label class="mb-1.5 block flex items-center gap-2">
+                                <User class="size-4" />
+                                Nama PIC
+                            </Label>
                             <Input v-model="form.submitted_by_name" placeholder="Nama anda" autocomplete="off" />
                             <p v-if="form.errors.submitted_by_name" class="mt-1 text-xs text-destructive">
                                 {{ form.errors.submitted_by_name }}
@@ -209,54 +447,230 @@ function submit() {
                     </CardContent>
                 </Card>
 
-                <Card v-for="(line, index) in form.lines" :key="index">
-                    <CardContent class="flex flex-col gap-3 pt-6">
-                        <div class="flex items-start gap-3">
-                            <div class="min-w-0 flex-1">
-                                <Label class="mb-1.5 block">Kod Design / Keterangan / Kategori</Label>
-                                <ProductPicker v-model="line.search_query" :store-code="form.store_code || null"
-                                    @select="(result) => onSelect(index, result)" />
-                                <p v-if="form.errors[`lines.${index}.internal_code`]"
-                                    class="mt-1 text-xs text-destructive">
-                                    Sila pilih satu design drpd senarai carian.
-                                </p>
-                            </div>
-                            <div class="w-24 shrink-0">
-                                <Label class="mb-1.5 block">Kuantiti</Label>
-                                <Input v-model="line.qty_requested" type="number" min="1" />
-                            </div>
-                            <Button type="button" variant="ghost" size="icon"
-                                class="mt-6 text-muted-foreground hover:text-destructive"
-                                :disabled="form.lines.length <= 1" @click="removeLine(index)">
-                                <Trash2 class="size-4" />
-                            </Button>
+                <!-- Seksyen 1: Cari & Tambah Item -->
+                <Card>
+                    <CardHeader>
+                        <CardTitle class="flex items-center gap-2 text-base">
+                            <Search class="size-4" />Cari &amp; Tambah Item
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent class="flex flex-col gap-3">
+                        <div class="space-y-4">
+                            <ProductFilters :categories="categories" v-model:gold-types="goldTypes"
+                                v-model:weight-ranges="weightRanges" v-model:size-ranges="sizeRanges"
+                                v-model:category-codes="categoryCodes" />
+
+                            <ProductPicker v-model="searchQuery" :store-code="form.store_code || null"
+                                :gold-types="goldTypes" :weight-ranges="weightRanges" :size-ranges="sizeRanges"
+                                :category-codes="categoryCodes" @select="onSelect" @select-web="onSelectWeb"
+                                @select-manual="onSelectManual" />
                         </div>
 
-                        <div v-if="line.internal_code"
-                            class="flex items-center gap-3 rounded-md bg-muted/50 px-3 py-2 text-sm">
-                            <img v-if="line.image_url" :src="line.image_url" class="size-10 rounded object-cover"
-                                alt="">
-                            <div class="flex-1">
-                                <p class="font-medium">{{ line.internal_code }} - {{ line.item_desc }}</p>
-                                <p class="text-muted-foreground">
-                                    Stok semasa cawangan anda: <span class="font-medium">{{ line.current_stock }}
-                                        unit</span>
-                                </p>
+                        <div v-if="stagedItem"
+                            class="flex flex-col gap-3 rounded-md border border-muted-background border-dashed p-3">
+                            <div class="flex items-center justify-between gap-3 rounded-lg">
+                                <div class="flex items-center gap-3">
+                                    <ImagePreview :src="stagedItem.image_url" :alt="stagedItem.item_desc"
+                                        class="size-14" />
+                                    <div class="min-w-0 flex-1">
+                                        <p class="flex flex-wrap items-center gap-1.5 font-medium">
+                                            <span v-if="stagedItem.internal_code">{{ stagedItem.internal_code }}
+                                                -</span>
+                                            <span v-if="stagedItem.source_type !== 'upload'">{{ stagedItem.item_desc
+                                                }}</span>
+                                            <Badge v-if="stagedItem.source_type === 'web'" variant="outline"
+                                                class="text-xs">
+                                                Laman Web
+                                            </Badge>
+                                            <Badge v-if="stagedItem.source_type === 'upload'" variant="outline"
+                                                class="text-xs">
+                                                Gambar Sendiri
+                                            </Badge>
+                                            <Badge v-if="stagedItem.is_critical" variant="destructive"
+                                                class="gap-1 text-xs">
+                                                <AlertTriangle class="size-3" /> Kritikal
+                                            </Badge>
+                                        </p>
+                                        <p v-if="stagedItem.current_stock !== null"
+                                            class="text-xs text-muted-foreground">
+                                            Stok semasa cawangan anda: <span class="font-medium">{{
+                                                stagedItem.current_stock
+                                                }} unit</span>
+                                        </p>
+                                        <p v-else class="text-xs text-muted-foreground">
+                                            Kod design blm disahkan - HQ akan padankan ke stok sebenar semasa semakan.
+                                        </p>
+                                    </div>
+                                </div>
+                                <Button type="button" variant="ghost" size="icon" @click="stagedItem = null">
+                                    <X class="size-4" />
+                                    <span class="sr-only">Buang item</span>
+                                </Button>
+                            </div>
+                            <div v-if="stagedItem.source_type === 'upload'">
+                                <Label class="mb-1.5 block">Keterangan</Label>
+                                <Input v-model="stagedItem.item_desc" placeholder="Terangkan item yg diperlukan..." />
+                            </div>
+                            <div class="grid gap-3 sm:grid-cols-2">
+                                <div>
+                                    <Label class="mb-1.5 block">Kuantiti</Label>
+                                    <Input v-model="stagedItem.qty_requested" type="number" min="1" />
+                                </div>
+                                <div>
+                                    <Label class="mb-1.5 block">Remark (pilihan)</Label>
+                                    <Input v-model="stagedItem.remark" placeholder="cth. warna, saiz khas..." />
+                                </div>
+                                <div>
+                                    <Label class="mb-1.5 block">Saiz</Label>
+                                    <Input v-model="stagedItem.size" placeholder="cth. 17.5" />
+                                </div>
+                                <div>
+                                    <Label class="mb-1.5 block">Berat (g)</Label>
+                                    <Input v-model.number="stagedItem.weight" type="number" step="0.01" min="0" />
+                                </div>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <Button type="button" :variant="stagedItem.is_critical ? 'destructive' : 'outline'"
+                                    size="sm" @click="stagedItem.is_critical = !stagedItem.is_critical">
+                                    <AlertTriangle class="size-3.5" />
+                                    {{ stagedItem.is_critical ? 'Kritikal' : 'Tanda Kritikal' }}
+                                </Button>
+                                <Button type="button" variant="outline" size="sm"
+                                    v-if="stagedItem.source_type === 'upload'" :disabled="uploadingStagedImage"
+                                    @click="stagedFileInput?.click()">
+                                    <Loader2 v-if="uploadingStagedImage" class="size-3.5 animate-spin" />
+                                    <Upload v-else class="size-3.5" />
+                                    Muat Naik Gambar
+                                </Button>
+                                <input ref="stagedFileInput" type="file" accept="image/png,image/jpeg,image/webp"
+                                    class="hidden" @change="onStagedImagePick">
+                            </div>
+                            <p v-if="stagedImageError" class="text-xs text-destructive">{{ stagedImageError }}</p>
+                            <p v-if="stagedItem.source_type === 'upload' && !canAddStaged"
+                                class="text-xs text-muted-foreground">
+                                Isi keterangan &amp; muat naik gambar dahulu sebelum tambah ke senarai.
+                            </p>
+                            <Button type="button" :disabled="!canAddStaged" @click="addStagedToList">
+                                <Plus class="size-4" /> Tambah ke Senarai
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <!-- Seksyen 2: Senarai Item -->
+                <Card>
+                    <CardHeader>
+                        <CardTitle class="flex items-center gap-2 text-base">
+                            <ClipboardList class="size-4" />Senarai Item ({{ form.lines.length }})
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent class="flex flex-col gap-2">
+                        <p v-if="form.lines.length === 0" class="text-sm text-muted-foreground">
+                            Belum ada item ditambah - cari &amp; tambah item di Seksyen 1, atau guna Cadangan Restock.
+                        </p>
+                        <p v-if="form.errors.lines" class="text-xs text-destructive">
+                            {{ form.errors.lines }}
+                        </p>
+                        <div v-for="(line, index) in form.lines" :key="index"
+                            class="flex flex-col gap-3 bg-muted rounded-xl border p-3">
+                            <div class="flex items-center gap-3">
+                                <ImagePreview :src="line.image_url" :alt="line.item_desc" class="size-11 rounded-lg" />
+                                <div class="min-w-0 flex-1">
+                                    <p class="flex flex-wrap items-center gap-1.5 truncate font-medium">
+                                        <span v-if="line.internal_code">{{ line.internal_code }} -</span>
+                                        {{ line.item_desc }}
+                                        <Badge v-if="line.source_type === 'web'" variant="outline"
+                                            class="text-xs bg-white">
+                                            Laman Web
+                                        </Badge>
+                                        <Badge v-if="line.source_type === 'upload'" variant="outline"
+                                            class="text-xs bg-white">
+                                            Gambar Sendiri
+                                        </Badge>
+                                        <Badge v-if="line.is_critical" variant="destructive" class="gap-1 text-xs">
+                                            <AlertTriangle class="size-3" /> Kritikal
+                                        </Badge>
+                                    </p>
+                                    <p v-if="line.size || line.weight" class="truncate text-xs text-muted-foreground">
+                                        <span v-if="line.size">Saiz {{ line.size }}</span>
+                                        <span v-if="line.size && line.weight"> &middot; </span>
+                                        <span v-if="line.weight">{{ line.weight }}g</span>
+                                    </p>
+                                    <p v-if="line.remark" class="truncate text-sm text-muted-foreground">{{ line.remark
+                                        }}
+                                    </p>
+                                </div>
+                                <NumberField v-model="line.qty_requested" :min="1" class="w-28 shrink-0 bg-white">
+                                    <NumberFieldContent>
+                                        <NumberFieldDecrement />
+                                        <NumberFieldInput class="h-8" />
+                                        <NumberFieldIncrement />
+                                    </NumberFieldContent>
+                                </NumberField>
+                                <div class="flex flex-col items-start gap-8">
+                                    <ButtonGroup>
+                                        <Button type="button" variant="outline" size="sm" @click="toggleEdit(index)">
+                                            <Pencil class="size-3.5" />
+                                            <span class="sr-only">Sunting item</span>
+                                        </Button>
+                                        <Button type="button" variant="destructive" size="sm"
+                                            @click="removeLine(index)">
+                                            <Trash2 class="size-3" />
+                                            <span class="sr-only">Buang</span>
+                                        </Button>
+                                    </ButtonGroup>
+                                </div>
+                            </div>
+
+                            <div v-if="editingIndex === index"
+                                class="grid gap-3 border-t px-3 py-3 rounded-md sm:grid-cols-2 bg-white">
+                                <div class="sm:col-span-2">
+                                    <Label class="mb-1.5 block">Keterangan</Label>
+                                    <Input v-model="line.item_desc" />
+                                </div>
+                                <div>
+                                    <Label class="mb-1.5 block">Saiz</Label>
+                                    <Input v-model="line.size" placeholder="cth. 17.5" />
+                                </div>
+                                <div>
+                                    <Label class="mb-1.5 block">Berat (g)</Label>
+                                    <Input v-model.number="line.weight" type="number" step="0.01" min="0" />
+                                </div>
+                                <div class="sm:col-span-2">
+                                    <Label class="mb-1.5 block">Remark (pilihan)</Label>
+                                    <Input v-model="line.remark" placeholder="cth. warna, saiz khas..." />
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
+                                    <Button type="button" :variant="line.is_critical ? 'destructive' : 'outline'"
+                                        size="sm" @click="line.is_critical = !line.is_critical">
+                                        <AlertTriangle class="size-3.5" />
+                                        {{ line.is_critical ? 'Kritikal' : 'Tanda Kritikal' }}
+                                    </Button>
+                                    <Button type="button" variant="outline" size="sm"
+                                        v-if="line.source_type === 'upload'" :disabled="uploadingLineImage"
+                                        @click="lineFileInput?.click()">
+                                        <Loader2 v-if="uploadingLineImage" class="size-3.5 animate-spin" />
+                                        <Upload v-else class="size-3.5" />
+                                        Ganti Gambar
+                                    </Button>
+                                    <input ref="lineFileInput" type="file" accept="image/png,image/jpeg,image/webp"
+                                        class="hidden" @change="onLineImagePick($event, index)">
+                                </div>
+                                <p v-if="lineImageError" class="text-xs text-destructive sm:col-span-2">{{
+                                    lineImageError }}</p>
                             </div>
                         </div>
                     </CardContent>
                 </Card>
 
-                <Button type="button" :disabled="!form.store_code" @click="addLine">
-                    <Plus class="size-4" /> Tambah Item
-                </Button>
-
                 <Card>
                     <CardHeader>
-                        <CardTitle class="text-base">Nota</CardTitle>
+                        <CardTitle class="flex items-center gap-2 text-base">
+                            <Paperclip class="size-4" />Nota
+                        </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <Textarea v-model="form.notes" placeholder="Nota tambahan (pilihan)" :rows="4" />
+                        <Textarea v-model="form.notes" placeholder="Nota tambahan (pilihan)" :rows="2" />
                     </CardContent>
                     <CardFooter class="justify-end">
                         <Button type="submit" :disabled="!canSubmit || form.processing">
@@ -266,8 +680,10 @@ function submit() {
                 </Card>
             </form>
 
-            <div class="lg:sticky lg:top-8 lg:self-start overflow-hidden">
-                <RestockSuggestions :store-code="form.store_code || null" @add="addFromSuggestion" />
+            <div class="lg:sticky lg:top-8 lg:self-start lg:max-w-[600px] overflow-hidden">
+                <RestockSuggestions :store-code="form.store_code || null" :gold-types="goldTypes"
+                    :weight-ranges="weightRanges" :size-ranges="sizeRanges" :category-codes="categoryCodes"
+                    @add="addFromSuggestion" />
             </div>
         </div>
 
@@ -293,10 +709,18 @@ function submit() {
                     </div>
 
                     <div>
-                        <p class="mb-1 text-muted-foreground">Item ({{ selectedLines.length }})</p>
+                        <p class="mb-1 text-muted-foreground">Item ({{ form.lines.length }})</p>
                         <ul class="flex flex-col gap-1 rounded-md border p-2">
-                            <li v-for="(line, i) in selectedLines" :key="i" class="flex justify-between gap-2">
-                                <span class="min-w-0 truncate">{{ line.internal_code }} - {{ line.item_desc }}</span>
+                            <li v-for="(line, i) in form.lines" :key="i" class="flex justify-between gap-2">
+                                <span class="min-w-0 truncate">
+                                    <template v-if="line.internal_code">{{ line.internal_code }} - </template>{{
+                                        line.item_desc }}
+                                    <span v-if="line.source_type === 'web'" class="text-xs text-muted-foreground">(Laman
+                                        Web)</span>
+                                    <span v-if="line.source_type === 'upload'"
+                                        class="text-xs text-muted-foreground">(Gambar
+                                        Sendiri)</span>
+                                </span>
                                 <span class="shrink-0 font-medium">{{ line.qty_requested }} unit</span>
                             </li>
                         </ul>

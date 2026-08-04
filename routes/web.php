@@ -13,5 +13,9 @@ Route::get('/', function () {
 Route::get('/branch-demand', [BranchDemandEntryController::class, 'create'])->name('branch-demand.create');
 Route::get('/branch-demand/requests', [BranchDemandEntryController::class, 'requests'])->name('branch-demand.requests');
 Route::get('/branch-demand/search', [BranchDemandEntryController::class, 'search'])->name('branch-demand.search');
+Route::get('/branch-demand/product-image', [BranchDemandEntryController::class, 'productImage'])->name('branch-demand.product-image');
+Route::get('/branch-demand/search-website', [BranchDemandEntryController::class, 'searchWebsite'])->name('branch-demand.search-website');
 Route::get('/branch-demand/restock-suggestions', [BranchDemandEntryController::class, 'restockSuggestions'])->name('branch-demand.restock-suggestions');
+// throttle: permukaan awam tiada login - had kadar muat naik per-IP elak penyalahgunaan storan.
+Route::post('/branch-demand/upload-image', [BranchDemandEntryController::class, 'uploadImage'])->middleware('throttle:20,1')->name('branch-demand.upload-image');
 Route::post('/branch-demand', [BranchDemandEntryController::class, 'store'])->name('branch-demand.store');

@@ -9,24 +9,50 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Notifications\Notification;
+use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class BranchDemandRequestsTable
 {
     public static function configure(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn (Builder $query) => $query->withCount([
+                'lines as critical_lines_count' => fn (Builder $q) => $q->where(
+                    'fulfillment_status',
+                    BranchDemandRequestLine::FULFILLMENT_STOK_KRITIKAL,
+                ),
+            ]))
             ->columns([
+                IconColumn::make('critical_lines_count')->label('Kritikal')
+                    ->boolean()
+                    ->trueIcon(Heroicon::ExclamationTriangle)
+                    ->falseIcon(null)
+                    ->trueColor('danger')
+                    ->getStateUsing(fn (BranchDemandRequest $record) => $record->critical_lines_count > 0),
                 TextColumn::make('request_number')->label('No. Permintaan')->searchable()->sortable(),
                 TextColumn::make('store_code')->label('Cawangan')
                     ->formatStateUsing(fn (?string $state) => trim((string) $state))
                     ->badge()->sortable(),
                 TextColumn::make('status')->label('Status')->badge()
+                    ->formatStateUsing(fn (string $state) => match ($state) {
+                        BranchDemandRequest::STATUS_SUBMITTED => 'Menunggu Semakan',
+                        BranchDemandRequest::STATUS_REVIEWED => 'Disemak',
+                        BranchDemandRequest::STATUS_PROCESSING => 'Diproses',
+                        BranchDemandRequest::STATUS_COMPLETED => 'Selesai',
+                        BranchDemandRequest::STATUS_CANCELLED => 'Dibatalkan',
+                        default => $state,
+                    })
                     ->color(fn (string $state) => match ($state) {
                         BranchDemandRequest::STATUS_SUBMITTED => 'warning',
                         BranchDemandRequest::STATUS_REVIEWED => 'success',
+                        BranchDemandRequest::STATUS_PROCESSING => 'info',
+                        BranchDemandRequest::STATUS_COMPLETED => 'success',
                         BranchDemandRequest::STATUS_CANCELLED => 'danger',
                         default => 'gray',
                     }),
@@ -36,10 +62,21 @@ class BranchDemandRequestsTable
                 TextColumn::make('reviewedBy.name')->label('Disemak oleh')->placeholder('-')->toggleable(),
             ])
             ->filters([
+                // Utk BO utamakan tengok stok kritikal dahulu (rujuk BranchDemandRequestLine::
+                // FULFILLMENT_STOK_KRITIKAL - dicetuskan drpd toggle "Kritikal" staf cawangan).
+                Filter::make('has_critical')
+                    ->label('Ada Item Kritikal')
+                    ->toggle()
+                    ->query(fn (Builder $query) => $query->whereHas('lines', fn (Builder $q) => $q->where(
+                        'fulfillment_status',
+                        BranchDemandRequestLine::FULFILLMENT_STOK_KRITIKAL,
+                    ))),
                 SelectFilter::make('status')->options([
-                    BranchDemandRequest::STATUS_SUBMITTED => 'Submitted',
-                    BranchDemandRequest::STATUS_REVIEWED => 'Reviewed',
-                    BranchDemandRequest::STATUS_CANCELLED => 'Cancelled',
+                    BranchDemandRequest::STATUS_SUBMITTED => 'Menunggu Semakan',
+                    BranchDemandRequest::STATUS_REVIEWED => 'Disemak',
+                    BranchDemandRequest::STATUS_PROCESSING => 'Diproses',
+                    BranchDemandRequest::STATUS_COMPLETED => 'Selesai',
+                    BranchDemandRequest::STATUS_CANCELLED => 'Dibatalkan',
                 ]),
                 SelectFilter::make('store_code')
                     ->label('Cawangan')

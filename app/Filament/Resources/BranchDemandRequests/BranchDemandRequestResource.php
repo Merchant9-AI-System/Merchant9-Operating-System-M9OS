@@ -5,6 +5,7 @@ namespace App\Filament\Resources\BranchDemandRequests;
 use App\Filament\Resources\BranchDemandRequests\Pages\CreateBranchDemandRequest;
 use App\Filament\Resources\BranchDemandRequests\Pages\ListBranchDemandRequests;
 use App\Filament\Resources\BranchDemandRequests\Pages\ViewBranchDemandRequest;
+use App\Filament\Resources\BranchDemandRequests\RelationManagers\LinesRelationManager;
 use App\Filament\Resources\BranchDemandRequests\Schemas\BranchDemandRequestForm;
 use App\Filament\Resources\BranchDemandRequests\Schemas\BranchDemandRequestInfolist;
 use App\Filament\Resources\BranchDemandRequests\Tables\BranchDemandRequestsTable;
@@ -68,6 +69,13 @@ class BranchDemandRequestResource extends Resource
             'index' => ListBranchDemandRequests::route('/'),
             'create' => CreateBranchDemandRequest::route('/create'),
             'view' => ViewBranchDemandRequest::route('/{record}'),
+        ];
+    }
+
+    public static function getRelations(): array
+    {
+        return [
+            LinesRelationManager::class,
         ];
     }
 }

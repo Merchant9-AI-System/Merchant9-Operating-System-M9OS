@@ -17,6 +17,13 @@ class BranchDemandRequest extends Model
 
     public const STATUS_REVIEWED = 'Reviewed';
 
+    // Sekurang2nya SATU line APPROVED masih blm capai peringkat "tamat" (rujuk
+    // BranchDemandRequestLine::FULFILLMENT_TERMINAL) - BO tgh proses (Listed/Dah Order/dll).
+    public const STATUS_PROCESSING = 'Processing';
+
+    // SEMUA line APPROVED dah capai peringkat "tamat" - tiada apa2 lagi BO perlu buat.
+    public const STATUS_COMPLETED = 'Completed';
+
     public const STATUS_CANCELLED = 'Cancelled';
 
     protected $guarded = [];
@@ -131,5 +138,44 @@ class BranchDemandRequest extends Model
             'reviewed_by_id' => $reviewer->id,
             'reviewed_at' => now(),
         ]);
+
+        // Kalau ada line APPROVED, terus semak sama ada dah boleh Diproses (BO belum mula
+        // fulfillment - status ni sentiasa akan jadi Processing terus, bukan tergantung di
+        // Disemak). Kalau semua Ditolak, tiada apa2 fulfillment, kekal di Disemak (rujuk
+        // recalculateFulfillmentStatus() - "tiada line approved" kekal x berubah).
+        $this->recalculateFulfillmentStatus();
+    }
+
+    /**
+     * Kira semula status header ikut fulfillment_status semua line APPROVED - dipanggil lepas
+     * status Disemak dicapai (rujuk recalculateReviewStatus()), & lepas mana2 kemaskini
+     * fulfillment_status individu/pukal (rujuk ViewBranchDemandRequest "updateFulfillment" &
+     * "markAllDelivered"). Kekal x berubah utk Submitted/Cancelled - medan ni cuma bermakna
+     * SELEPAS keputusan Lulus/Tolak dibuat.
+     */
+    public function recalculateFulfillmentStatus(): void
+    {
+        $this->refresh();
+
+        if (! in_array($this->status, [self::STATUS_REVIEWED, self::STATUS_PROCESSING], true)) {
+            return;
+        }
+
+        $approved = $this->lines->where('line_status', BranchDemandRequestLine::STATUS_APPROVED);
+
+        // Tiada line diluluskan (semua Ditolak) - tiada fulfillment berlaku, kekal di Disemak.
+        if ($approved->isEmpty()) {
+            return;
+        }
+
+        $allTerminal = $approved->every(
+            fn ($l) => in_array($l->fulfillment_status, BranchDemandRequestLine::FULFILLMENT_TERMINAL, true)
+        );
+
+        $newStatus = $allTerminal ? self::STATUS_COMPLETED : self::STATUS_PROCESSING;
+
+        if ($newStatus !== $this->status) {
+            $this->update(['status' => $newStatus]);
+        }
     }
 }
