@@ -89,7 +89,7 @@ class BranchDemandRequest extends Model
      */
     public function notifyReviewers(): void
     {
-        $reviewers = User::role('hq_reviewer')->get();
+        $reviewers = User::role('manager')->get();
 
         if ($reviewers->isEmpty()) {
             return;
