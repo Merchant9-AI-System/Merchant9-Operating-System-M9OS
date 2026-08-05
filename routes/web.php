@@ -2,9 +2,11 @@
 
 use App\Http\Controllers\BranchDemandEntryController;
 use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
 
 Route::get('/', function () {
-    return view('welcome');
+    // return view('welcome');
+    return Inertia::render('LandingPage/FirstPage');
 });
 
 // Permukaan Inertia+Vue+shadcn-vue berasingan drpd Filament, khusus staf cawangan hantar

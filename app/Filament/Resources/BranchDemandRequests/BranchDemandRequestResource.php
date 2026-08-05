@@ -22,7 +22,7 @@ class BranchDemandRequestResource extends Resource
 {
     protected static ?string $model = BranchDemandRequest::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentList;
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedInboxArrowDown;
 
     protected static ?string $navigationLabel = 'Branch Demand';
 

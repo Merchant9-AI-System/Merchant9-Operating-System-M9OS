@@ -40,7 +40,7 @@ class BranchDemandAllocationSuggestion extends Page implements HasTable
 
     protected string $view = 'filament.pages.branch-demand-allocation-suggestion';
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedArrowsRightLeft;
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedInbox;
 
     protected static ?string $navigationLabel = 'Cadangan Penuhan Demand';
 

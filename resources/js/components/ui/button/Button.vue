@@ -21,6 +21,7 @@ const props = withDefaults(defineProps<Props>(), {
         :type="type"
         :disabled="disabled"
         :class="cn(buttonVariants({ variant, size }), props.class)"
+        class="cursor-pointer"
     >
         <slot />
     </button>
