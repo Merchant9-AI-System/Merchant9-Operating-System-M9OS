@@ -71,10 +71,10 @@ class SyncJemisysMirrors implements ShouldQueue
             Artisan::call('app:warm-dashboard-cache');
 
             $ms = round((microtime(true) - $start) * 1000);
-            Log::info("SyncJemisysMirrors: selesai - {$total} baris TblInventory + Category/Vendor/Store, ".
+            Log::info("SyncJemisysMirrors: selesai - {$total} baris TblInventory + Category/Vendor/Store, " .
                 "{$stockoutCandidateCount} calon StockoutReorder ({$ms}ms).");
         } catch (Throwable $e) {
-            Log::error('SyncJemisysMirrors gagal: '.$e->getMessage());
+            Log::error('SyncJemisysMirrors gagal: ' . $e->getMessage());
 
             throw $e;
         } finally {
@@ -86,7 +86,7 @@ class SyncJemisysMirrors implements ShouldQueue
     private function syncSmallTable(string $sourceTable, string $localTable): void
     {
         $rows = DB::connection('jemisys')->table($sourceTable)->get()
-            ->map(fn ($row) => (array) $row + ['synced_at' => now()])
+            ->map(fn($row) => (array) $row + ['synced_at' => now()])
             ->all();
 
         DB::table($localTable)->truncate();
@@ -95,7 +95,7 @@ class SyncJemisysMirrors implements ShouldQueue
             DB::table($localTable)->insert($rows);
         }
 
-        Log::info('SyncJemisysMirrors: '.$sourceTable.' -> '.$localTable.' ('.count($rows).' baris).');
+        Log::info('SyncJemisysMirrors: ' . $sourceTable . ' -> ' . $localTable . ' (' . count($rows) . ' baris).');
     }
 
     /** TblInventory (481K baris) - batch per StoreCode, commit berkala. Rujuk nota asal di bawah. */
@@ -127,11 +127,11 @@ class SyncJemisysMirrors implements ShouldQueue
         // sblm truncate, guna balik (skip fetch) utk code yg dah pernah berjaya - hanya design
         // BAHARU (blm pernah disegerak) kena scrape btul2. Hasilnya: run PERTAMA lepas migration
         // ni tetap perlahan (semua ~27K kod sejuk), tapi run SETERUSNYA cuma fetch kod baharu.
-        $knownImageUrls = InventoryMirror::query()
-            ->whereNotNull('image_url')
-            ->get(['InternalCode', 'image_url'])
-            ->mapWithKeys(fn ($row) => [trim((string) $row->InternalCode) => $row->image_url])
-            ->all();
+        // $knownImageUrls = InventoryMirror::query()
+        //     ->whereNotNull('image_url')
+        //     ->get(['InternalCode', 'image_url'])
+        //     ->mapWithKeys(fn ($row) => [trim((string) $row->InternalCode) => $row->image_url])
+        //     ->all();
 
         // truncate() KENA di luar transaction - TRUNCATE TABLE buat implicit commit dlm MySQL
         // (turut tamatkan transaction terdahulu secara senyap), jadi kalau dipanggil SELEPAS
@@ -158,17 +158,19 @@ class SyncJemisysMirrors implements ShouldQueue
                     ->table('TblInventory')
                     ->where('StoreCode', $storeCode)
                     ->cursor()
-                    ->each(function ($row) use (&$buffer, &$total, &$rowsSinceCommit, $chunkSize, $rowsPerTransaction, $knownImageUrls) {
-                        $internalCode = trim((string) $row->InternalCode);
+                    ->each(function ($row) use (&$buffer, &$total, &$rowsSinceCommit, $chunkSize, $rowsPerTransaction) {
+                        $buffer[] = (array) $row + ['synced_at' => now()];
+                        // ->each(function ($row) use (&$buffer, &$total, &$rowsSinceCommit, $chunkSize, $rowsPerTransaction, $knownImageUrls) {
+                        //     $internalCode = trim((string) $row->InternalCode);
 
-                        // Guna balik URL yg dah diketahui (rujuk $knownImageUrls di atas) drpd
-                        // scrape semula - hanya kod BAHARU (blm pernah berjaya sebelum ni) kena
-                        // panggil ProductImageFetcher (& kena tunggu HTTP fetch sebenar).
-                        $imageUrl = $internalCode !== ''
-                            ? ($knownImageUrls[$internalCode] ?? ProductImageFetcher::firstImageUrlFor($internalCode))
-                            : null;
+                        //     // Guna balik URL yg dah diketahui (rujuk $knownImageUrls di atas) drpd
+                        //     // scrape semula - hanya kod BAHARU (blm pernah berjaya sebelum ni) kena
+                        //     // panggil ProductImageFetcher (& kena tunggu HTTP fetch sebenar).
+                        //     $imageUrl = $internalCode !== ''
+                        //         ? ($knownImageUrls[$internalCode] ?? ProductImageFetcher::firstImageUrlFor($internalCode))
+                        //         : null;
 
-                        $buffer[] = (array) $row + ['synced_at' => now(), 'image_url' => $imageUrl];
+                        //     $buffer[] = (array) $row + ['synced_at' => now(), 'image_url' => $imageUrl];
 
                         if (count($buffer) >= $chunkSize) {
                             InventoryMirror::insert($buffer);
