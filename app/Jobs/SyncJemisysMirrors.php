@@ -6,6 +6,7 @@ use App\Models\InventoryMirror;
 use App\Models\Jemisys\Category;
 use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
+use App\Support\ProductImageFetcher;
 use App\Support\StockoutReorderMaterializer;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -116,6 +117,22 @@ class SyncJemisysMirrors implements ShouldQueue
         $rowsPerTransaction = 5000;
         $rowsSinceCommit = 0;
 
+        // image_url BUKAN drpd TblInventory (rujuk migration add_image_url_to_...) - diisi
+        // scrape merchant9.com via ProductImageFetcher, ketara PERLAHAN drpd DB copy biasa
+        // (~700ms/kod SEJUK, rujuk dokblok kelas tsb). truncate() bawah ni buang SEMUA data
+        // termasuk image_url yg dah diisi run SEBELUM ni - kalau kita fetch SEMULA every run utk
+        // SEMUA ~27K InternalCode unik, job ni jadi berjam-jam SETIAP kali (Cache::flush() di
+        // handle() pun basuh cache ProductImageFetcher sendiri di penghujung tiap run, jadi
+        // cache 1-hari dia pun x membantu across-run). Tangkap dulu peta code->url yg SEDIA ADA
+        // sblm truncate, guna balik (skip fetch) utk code yg dah pernah berjaya - hanya design
+        // BAHARU (blm pernah disegerak) kena scrape btul2. Hasilnya: run PERTAMA lepas migration
+        // ni tetap perlahan (semua ~27K kod sejuk), tapi run SETERUSNYA cuma fetch kod baharu.
+        $knownImageUrls = InventoryMirror::query()
+            ->whereNotNull('image_url')
+            ->get(['InternalCode', 'image_url'])
+            ->mapWithKeys(fn ($row) => [trim((string) $row->InternalCode) => $row->image_url])
+            ->all();
+
         // truncate() KENA di luar transaction - TRUNCATE TABLE buat implicit commit dlm MySQL
         // (turut tamatkan transaction terdahulu secara senyap), jadi kalau dipanggil SELEPAS
         // beginTransaction(), Laravel akan fikir transaction masih terbuka (transactionLevel
@@ -141,8 +158,17 @@ class SyncJemisysMirrors implements ShouldQueue
                     ->table('TblInventory')
                     ->where('StoreCode', $storeCode)
                     ->cursor()
-                    ->each(function ($row) use (&$buffer, &$total, &$rowsSinceCommit, $chunkSize, $rowsPerTransaction) {
-                        $buffer[] = (array) $row + ['synced_at' => now()];
+                    ->each(function ($row) use (&$buffer, &$total, &$rowsSinceCommit, $chunkSize, $rowsPerTransaction, $knownImageUrls) {
+                        $internalCode = trim((string) $row->InternalCode);
+
+                        // Guna balik URL yg dah diketahui (rujuk $knownImageUrls di atas) drpd
+                        // scrape semula - hanya kod BAHARU (blm pernah berjaya sebelum ni) kena
+                        // panggil ProductImageFetcher (& kena tunggu HTTP fetch sebenar).
+                        $imageUrl = $internalCode !== ''
+                            ? ($knownImageUrls[$internalCode] ?? ProductImageFetcher::firstImageUrlFor($internalCode))
+                            : null;
+
+                        $buffer[] = (array) $row + ['synced_at' => now(), 'image_url' => $imageUrl];
 
                         if (count($buffer) >= $chunkSize) {
                             InventoryMirror::insert($buffer);
