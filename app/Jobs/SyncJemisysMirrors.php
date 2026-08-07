@@ -143,9 +143,16 @@ class SyncJemisysMirrors implements ShouldQueue
         // peta code->{nickname,image_url,merchant_synced_at} SEDIA ADA sblm truncate (bacaan DB
         // SAHAJA, TIADA HTTP - x reintroduce isu timeout), guna balik semasa insert bawah -
         // hanya design BAHARU (blm pernah disegerak job backfill) akan null lepas resync ni.
+        // toBase()->get() (bukan ->get() Eloquent terus) - disahkan production 169K+ drpd 490K
+        // baris dah ada merchant_synced_at (lepas backfill job jalan meluas), hydrate SEMUA tu
+        // sbg Model Eloquent PENUH (attributes/original/casts/relations setiap satu) exhaust
+        // memory_limit 512M SEBELUM loop insert bawah pun mula - punca OOM disahkan production.
+        // toBase() pulangkan stdClass mentah drpd Query Builder, jauh lebih ringan drpd Model.
         $knownMerchantData = InventoryMirror::query()
             ->whereNotNull('merchant_synced_at')
-            ->get(['InternalCode', 'nickname', 'image_url', 'merchant_synced_at'])
+            ->select(['InternalCode', 'nickname', 'image_url', 'merchant_synced_at'])
+            ->toBase()
+            ->get()
             ->mapWithKeys(fn ($row) => [trim((string) $row->InternalCode) => [
                 'nickname' => $row->nickname,
                 'image_url' => $row->image_url,
