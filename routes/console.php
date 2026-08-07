@@ -14,3 +14,10 @@ Artisan::command('inspire', function () {
 // PENTING: perlukan `php artisan schedule:work` (dev) atau cron `schedule:run` (VM production)
 // berjalan - definisi ni sahaja TIDAK auto-jalan tanpa salah satu proses tu aktif.
 Schedule::command('app:warm-dashboard-cache')->everyFifteenMinutes()->withoutOverlapping();
+
+// JemisysConnectionStatus::mount() SENGAJA baca cache SAHAJA (TTL 300s, rujuk
+// JemisysConnectionStatus::CACHE_TTL_SECONDS) - tanpa jadual ni, cache tamat tempoh & pelawat
+// SETERUSNYA yg buka page tu terkena semakan LIVE network+auth+query SQL Server penuh (~12s,
+// disahkan production - punca 504 Gateway Timeout). Setiap 5 minit imbang antara data segar &
+// beban semakan live (network+SQL Server+2 query DISTINCT tempatan, jumlah ~26s setiap jalan).
+Schedule::command('app:warm-jemisys-diagnostics')->everyFiveMinutes()->withoutOverlapping();

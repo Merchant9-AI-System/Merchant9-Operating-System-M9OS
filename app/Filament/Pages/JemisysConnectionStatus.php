@@ -39,6 +39,12 @@ class JemisysConnectionStatus extends Page
 
     protected static ?int $navigationSort = 99;
 
+    /** Cache key sama diguna oleh App\Console\Commands\WarmJemisysDiagnostics (cron warm-ahead)
+     * & action "Refresh" (bypass, tulis balik segera) - rujuk dokblok runDiagnostics() bawah. */
+    public const CACHE_KEY_CHECKS = 'jemisys_connection_diagnostics_checks';
+
+    public const CACHE_TTL_SECONDS = 300;
+
     /** @var array<string, array{label: string, status: string, detail: string, ms: ?float}> */
     public array $checks = [];
 
@@ -47,9 +53,16 @@ class JemisysConnectionStatus extends Page
         return __('Diagnostik sambungan "jemisys" (SQL Server via Tailscale) - jalankan semak berperingkat');
     }
 
+    /**
+     * mount() SENGAJA baca cache SAHAJA (bukan panggil computeDiagnostics() terus) - semakan
+     * penuh (network+auth+query SQL Server sebenar via Tailscale) ambil ~12s (disahkan
+     * production - punca 504 Gateway Timeout bila jalan LIVE setiap kali page dibuka). Cache
+     * diisi oleh App\Console\Commands\WarmJemisysDiagnostics (scheduled, rujuk routes/console.php)
+     * & action "Refresh" bawah - page load sendiri kekal instant tanpa mengira keadaan sambungan.
+     */
     public function mount(): void
     {
-        $this->runDiagnostics();
+        $this->checks = Cache::get(self::CACHE_KEY_CHECKS, []);
     }
 
     protected function getHeaderWidgets(): array
@@ -76,8 +89,8 @@ class JemisysConnectionStatus extends Page
                 ->label('Segerak Data JEMiSys')
                 ->icon(Heroicon::OutlinedArrowPath)
                 ->color('warning')
-                ->disabled(fn() => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['network']['status'] ?? null) !== 'ok')
-                ->tooltip(fn() => ($this->checks['network']['status'] ?? null) !== 'ok'
+                ->disabled(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['network']['status'] ?? null) !== 'ok')
+                ->tooltip(fn () => ($this->checks['network']['status'] ?? null) !== 'ok'
                     ? 'Sambungan rangkaian ke JEMiSys gagal - semak Tailscale/VPN (laptop sumber perlu ON & disambung) sebelum segerak.'
                     : null)
                 ->requiresConfirmation()
@@ -90,8 +103,8 @@ class JemisysConnectionStatus extends Page
                 ->label('Segerak Nickname & Imej Merchant9')
                 ->icon(Heroicon::OutlinedPhoto)
                 ->color('warning')
-                ->disabled(fn() => Cache::has(SyncMerchantNicknamesAndImages::CACHE_KEY_SYNCING) || Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING))
-                ->tooltip(fn() => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING)
+                ->disabled(fn () => Cache::has(SyncMerchantNicknamesAndImages::CACHE_KEY_SYNCING) || Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING))
+                ->tooltip(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING)
                     ? 'Sync JEMiSys utama sedang berjalan - tunggu selesai dahulu.'
                     : null)
                 ->requiresConfirmation()
@@ -120,13 +133,17 @@ class JemisysConnectionStatus extends Page
         return [
             'syncing' => $startedAt !== null,
             'syncStartedAt' => $startedAt instanceof Carbon ? $startedAt->toIso8601String() : null,
-            'lastSyncedAt' => InventoryMirror::max('synced_at'),
-            'mirrors' => [
+            // Cache (TTL sama dgn CACHE_KEY_CHECKS, diwarmkan bersama via WarmJemisysDiagnostics)
+            // - lajur ni dibaca via wire:poll.3s (rujuk blade view). MAX(synced_at) disahkan
+            // ~9.6s SEBELUM index ditambah (rujuk migration add_synced_at_indexes_...) - kekal
+            // dicache sbg pertahanan tambahan (server production sibuk boleh perlahankan lagi).
+            'lastSyncedAt' => Cache::remember('jemisys_last_synced_at', self::CACHE_TTL_SECONDS, fn () => InventoryMirror::max('synced_at')),
+            'mirrors' => Cache::remember('jemisys_mirror_counts', self::CACHE_TTL_SECONDS, fn () => [
                 'Category' => Category::count(),
                 'Vendor' => Vendor::count(),
                 'Store' => Store::count(),
                 'Inventory' => InventoryMirror::count(),
-            ],
+            ]),
         ];
     }
 
@@ -137,19 +154,36 @@ class JemisysConnectionStatus extends Page
     {
         $startedAt = Cache::get(SyncMerchantNicknamesAndImages::CACHE_KEY_SYNCING);
 
-        $baseQuery = fn() => InventoryMirror::query()
-            ->whereNotNull('InternalCode')
-            ->where('InternalCode', '!=', '');
+        // Cache - sama sebab dgn getMirrorStatusProperty() di atas. missingCount (DISTINCT +
+        // WHERE merchant_synced_at IS NULL) disahkan ~9.3s SETIAP panggilan pd 490K baris -
+        // tanpa cache ni, wire:poll.3s jalankan query 9+ saat tu setiap 3 saat selagi page dibuka.
+        $counts = Cache::remember('jemisys_nickname_status_counts', self::CACHE_TTL_SECONDS, function () {
+            $baseQuery = fn () => InventoryMirror::query()
+                ->whereNotNull('InternalCode')
+                ->where('InternalCode', '!=', '');
+
+            return [
+                'missingCount' => $baseQuery()->whereNull('merchant_synced_at')->distinct()->count('InternalCode'),
+                'totalDistinctCount' => $baseQuery()->distinct()->count('InternalCode'),
+            ];
+        });
 
         return [
             'syncing' => $startedAt !== null,
             'syncStartedAt' => $startedAt instanceof Carbon ? $startedAt->toIso8601String() : null,
-            'lastCompletedAt' => InventoryMirror::max('merchant_synced_at'),
-            'missingCount' => $baseQuery()->whereNull('merchant_synced_at')->distinct()->count('InternalCode'),
-            'totalDistinctCount' => $baseQuery()->distinct()->count('InternalCode'),
+            // MAX(merchant_synced_at) disahkan ~9.9s SEBELUM index ditambah (sama rasional dgn
+            // 'lastSyncedAt' di getMirrorStatusProperty() atas).
+            'lastCompletedAt' => Cache::remember('jemisys_merchant_last_completed_at', self::CACHE_TTL_SECONDS, fn () => InventoryMirror::max('merchant_synced_at')),
+            'missingCount' => $counts['missingCount'],
+            'totalDistinctCount' => $counts['totalDistinctCount'],
         ];
     }
 
+    /**
+     * Jalankan semakan LIVE sebenar (network+auth+query SQL Server, rujuk dokblok mount())
+     * & tulis hasil ke cache - dipanggil oleh action "Refresh" (bypass cache, staf tunggu
+     * sengaja) & App\Console\Commands\WarmJemisysDiagnostics (scheduled, staf TAK tunggu).
+     */
     public function runDiagnostics(): void
     {
         $this->checks = [];
@@ -168,11 +202,15 @@ class JemisysConnectionStatus extends Page
             $this->checks['auth'] = ['label' => 'Auth SQL Server', 'status' => 'skip', 'detail' => $skipped, 'ms' => null];
             $this->checks['query'] = ['label' => 'Query Sebenar (TblInventory)', 'status' => 'skip', 'detail' => $skipped, 'ms' => null];
 
+            Cache::put(self::CACHE_KEY_CHECKS, $this->checks, self::CACHE_TTL_SECONDS);
+
             return;
         }
 
         $this->checks['auth'] = $this->checkAuth();
         $this->checks['query'] = $this->checkQuery();
+
+        Cache::put(self::CACHE_KEY_CHECKS, $this->checks, self::CACHE_TTL_SECONDS);
     }
 
     protected function checkConfig(): array
@@ -194,12 +232,12 @@ class JemisysConnectionStatus extends Page
             'database' => $config['database'] ?? null,
             'username' => $config['username'] ?? null,
             'password' => $config['password'] ?? null,
-        ], fn($v) => blank($v));
+        ], fn ($v) => blank($v));
 
         return [
             'label' => 'Konfigurasi (.env)',
             'status' => $missing === [] ? 'ok' : 'fail',
-            'detail' => $missing === [] ? $detail : $detail . ' - HILANG: ' . implode(', ', array_keys($missing)),
+            'detail' => $missing === [] ? $detail : $detail.' - HILANG: '.implode(', ', array_keys($missing)),
             'ms' => null,
         ];
     }
@@ -212,7 +250,7 @@ class JemisysConnectionStatus extends Page
         return [
             'label' => 'Extension PHP',
             'status' => ($sqlsrv && $pdoSqlsrv) ? 'ok' : 'fail',
-            'detail' => 'sqlsrv=' . ($sqlsrv ? 'loaded' : 'TAK LOADED') . ', pdo_sqlsrv=' . ($pdoSqlsrv ? 'loaded' : 'TAK LOADED'),
+            'detail' => 'sqlsrv='.($sqlsrv ? 'loaded' : 'TAK LOADED').', pdo_sqlsrv='.($pdoSqlsrv ? 'loaded' : 'TAK LOADED'),
             'ms' => null,
         ];
     }
@@ -266,7 +304,7 @@ class JemisysConnectionStatus extends Page
             return [
                 'label' => 'Auth SQL Server',
                 'status' => 'fail',
-                'detail' => 'Login gagal - ' . $e->getMessage(),
+                'detail' => 'Login gagal - '.$e->getMessage(),
                 'ms' => $ms,
             ];
         }
@@ -283,7 +321,7 @@ class JemisysConnectionStatus extends Page
             return [
                 'label' => 'Query Sebenar (TblInventory)',
                 'status' => 'ok',
-                'detail' => number_format($result->c) . ' baris.',
+                'detail' => number_format($result->c).' baris.',
                 'ms' => $ms,
             ];
         } catch (Throwable $e) {

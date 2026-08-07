@@ -44,6 +44,12 @@ class SyncJemisysMirrors implements ShouldQueue
 
     public function handle(): void
     {
+        // Selamatkan job ni drpd OOM (disahkan production - StockoutReorderMaterializer::
+        // materialize() exhaust memory_limit 512M lepas ~490K baris TblInventory disegerak dlm
+        // PROSES PHP YG SAMA sebelum sampai ke situ). Job background CLI (queue worker), bukan
+        // permintaan web - selamat naikkan sementara utk proses ni sahaja, bukan ubah php.ini global.
+        ini_set('memory_limit', '1536M');
+
         // Nilai cache = masa mula (bukan sekadar `true`) - UI guna ni utk papar timer berjalan.
         Cache::put(self::CACHE_KEY_SYNCING, now(), now()->addHours(1));
 
@@ -68,6 +74,7 @@ class SyncJemisysMirrors implements ShouldQueue
             // akan cuba recompute LIVE dlm permintaan pengguna seterusnya lepas flush ni.
             Cache::flush();
             Artisan::call('app:warm-dashboard-cache');
+            Artisan::call('app:warm-jemisys-diagnostics');
 
             $ms = round((microtime(true) - $start) * 1000);
             Log::info("SyncJemisysMirrors: selesai - {$total} baris TblInventory + Category/Vendor/Store, ".
