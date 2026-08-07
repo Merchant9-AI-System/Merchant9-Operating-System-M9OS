@@ -31,6 +31,37 @@ use Illuminate\Support\Facades\DB;
  */
 class StockoutReorderCandidate extends Model
 {
+    public const RANGE_1_WEEK = '7d';
+
+    public const RANGE_1_MONTH = '30d';
+
+    public const RANGE_3_MONTHS = '90d';
+
+    public const RANGE_6_MONTHS = '180d';
+
+    public const RANGE_1_YEAR = '365d';
+
+    public const RANGE_OVERALL = 'overall';
+
+    /** Bilangan hari bagi setiap julat (null = overall/all-time, tiada had). */
+    public const RANGE_DAYS = [
+        self::RANGE_1_WEEK => 7,
+        self::RANGE_1_MONTH => 30,
+        self::RANGE_3_MONTHS => 90,
+        self::RANGE_6_MONTHS => 180,
+        self::RANGE_1_YEAR => 365,
+        self::RANGE_OVERALL => null,
+    ];
+
+    public const RANGE_LABELS = [
+        self::RANGE_1_WEEK => '1 Minggu',
+        self::RANGE_1_MONTH => '1 Bulan',
+        self::RANGE_3_MONTHS => '3 Bulan',
+        self::RANGE_6_MONTHS => '6 Bulan',
+        self::RANGE_1_YEAR => '1 Tahun',
+        self::RANGE_OVERALL => 'Overall',
+    ];
+
     protected $table = 'stockout_reorder_candidates';
 
     // InternalCode (bukan 'id' lalai jadual mentah) - Filament CanSortRecords menambah
@@ -66,6 +97,12 @@ class StockoutReorderCandidate extends Model
      * kira vendor/cawangan tertentu (include) atau kecualikan vendor/cawangan tertentu
      * (exclude) drpd sold_count/qty_on_hand & ambang kelayakan "sold_count>=3 AND qty_on_hand=0".
      *
+     * $range tapis sold_count kpd baldi tempoh pra-agregat (rujuk RANGE_DAYS/StockoutReorder
+     * Materializer) - "sold_count" hasil (alias output) KEKAL nama sama tak kira julat, supaya
+     * kod hiliran (lajur jadual, BestSellerLostOpportunityCalculator) tak perlu tahu julat mana
+     * dipilih. qty_on_hand SENTIASA state semasa (BUKAN dibaldi ikut tarikh - "stok=0" hanya
+     * bermakna sbg semasa, bukan sejarah).
+     *
      * @param  array<int, string>  $includedVendorCodes
      * @param  array<int, string>  $excludedVendorCodes
      * @param  array<int, string>  $includedStoreCodes
@@ -76,16 +113,27 @@ class StockoutReorderCandidate extends Model
         array $excludedVendorCodes = [],
         array $includedStoreCodes = [],
         array $excludedStoreCodes = [],
+        string $range = self::RANGE_OVERALL,
     ): Builder {
-        return static::candidateInternalCodesQuery($includedVendorCodes, $excludedVendorCodes, $includedStoreCodes, $excludedStoreCodes)
+        $soldCountColumn = static::soldCountColumnFor($range);
+
+        return static::candidateInternalCodesQuery($includedVendorCodes, $excludedVendorCodes, $includedStoreCodes, $excludedStoreCodes, $range)
             ->addSelect([
                 DB::raw('MAX(Description) as Description'),
                 DB::raw('MAX(CategoryCode) as CategoryCode'),
                 DB::raw("GROUP_CONCAT(DISTINCT VendorCode ORDER BY VendorCode SEPARATOR ',') as vendor_codes"),
-                DB::raw('SUM(sold_count) as sold_count'),
+                DB::raw("SUM({$soldCountColumn}) as sold_count"),
                 DB::raw('SUM(qty_on_hand) as qty_on_hand'),
                 DB::raw('MAX(last_sale_date) as last_sale_date'),
             ]);
+    }
+
+    /** Nama lajur sold_count_Xd bagi $range, atau 'sold_count' (overall) - satu-satunya tempat pemetaan ni dikira. */
+    public static function soldCountColumnFor(string $range): string
+    {
+        $days = self::RANGE_DAYS[$range] ?? null;
+
+        return $days === null ? 'sold_count' : "sold_count_{$days}d";
     }
 
     /**
@@ -108,7 +156,12 @@ class StockoutReorderCandidate extends Model
         array $excludedVendorCodes = [],
         array $includedStoreCodes = [],
         array $excludedStoreCodes = [],
+        string $range = self::RANGE_OVERALL,
     ): Builder {
+        // $soldCountColumn asal drpd RANGE_DAYS (enum tertutup, bukan input pengguna terus) -
+        // selamat diselit dlm havingRaw() sbb tak pernah rentas ke nilai luar RANGE_DAYS.
+        $soldCountColumn = static::soldCountColumnFor($range);
+
         return static::query()
             ->select('InternalCode')
             ->when(filled($includedVendorCodes), fn (Builder $q) => $q->whereIn('VendorCode', $includedVendorCodes))
@@ -116,7 +169,7 @@ class StockoutReorderCandidate extends Model
             ->when(filled($includedStoreCodes), fn (Builder $q) => $q->whereIn('StoreCode', $includedStoreCodes))
             ->when(filled($excludedStoreCodes), fn (Builder $q) => $q->whereNotIn('StoreCode', $excludedStoreCodes))
             ->groupBy('InternalCode')
-            ->havingRaw('SUM(sold_count) >= 3 AND SUM(qty_on_hand) = 0');
+            ->havingRaw("SUM({$soldCountColumn}) >= 3 AND SUM(qty_on_hand) = 0");
     }
 
     /**

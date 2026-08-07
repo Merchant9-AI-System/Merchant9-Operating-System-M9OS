@@ -22,7 +22,7 @@
             @endif
         </x-slot>
 
-        <div class="flex items-center justify-betwwen gap-1.5">
+        <div class="flex items-center justify-between gap-1.5">
             @foreach ($this->mirrorStatus['mirrors'] as $label => $count)
                 <x-filament::badge color="gray" size="sm">
                     {{ $label }}: {{ number_format($count) }}
@@ -30,6 +30,35 @@
             @endforeach
         </div>
     </x-filament::section>
+
+    {{-- <x-filament::section icon="heroicon-o-photo" icon-size="sm" icon-color="primary" wire:poll.3s.visible="$refresh">
+        <x-slot name="heading">
+            Sync Nickname &amp; Imej Merchant9
+        </x-slot>
+
+        <x-slot name="afterHeader">
+            @if ($this->merchantNicknameStatus['syncing'])
+                <x-filament::badge color="warning" size="sm" icon="heroicon-m-arrow-path">
+                    Syncing...
+                </x-filament::badge>
+            @elseif ($this->merchantNicknameStatus['lastCompletedAt'])
+                <x-filament::badge color="success" size="sm" icon="heroicon-m-clock">
+                    Last Completed
+                    {{ \Illuminate\Support\Carbon::parse($this->merchantNicknameStatus['lastCompletedAt'])->diffForHumans() }}
+                </x-filament::badge>
+            @else
+                <x-filament::badge color="gray" size="sm">
+                    Never Sync
+                </x-filament::badge>
+            @endif
+        </x-slot>
+
+        <div class="flex items-center justify-between gap-1.5">
+            <x-filament::badge :color="$this->merchantNicknameStatus['missingCount'] > 0 ? 'warning' : 'success'" size="sm">
+                Belum Diisi: {{ number_format($this->merchantNicknameStatus['missingCount']) }} / {{ number_format($this->merchantNicknameStatus['totalDistinctCount']) }} kod unik
+            </x-filament::badge>
+        </div>
+    </x-filament::section> --}}
 
     @foreach ($checks as $check)
         <x-filament::callout :icon="match ($check['status']) {

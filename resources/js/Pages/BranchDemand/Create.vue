@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
-import { AlertTriangle, ClipboardList, List, Loader2, Paperclip, Pencil, Plus, Search, Store, Trash2, Upload, User, X } from '@lucide/vue';
+import { Head, useForm, usePage } from '@inertiajs/vue3';
+import { AlertTriangle, ClipboardList, Loader2, Paperclip, Pencil, Plus, Search, Store, Trash2, Upload, User, X } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import ImagePreview from '@/components/ImagePreview.vue';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +35,24 @@ interface LineItem {
     // Toggle staf cawangan - menentukan fulfillment_status AWAL line di server (rujuk
     // BranchDemandRequestLine::FULFILLMENT_STOK_KRITIKAL), bukan lajur berasingan.
     is_critical: boolean;
+}
+
+// Item SEDIA ADA drpd rekod BranchDemandRequest TERKINI cawangan (satu SAHAJA per cawangan,
+// kekal selama-lamanya - rujuk App\Models\BranchDemandRequest & currentItems() dokblok) -
+// PAPARAN progress SAHAJA (line dah sedia ada di DB), BUKAN staging spt LineItem/form.lines.
+interface ExistingLine {
+    id: number;
+    internal_code: string | null;
+    item_desc: string | null;
+    source_type: 'catalog' | 'web' | 'upload';
+    image_url: string | null;
+    qty_requested: number;
+    size: string | null;
+    weight: number | null;
+    category_name: string | null;
+    line_status: string;
+    fulfillment_status: string;
+    fulfillment_label: string;
 }
 
 interface StoreOption {
@@ -118,6 +136,122 @@ const canSubmit = computed(() => Boolean(form.store_code)
     && form.lines.length > 0);
 
 const selectedStoreLabel = computed(() => props.stores.find((s) => s.code === form.store_code)?.label ?? form.store_code);
+
+// Satu SAHAJA rekod BranchDemandRequest per cawangan, kekal selama-lamanya (rujuk
+// BranchDemandEntryController::currentItems()/store()) - item SEDIA ADA (dgn progress semasa)
+// dimuatkan bila cawangan dipilih, papar terus dlm "Senarai Item" (GANTI RequestList.vue).
+const existingLines = ref<ExistingLine[]>([]);
+const existingRequestNumber = ref<string | null>(null);
+
+async function fetchCurrentItems(storeCode: string) {
+    try {
+        const response = await fetch(`/branch-demand/current-items?store_code=${encodeURIComponent(storeCode)}`, {
+            headers: { Accept: 'application/json' },
+        });
+
+        if (!response.ok) {
+            existingLines.value = [];
+            existingRequestNumber.value = null;
+
+            return;
+        }
+
+        const data = await response.json();
+        existingLines.value = data.lines ?? [];
+        existingRequestNumber.value = data.request_number ?? null;
+
+        // Prefill Nama PIC drpd hantaran SEBELUM ini - cuma bila ADA nilai (elak kosongkan
+        // taipan semasa staf kalau cawangan baharu ditukar tiada sejarah nama lagi).
+        if (data.submitted_by_name) {
+            form.submitted_by_name = data.submitted_by_name ?? '';
+        }
+    } catch {
+        existingLines.value = [];
+        existingRequestNumber.value = null;
+    }
+}
+
+watch(() => form.store_code, (storeCode) => {
+    if (!storeCode) {
+        existingLines.value = [];
+        existingRequestNumber.value = null;
+
+        return;
+    }
+
+    fetchCurrentItems(storeCode);
+}, { immediate: true });
+
+// Cerminkan cawangan terpilih pd URL (?store_code=...) - staf boleh refresh/bookmark/kongsi
+// pautan tanpa hilang pilihan cawangan, TANPA reload/visit Inertia (cuma tukar address bar).
+watch(() => form.store_code, (storeCode) => {
+    const url = new URL(window.location.href);
+
+    if (storeCode) {
+        url.searchParams.set('store_code', storeCode);
+    } else {
+        url.searchParams.delete('store_code');
+    }
+
+    window.history.replaceState(window.history.state, '', url.toString());
+});
+
+// Label butang bezakan hantaran PERTAMA ("Hantar Permintaan") drpd hantaran SETERUSNYA ke
+// rekod sedia ada ("Simpan & Hantar") - ditentukan terus drpd kewujudan item sedia ada,
+// TIADA panggilan berasingan diperlukan lagi (dulu guna endpoint has-request tersendiri).
+const hasExistingRequest = computed(() => existingLines.value.length > 0);
+const submitTriggerLabel = computed(() => (hasExistingRequest.value ? 'Simpan & Hantar' : 'Hantar Permintaan'));
+const confirmSubmitLabel = computed(() => (hasExistingRequest.value ? 'Simpan & Hantar' : 'Sahkan & Hantar'));
+
+// Peringkat "tamat" - tiada apa2 lagi BO perlu buat (rujuk BranchDemandRequestLine::
+// FULFILLMENT_TERMINAL, PHP tetap sumber rujukan - senarai ni cuma salinan nilai string utk
+// UI, sama corak dgn source_type 'web'/'upload' yg juga diduplikasi sbg literal di fail ni).
+const FULFILLMENT_TERMINAL = ['dah_delivery', 'rearrange', 'item_not_available'];
+const isTerminal = (status: string) => FULFILLMENT_TERMINAL.includes(status);
+
+// Warna badge progress - sama corak/warna dgn RequestList.vue (dibuang) & BranchDemandRequestLine::FULFILLMENT_COLORS.
+function fulfillmentBadgeClass(status: string) {
+    return {
+        requested: 'bg-muted text-muted-foreground',
+        stok_kritikal: 'bg-destructive/15 text-destructive',
+        special_request: 'bg-blue-500/15 text-blue-700',
+        listed_noted: 'bg-muted text-muted-foreground',
+        dah_order: 'bg-warning/15 text-warning-foreground',
+        dah_restock: 'bg-warning/15 text-warning-foreground',
+        dah_delivery: 'bg-success/15 text-success-700',
+        rearrange: 'bg-warning/15 text-warning-foreground',
+        order: 'bg-warning/15 text-warning-foreground',
+        item_not_available: 'bg-destructive/15 text-destructive',
+    }[status] ?? 'bg-muted text-muted-foreground';
+}
+
+// Klik "+" pd item sedia ada yg dah TAMAT (dimmed) - minta semula, terus tambah 1 unit sbg
+// LINE BAHARU (line lama KEKAL terpisah sbg sejarah) - sama corak dgn addFromSuggestion() bawah.
+function requestAgain(line: ExistingLine) {
+    const existing = line.internal_code
+        ? form.lines.find((l) => l.internal_code === line.internal_code)
+        : undefined;
+
+    if (existing) {
+        existing.qty_requested += 1;
+
+        return;
+    }
+
+    form.lines.push({
+        internal_code: line.internal_code,
+        item_desc: line.item_desc ?? '',
+        qty_requested: 1,
+        remark: '',
+        current_stock: null,
+        image_url: line.image_url,
+        size: line.size,
+        weight: line.weight,
+        category_name: line.category_name,
+        source_type: line.source_type,
+        is_critical: false,
+    });
+}
 
 function onSelect(result: ProductSearchResult) {
     stagedItem.value = {
@@ -402,12 +536,6 @@ function submit() {
                     Pilih cawangan anda, kemudian cari item yang diperlukan.
                 </p>
             </div>
-            <Link
-                :href="form.store_code ? `/branch-demand/requests?store_code=${form.store_code}` : '/branch-demand/requests'">
-                <Button variant="outline">
-                    <List class="size-4" /> Senarai Permintaan
-                </Button>
-            </Link>
         </div>
 
         <div v-if="page.props.flash.success"
@@ -565,11 +693,53 @@ function submit() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent class="flex flex-col gap-2">
-                        <p v-if="form.lines.length === 0" class="text-sm text-muted-foreground">
+                        <p v-if="form.lines.length === 0 && existingLines.length === 0" class="text-sm text-muted-foreground">
                             Belum ada item ditambah - cari &amp; tambah item di Seksyen 1, atau guna Cadangan Restock.
                         </p>
                         <p v-if="form.errors.lines" class="text-xs text-destructive">
                             {{ form.errors.lines }}
+                        </p>
+
+                        <p v-if="existingLines.length > 0 && form.lines.length > 0"
+                            class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            Item Sedia Ada{{ existingRequestNumber ? ` (${existingRequestNumber})` : '' }}
+                        </p>
+                        <div v-for="line in existingLines" :key="`existing-${line.id}`"
+                            class="flex items-center gap-3 rounded-xl border p-3"
+                            :class="isTerminal(line.fulfillment_status) ? 'opacity-50' : 'bg-muted'">
+                            <ImagePreview :src="line.image_url" :alt="line.item_desc" class="size-11 rounded-lg" />
+                            <div class="min-w-0 flex-1">
+                                <p class="flex flex-wrap items-center gap-1.5 truncate font-medium">
+                                    <span v-if="line.internal_code">{{ line.internal_code }} -</span>
+                                    {{ line.item_desc }}
+                                    <Badge v-if="line.source_type === 'web'" variant="outline" class="text-xs bg-white">
+                                        Laman Web
+                                    </Badge>
+                                    <Badge v-if="line.source_type === 'upload'" variant="outline" class="text-xs bg-white">
+                                        Gambar Sendiri
+                                    </Badge>
+                                </p>
+                                <p class="truncate text-xs text-muted-foreground">
+                                    {{ isTerminal(line.fulfillment_status) ? 'Selesai' : `Diminta: ${line.qty_requested}` }}
+                                    &middot;
+                                    <span :class="`rounded-full px-1.5 py-0.5 font-medium ${fulfillmentBadgeClass(line.fulfillment_status)}`">
+                                        {{ line.fulfillment_label }}
+                                    </span>
+                                </p>
+                            </div>
+                            <span class="shrink-0 font-medium">
+                                {{ isTerminal(line.fulfillment_status) ? 0 : line.qty_requested }} unit
+                            </span>
+                            <Button v-if="isTerminal(line.fulfillment_status)" type="button" variant="outline"
+                                size="icon" class="shrink-0" @click="requestAgain(line)">
+                                <Plus class="size-4" />
+                                <span class="sr-only">Minta semula</span>
+                            </Button>
+                        </div>
+
+                        <p v-if="existingLines.length > 0 && form.lines.length > 0"
+                            class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            Item Baharu
                         </p>
                         <div v-for="(line, index) in form.lines" :key="index"
                             class="flex flex-col gap-3 bg-muted rounded-xl border p-3">
@@ -674,7 +844,7 @@ function submit() {
                     </CardContent>
                     <CardFooter class="justify-end">
                         <Button type="submit" :disabled="!canSubmit || form.processing">
-                            Hantar Permintaan
+                            {{ submitTriggerLabel }}
                         </Button>
                     </CardFooter>
                 </Card>
@@ -736,7 +906,7 @@ function submit() {
                         Batal
                     </Button>
                     <Button :disabled="form.processing" @click="submit">
-                        {{ form.processing ? 'Menghantar...' : 'Sahkan & Hantar' }}
+                        {{ form.processing ? 'Menghantar...' : confirmSubmitLabel }}
                     </Button>
                 </DialogFooter>
             </DialogContent>

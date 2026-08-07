@@ -2,17 +2,24 @@
 
 namespace App\Filament\Widgets;
 
+use App\Models\StockoutReorderCandidate;
 use App\Support\BestSellerLostOpportunityCalculator;
 use App\Support\ProductImageFetcher;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
 
 /**
  * CEO Dashboard Phase 1 (D) - header widget pada page StockoutReorder sedia ada (rujuk
  * StockoutReorder::getHeaderWidgets()). Top 10 design sold out ikut bilangan pernah jual.
+ *
+ * Ada penapis "Julat Tarikh" SENDIRI (BERASINGAN drpd penapis jadual utama StockoutReorder) -
+ * widget ni panggil BestSellerLostOpportunityCalculator::summary() terus ikut julat yg dipilih
+ * DI WIDGET NI, bukan ikut julat page (arahan eksplisit: tambah dropdown di widget ni jugak).
+ * Rujuk BestSellerLostOpportunityStats utk widget stats yg KEKAL ikut julat page (tak diubah).
  */
 class BestSellerLostOpportunityTable extends TableWidget
 {
@@ -27,7 +34,18 @@ class BestSellerLostOpportunityTable extends TableWidget
     public function table(Table $table): Table
     {
         return $table
-            ->records(fn () => BestSellerLostOpportunityCalculator::summary()['top10']->all())
+            ->records(function (?array $filters) {
+                $range = $filters['range']['value'] ?? StockoutReorderCandidate::RANGE_1_WEEK;
+
+                return BestSellerLostOpportunityCalculator::summary($range)['top10'];
+            })
+            ->filters([
+                SelectFilter::make('range')
+                    ->label('Julat Tarikh')
+                    ->native()
+                    ->default(StockoutReorderCandidate::RANGE_1_WEEK)
+                    ->options(StockoutReorderCandidate::RANGE_LABELS),
+            ])
             ->columns([
                 ImageColumn::make('InternalCodeImage')
                     ->label('Imej')

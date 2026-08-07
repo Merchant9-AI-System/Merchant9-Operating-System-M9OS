@@ -83,21 +83,29 @@ class BranchDemandRequest extends Model
     }
 
     /**
-     * Auto-route ke semua hq_reviewer - dipanggil selepas request+lines dicipta, drpd MANA2
+     * Auto-route ke semua hq_reviewer - dipanggil selepas line(s) BAHARU dicipta, drpd MANA2
      * permukaan (Filament CreateBranchDemandRequest::afterCreate() ATAU BranchDemandEntryController
-     * Inertia) - kedua2 permukaan kongsi logik notifikasi yg SAMA supaya tak drift.
+     * Inertia) - kedua2 permukaan kongsi logik notifikasi yg SAMA supaya tak drift. Satu SAHAJA
+     * rekod per cawangan kekal selama-lamanya (rujuk BranchDemandEntryController::store()) -
+     * $isFirstEver bezakan wording "permintaan baharu" (kali pertama) drpd "item baharu
+     * ditambah" (hantaran seterusnya ke rekod SEDIA ADA yg sama).
      */
-    public function notifyReviewers(): void
+    public function notifyReviewers(int $newLineCount = 0, bool $isFirstEver = true): void
     {
-        $reviewers = User::role('manager')->get();
+        $reviewers = User::role(['manager', 'ceo', 'super_admin'])->get();
 
         if ($reviewers->isEmpty()) {
             return;
         }
 
+        $title = $isFirstEver
+            ? "Permintaan cawangan baharu: {$this->request_number}"
+            : "Item baharu ditambah: {$this->request_number}";
+        $body = trim((string) $this->store_code).' - '.($newLineCount ?: $this->lines()->count()).' item diminta oleh '.$this->submitted_by_label;
+
         Notification::make()
-            ->title("Permintaan cawangan baharu: {$this->request_number}")
-            ->body(trim((string) $this->store_code).' - '.$this->lines()->count().' item diminta oleh '.$this->submitted_by_label)
+            ->title($title)
+            ->body($body)
             ->info()
             ->actions([
                 Action::make('gotoPage')
@@ -118,64 +126,5 @@ class BranchDemandRequest extends Model
             'Request tak boleh dibatalkan sbb HQ dah mula semak sebahagian item.');
 
         $this->update(['status' => self::STATUS_CANCELLED]);
-    }
-
-    /** Kira semula status header ikut keputusan semua line - dipanggil selepas satu line disemak. */
-    public function recalculateReviewStatus(User $reviewer): void
-    {
-        $this->refresh();
-
-        if ($this->status !== self::STATUS_SUBMITTED) {
-            return;
-        }
-
-        if ($this->lines->contains(fn ($l) => $l->line_status === BranchDemandRequestLine::STATUS_PENDING)) {
-            return;
-        }
-
-        $this->update([
-            'status' => self::STATUS_REVIEWED,
-            'reviewed_by_id' => $reviewer->id,
-            'reviewed_at' => now(),
-        ]);
-
-        // Kalau ada line APPROVED, terus semak sama ada dah boleh Diproses (BO belum mula
-        // fulfillment - status ni sentiasa akan jadi Processing terus, bukan tergantung di
-        // Disemak). Kalau semua Ditolak, tiada apa2 fulfillment, kekal di Disemak (rujuk
-        // recalculateFulfillmentStatus() - "tiada line approved" kekal x berubah).
-        $this->recalculateFulfillmentStatus();
-    }
-
-    /**
-     * Kira semula status header ikut fulfillment_status semua line APPROVED - dipanggil lepas
-     * status Disemak dicapai (rujuk recalculateReviewStatus()), & lepas mana2 kemaskini
-     * fulfillment_status individu/pukal (rujuk ViewBranchDemandRequest "updateFulfillment" &
-     * "markAllDelivered"). Kekal x berubah utk Submitted/Cancelled - medan ni cuma bermakna
-     * SELEPAS keputusan Lulus/Tolak dibuat.
-     */
-    public function recalculateFulfillmentStatus(): void
-    {
-        $this->refresh();
-
-        if (! in_array($this->status, [self::STATUS_REVIEWED, self::STATUS_PROCESSING], true)) {
-            return;
-        }
-
-        $approved = $this->lines->where('line_status', BranchDemandRequestLine::STATUS_APPROVED);
-
-        // Tiada line diluluskan (semua Ditolak) - tiada fulfillment berlaku, kekal di Disemak.
-        if ($approved->isEmpty()) {
-            return;
-        }
-
-        $allTerminal = $approved->every(
-            fn ($l) => in_array($l->fulfillment_status, BranchDemandRequestLine::FULFILLMENT_TERMINAL, true)
-        );
-
-        $newStatus = $allTerminal ? self::STATUS_COMPLETED : self::STATUS_PROCESSING;
-
-        if ($newStatus !== $this->status) {
-            $this->update(['status' => $newStatus]);
-        }
     }
 }

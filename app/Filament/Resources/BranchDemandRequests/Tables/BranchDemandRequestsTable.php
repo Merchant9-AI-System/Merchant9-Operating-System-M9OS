@@ -39,23 +39,6 @@ class BranchDemandRequestsTable
                 TextColumn::make('store_code')->label('Cawangan')
                     ->formatStateUsing(fn (?string $state) => trim((string) $state))
                     ->badge()->sortable(),
-                TextColumn::make('status')->label('Status')->badge()
-                    ->formatStateUsing(fn (string $state) => match ($state) {
-                        BranchDemandRequest::STATUS_SUBMITTED => 'Menunggu Semakan',
-                        BranchDemandRequest::STATUS_REVIEWED => 'Disemak',
-                        BranchDemandRequest::STATUS_PROCESSING => 'Diproses',
-                        BranchDemandRequest::STATUS_COMPLETED => 'Selesai',
-                        BranchDemandRequest::STATUS_CANCELLED => 'Dibatalkan',
-                        default => $state,
-                    })
-                    ->color(fn (string $state) => match ($state) {
-                        BranchDemandRequest::STATUS_SUBMITTED => 'warning',
-                        BranchDemandRequest::STATUS_REVIEWED => 'success',
-                        BranchDemandRequest::STATUS_PROCESSING => 'info',
-                        BranchDemandRequest::STATUS_COMPLETED => 'success',
-                        BranchDemandRequest::STATUS_CANCELLED => 'danger',
-                        default => 'gray',
-                    }),
                 TextColumn::make('lines_count')->label('Bil. Item')->counts('lines'),
                 TextColumn::make('submitted_by_label')->label('Dihantar oleh'),
                 TextColumn::make('submitted_at')->label('Tarikh Hantar')->dateTime('d/m/Y H:i')->sortable(),
@@ -71,13 +54,6 @@ class BranchDemandRequestsTable
                         'fulfillment_status',
                         BranchDemandRequestLine::FULFILLMENT_STOK_KRITIKAL,
                     ))),
-                SelectFilter::make('status')->options([
-                    BranchDemandRequest::STATUS_SUBMITTED => 'Menunggu Semakan',
-                    BranchDemandRequest::STATUS_REVIEWED => 'Disemak',
-                    BranchDemandRequest::STATUS_PROCESSING => 'Diproses',
-                    BranchDemandRequest::STATUS_COMPLETED => 'Selesai',
-                    BranchDemandRequest::STATUS_CANCELLED => 'Dibatalkan',
-                ]),
                 SelectFilter::make('store_code')
                     ->label('Cawangan')
                     ->options(fn () => BranchDemandRequest::query()->distinct()->pluck('store_code', 'store_code')
@@ -90,7 +66,10 @@ class BranchDemandRequestsTable
                     ->icon('heroicon-o-x-circle')
                     ->color('danger')
                     ->requiresConfirmation()
-                    ->visible(fn (BranchDemandRequest $record) => $record->status === BranchDemandRequest::STATUS_SUBMITTED
+                    // Header status TAK dipakai lagi (rujuk App\Models\BranchDemandRequest
+                    // dokblok "satu permintaan setiap cawangan") - kewujudan line PENDING SAHAJA
+                    // yg tentukan boleh batal atau tak.
+                    ->visible(fn (BranchDemandRequest $record) => $record->lines->isNotEmpty()
                         && $record->lines->every(fn ($l) => $l->line_status === BranchDemandRequestLine::STATUS_PENDING))
                     ->action(function (BranchDemandRequest $record) {
                         $record->cancel();

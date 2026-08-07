@@ -13,7 +13,7 @@ Route::get('/', function () {
 // Branch Demand (rujuk BranchDemandEntryController) - SENGAJA tiada middleware 'auth', staf
 // cawangan tak perlu login, pilih cawangan terus dlm borang (rujuk store_code pd request).
 Route::get('/branch-demand', [BranchDemandEntryController::class, 'create'])->name('branch-demand.create');
-Route::get('/branch-demand/requests', [BranchDemandEntryController::class, 'requests'])->name('branch-demand.requests');
+Route::get('/branch-demand/current-items', [BranchDemandEntryController::class, 'currentItems'])->name('branch-demand.current-items');
 Route::get('/branch-demand/search', [BranchDemandEntryController::class, 'search'])->name('branch-demand.search');
 Route::get('/branch-demand/product-image', [BranchDemandEntryController::class, 'productImage'])->name('branch-demand.product-image');
 Route::get('/branch-demand/search-website', [BranchDemandEntryController::class, 'searchWebsite'])->name('branch-demand.search-website');

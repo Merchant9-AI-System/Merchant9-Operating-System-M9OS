@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Filament\Widgets\StatusConnectionWidget;
 use App\Jobs\SyncJemisysMirrors;
+use App\Jobs\SyncMerchantNicknamesAndImages;
 use App\Models\InventoryMirror;
 use App\Models\Jemisys\Category;
 use App\Models\Jemisys\Store;
@@ -85,6 +86,20 @@ class JemisysConnectionStatus extends Page
                     SyncJemisysMirrors::dispatch();
                     Notification::make()->info()->title('Penyegerakan dimulakan di latar belakang...')->send();
                 }),
+            // Action::make('syncMerchantNicknames')
+            //     ->label('Segerak Nickname & Imej Merchant9')
+            //     ->icon(Heroicon::OutlinedPhoto)
+            //     ->color('warning')
+            //     ->disabled(fn () => Cache::has(SyncMerchantNicknamesAndImages::CACHE_KEY_SYNCING) || Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING))
+            //     ->tooltip(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING)
+            //         ? 'Sync JEMiSys utama sedang berjalan - tunggu selesai dahulu.'
+            //         : null)
+            //     ->requiresConfirmation()
+            //     ->modalDescription('Cari nickname & imej produk drpd merchant9.com utk setiap InternalCode yg belum diisi. SANGAT LAMA (boleh berjam-jam pd kali pertama - satu HTTP request + jeda ~200ms setiap design unik). Berjalan di latar belakang, TIDAK menyekat sync JEMiSys utama.')
+            //     ->action(function () {
+            //         SyncMerchantNicknamesAndImages::dispatch();
+            //         Notification::make()->info()->title('Penyegerakan nickname/imej dimulakan di latar belakang...')->send();
+            //     }),
             Action::make('refresh')
                 ->label('Refresh')
                 ->icon(Heroicon::OutlinedArrowPath)
@@ -112,6 +127,26 @@ class JemisysConnectionStatus extends Page
                 'Store' => Store::count(),
                 'Inventory' => InventoryMirror::count(),
             ],
+        ];
+    }
+
+    /**
+     * @return array{syncing: bool, syncStartedAt: ?string, lastCompletedAt: ?string, missingCount: int, totalDistinctCount: int}
+     */
+    public function getMerchantNicknameStatusProperty(): array
+    {
+        $startedAt = Cache::get(SyncMerchantNicknamesAndImages::CACHE_KEY_SYNCING);
+
+        $baseQuery = fn () => InventoryMirror::query()
+            ->whereNotNull('InternalCode')
+            ->where('InternalCode', '!=', '');
+
+        return [
+            'syncing' => $startedAt !== null,
+            'syncStartedAt' => $startedAt instanceof Carbon ? $startedAt->toIso8601String() : null,
+            'lastCompletedAt' => InventoryMirror::max('merchant_synced_at'),
+            'missingCount' => $baseQuery()->whereNull('merchant_synced_at')->distinct()->count('InternalCode'),
+            'totalDistinctCount' => $baseQuery()->distinct()->count('InternalCode'),
         ];
     }
 

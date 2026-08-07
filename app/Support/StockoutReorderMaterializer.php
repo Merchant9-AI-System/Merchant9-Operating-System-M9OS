@@ -67,9 +67,20 @@ class StockoutReorderMaterializer
         $buffer = [];
         $total = 0;
 
+        // Baldi tempoh (rujuk StockoutReorderCandidate::RANGE_DAYS) dikira SEKALI di sini
+        // (satu pass sahaja atas 481K baris, sama query yg sudahpun di-scan utk sold_count
+        // overall) - bukan agregat berasingan setiap julat, supaya menambah julat baru tak
+        // tambah kos scan jemisys_inventory_mirror langsung.
+        $now = now();
+        $cutoffs = collect(StockoutReorderCandidate::RANGE_DAYS)
+            ->filter()
+            ->mapWithKeys(fn (int $days, string $range) => [
+                StockoutReorderCandidate::soldCountColumnFor($range) => $now->copy()->subDays($days),
+            ]);
+
         InventoryPiece::query()
             ->realVendor()
-            ->select([
+            ->select(array_merge([
                 'InternalCode',
                 DB::raw('TRIM(VendorCode) as VendorCode'),
                 DB::raw('TRIM(StoreCode) as StoreCode'),
@@ -78,12 +89,14 @@ class StockoutReorderMaterializer
                 DB::raw('SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as sold_count'),
                 DB::raw('SUM(QtyOnHand) as qty_on_hand'),
                 DB::raw('MAX(SalesDate) as last_sale_date'),
-            ])
+            ], $cutoffs->map(fn ($cutoff, $column) => DB::raw(
+                "SUM(CASE WHEN SalesDate >= '{$cutoff->toDateTimeString()}' THEN 1 ELSE 0 END) as {$column}"
+            ))->values()->all()))
             ->groupBy('InternalCode', DB::raw('TRIM(VendorCode)'), DB::raw('TRIM(StoreCode)'))
             ->toBase()
             ->cursor()
-            ->each(function ($r) use (&$buffer, &$total) {
-                $buffer[] = [
+            ->each(function ($r) use (&$buffer, &$total, $cutoffs) {
+                $row = [
                     'InternalCode' => $r->InternalCode,
                     'VendorCode' => $r->VendorCode,
                     'StoreCode' => $r->StoreCode,
@@ -94,6 +107,12 @@ class StockoutReorderMaterializer
                     'last_sale_date' => $r->last_sale_date,
                     'synced_at' => now(),
                 ];
+
+                foreach ($cutoffs->keys() as $column) {
+                    $row[$column] = (int) $r->{$column};
+                }
+
+                $buffer[] = $row;
                 $total++;
 
                 if (count($buffer) >= self::INSERT_CHUNK_SIZE) {
@@ -110,9 +129,15 @@ class StockoutReorderMaterializer
     }
 
     /**
-     * Query BERASINGAN drpd materializeCandidates() - GROUP BY InternalCode SAHAJA (bukan
-     * derive drpd baris (InternalCode,VendorCode,StoreCode) dlm memori PHP). NAMUN: MySQL GROUP
-     * BY InternalCode SAHAJA TIDAK menyatukan variasi padding whitespace mengekor (cth.
+     * Satu baris per (InternalCode, range_bucket) LAYAK - dikira per julat (rujuk
+     * StockoutReorderCandidate::RANGE_DAYS) drpd stockout_reorder_candidates yg BARU
+     * dimaterialize di atas (~131.8K baris, jadual tempatan kecil), BUKAN scan semula 481K baris
+     * jemisys_inventory_mirror sekali per julat - materializeCandidates() dah kira sold_count_Xd
+     * setiap baldi dlm SATU pass, jadi GROUP BY/HAVING kat sini murah walau diulang 6x (sekali
+     * setiap julat).
+     *
+     * GROUP BY InternalCode SAHAJA (drpd stockout_reorder_candidates, warisan drpd
+     * jemisys_inventory_mirror) TIDAK menyatukan variasi padding whitespace mengekor (cth.
      * "6018" vs "6018 ") - disahkan production hasilkan baris x2 utk kod sama lepas trim()
      * (kolasi lajur ni bukan PAD SPACE-insensitive spt disangka). trim() di sini NORMALKAN kedua
      * variasi jadi kunci sama - itu punca conflict, bukan bug - insertOrIgnore() (bukan insert())
@@ -122,26 +147,28 @@ class StockoutReorderMaterializer
     {
         StockoutReorderQualifyingDesign::truncate();
 
-        $buffer = [];
+        foreach (StockoutReorderCandidate::RANGE_DAYS as $range => $days) {
+            $soldCountColumn = StockoutReorderCandidate::soldCountColumnFor($range);
+            $buffer = [];
 
-        InventoryPiece::query()
-            ->realVendor()
-            ->select('InternalCode')
-            ->groupBy('InternalCode')
-            ->havingRaw('SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) >= 3 AND SUM(QtyOnHand) = 0')
-            ->toBase()
-            ->cursor()
-            ->each(function ($r) use (&$buffer) {
-                $buffer[] = ['InternalCode' => trim($r->InternalCode), 'synced_at' => now()];
+            StockoutReorderCandidate::query()
+                ->select('InternalCode')
+                ->groupBy('InternalCode')
+                ->havingRaw("SUM({$soldCountColumn}) >= 3 AND SUM(qty_on_hand) = 0")
+                ->toBase()
+                ->cursor()
+                ->each(function ($r) use (&$buffer, $range) {
+                    $buffer[] = ['InternalCode' => trim($r->InternalCode), 'range_bucket' => $range, 'synced_at' => now()];
 
-                if (count($buffer) >= self::INSERT_CHUNK_SIZE) {
-                    StockoutReorderQualifyingDesign::insertOrIgnore($buffer);
-                    $buffer = [];
-                }
-            });
+                    if (count($buffer) >= self::INSERT_CHUNK_SIZE) {
+                        StockoutReorderQualifyingDesign::insertOrIgnore($buffer);
+                        $buffer = [];
+                    }
+                });
 
-        if ($buffer !== []) {
-            StockoutReorderQualifyingDesign::insertOrIgnore($buffer);
+            if ($buffer !== []) {
+                StockoutReorderQualifyingDesign::insertOrIgnore($buffer);
+            }
         }
     }
 

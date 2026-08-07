@@ -39,7 +39,7 @@ const emit = defineEmits<{
     (e: 'add', item: RestockSuggestion): void;
 }>();
 
-const period = ref('1m');
+const period = ref('1w');
 const items = ref<RestockSuggestion[]>([]);
 const loading = ref(false);
 

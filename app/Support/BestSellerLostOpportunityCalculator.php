@@ -20,28 +20,35 @@ use Illuminate\Support\Facades\DB;
  * "1 unit peluang terlepas setiap design" didedahkan dgn jelas. SalesAmount cuma ~61% terisi
  * dlm data JEMiSys sedia ada (sama nota spt SupplierPerformanceCalculator) - design tanpa
  * SalesAmount TIDAK dimasukkan dlm anggaran RM (dikira dlm bilangan sahaja, bukan direka).
+ *
+ * $range (rujuk StockoutReorderCandidate::RANGE_*) menukar SET DESIGN yg layak (sold_count
+ * dikira semula dlm tempoh terpilih, qty_on_hand=0 kekal semasa/tidak dibaldi) - bukan sekadar
+ * tapis paparan drpd senarai "overall" yg sama (rujuk StockoutReorder::handleTableFilterUpdates()
+ * utk cara table/widget kekal selari bila julat ditukar).
  */
 class BestSellerLostOpportunityCalculator
 {
-    public static function summary(): array
+    public static function summary(string $range = StockoutReorderCandidate::RANGE_OVERALL): array
     {
-        // Cache guna array biasa (top_branches/top10 di-toArray()) - elak isu unserialize
-        // __PHP_Incomplete_Class bila cache ditulis dari konteks CLI (cth. artisan
-        // app:warm-dashboard-cache) & dibaca semula dari konteks web (php artisan serve) atau
-        // sebaliknya (sama nota spt RearrangeCalculator). collect() semula lepas keluar cache.
-        $s = Cache::rememberForever('best_seller_lost_opportunity_summary', function () {
-            return retry(6, fn () => static::compute(), 800);
+        // Cache guna array biasa (top_branches/top10 kekal array, BUKAN di-collect()) - elak
+        // isu unserialize __PHP_Incomplete_Class bila cache ditulis dari konteks CLI (cth.
+        // artisan app:warm-dashboard-cache) & dibaca semula dari konteks web (php artisan
+        // serve) atau sebaliknya (sama nota spt RearrangeCalculator). SEBAB TAMBAHAN: nilai ni
+        // turut lalu sempadan hydrate/dehydrate Livewire (StockoutReorder::getWidgetData() ->
+        // widget public array $summary) - Collection bersarang dlm array tak "hidup" merentasi
+        // pusingan tu (Livewire sifatkan array biasa, bukan reconstruct Collection), jadi Stat
+        // yg cuba panggil ->isNotEmpty()/->first() atasnya akan crash. Kekalkan array biasa
+        // sepanjang - guna helper array biasa (empty()/[0]) di titik penggunaan, bukan Collection.
+        // Satu cache key per julat - flush oleh Cache::flush() global SyncJemisysMirrors sama
+        // spt sedia ada (rujuk nota kelas ni), tiada wiring tambahan diperlukan.
+        return Cache::rememberForever("best_seller_lost_opportunity_summary:{$range}", function () use ($range) {
+            return retry(6, fn () => static::compute($range), 800);
         });
-
-        $s['top_branches'] = collect($s['top_branches']);
-        $s['top10'] = collect($s['top10']);
-
-        return $s;
     }
 
-    protected static function compute(): array
+    protected static function compute(string $range): array
     {
-        $designs = StockoutReorderCandidate::candidateQuery()->get();
+        $designs = StockoutReorderCandidate::candidateQuery(range: $range)->get();
 
         if ($designs->isEmpty()) {
             return [
@@ -56,20 +63,28 @@ class BestSellerLostOpportunityCalculator
 
         $codes = $designs->pluck('InternalCode');
 
+        // Cutoff sepadan $range (null utk overall - tiada had tarikh) - avgPrices/topBranches
+        // di bawah dihadkan tarikh yg SAMA dgn julat qualifying designs, supaya "purata harga"/
+        // "cawangan terjejas" mencerminkan jualan DALAM tempoh dipilih, bukan sejarah keseluruhan
+        // bagi design yg baru layak sbb julat singkat.
+        $days = StockoutReorderCandidate::RANGE_DAYS[$range] ?? null;
+        $cutoff = $days !== null ? now()->subDays($days) : null;
+
         // Purata harga jualan realized (SalesAmount>0) sejarah bagi design terlibat sahaja.
         // whereIn() guna subquery drpd stockout_reorder_qualifying_designs (jadual kecil unik-
-        // key InternalCode SEMATA-MATA utk tujuan semi-join ni, rujuk migration create_..._table)
-        // - BUKAN senarai literal ribuan kod (>900 saat, disahkan) MAHUPUN
+        // key (InternalCode,range_bucket) SEMATA-MATA utk tujuan semi-join ni, rujuk migration
+        // create_..._table) - BUKAN senarai literal ribuan kod (>900 saat, disahkan) MAHUPUN
         // StockoutReorderCandidate::candidateInternalCodesQuery() (GROUP BY/HAVING live atas
         // jadual 131.8K baris sbg subquery JOIN ke 481K baris InventoryPiece - turut lembab,
         // 55+ saat, disahkan). Jadual unik-key kecil dibenarkan MySQL materialize/index sekali
         // sbg semi-join, jauh lebih pantas drpd kedua-dua alternatif tsb.
         $avgPrices = InventoryPiece::query()
             ->realVendor()
-            ->whereIn('InternalCode', StockoutReorderQualifyingDesign::query()->select('InternalCode'))
+            ->whereIn('InternalCode', StockoutReorderQualifyingDesign::query()->where('range_bucket', $range)->select('InternalCode'))
             ->whereNotNull('SalesDate')
             ->whereNotNull('SalesAmount')
             ->where('SalesAmount', '>', 0)
+            ->when($cutoff, fn ($q) => $q->where('SalesDate', '>=', $cutoff))
             ->selectRaw('InternalCode, AVG(SalesAmount) as avg_price')
             ->groupBy('InternalCode')
             ->pluck('avg_price', 'InternalCode');
@@ -111,8 +126,9 @@ class BestSellerLostOpportunityCalculator
         $topBranches = InventoryPiece::query()
             ->realVendor()
             ->physicalStore()
-            ->whereIn('InternalCode', StockoutReorderQualifyingDesign::query()->select('InternalCode'))
+            ->whereIn('InternalCode', StockoutReorderQualifyingDesign::query()->where('range_bucket', $range)->select('InternalCode'))
             ->whereNotNull('SalesDate')
+            ->when($cutoff, fn ($q) => $q->where('SalesDate', '>=', $cutoff))
             ->selectRaw('StoreCode, COUNT(*) as past_sales')
             ->groupBy('StoreCode')
             ->orderByDesc(DB::raw('COUNT(*)'))

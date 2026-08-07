@@ -26,7 +26,11 @@ class ViewBranchDemandRequest extends ViewRecord
                 ->label('Semak Permintaan')
                 ->icon('heroicon-o-clipboard-document-check')
                 ->color('success')
-                ->visible(fn (BranchDemandRequest $record) => $record->status === BranchDemandRequest::STATUS_SUBMITTED
+                // Header status TAK dipakai lagi (rujuk App\Models\BranchDemandRequest dokblok
+                // "satu permintaan setiap cawangan") - guna terus kewujudan line PENDING sbg
+                // penentu, bukan status header (yg kekal x berubah sekarang permintaan kekal
+                // SATU rekod selama-lamanya, tak reset "Submitted" tiap kali line baharu masuk).
+                ->visible(fn (BranchDemandRequest $record) => $record->lines->contains(fn ($l) => $l->line_status === BranchDemandRequestLine::STATUS_PENDING)
                     && (bool) Auth::user()?->can('Update:BranchDemandRequest'))
                 ->schema(function (BranchDemandRequest $record) {
                     $pending = $record->lines->where('line_status', BranchDemandRequestLine::STATUS_PENDING);
@@ -80,12 +84,10 @@ class ViewBranchDemandRequest extends ViewRecord
                         );
                     }
 
-                    $record->recalculateReviewStatus(Auth::user());
-
-                    if ($record->fresh()->status === BranchDemandRequest::STATUS_REVIEWED && $record->submittedBy) {
+                    if ($record->submittedBy) {
                         Notification::make()
                             ->title("Permintaan {$record->request_number} telah disemak")
-                            ->body('Semua item dlm permintaan ni dah ada keputusan drpd HQ.')
+                            ->body('Item baharu dlm permintaan ni dah ada keputusan drpd HQ.')
                             ->success()
                             ->actions([
                                 Action::make('gotoPage')->label('Lihat')
@@ -134,9 +136,6 @@ class ViewBranchDemandRequest extends ViewRecord
                         }
                     }
 
-                    $record->recalculateFulfillmentStatus();
-                    self::notifyIfCompleted($record);
-
                     Notification::make()->title('Status progress dikemaskini')->success()->send();
                 }),
 
@@ -154,34 +153,9 @@ class ViewBranchDemandRequest extends ViewRecord
                             'fulfillment_status' => BranchDemandRequestLine::FULFILLMENT_DAH_DELIVERY,
                         ]));
 
-                    $record->recalculateFulfillmentStatus();
-                    self::notifyIfCompleted($record);
-
                     Notification::make()->title('Semua item ditanda Dah Delivery')->success()->send();
                 }),
         ];
-    }
-
-    /** Maklumkan staf cawangan (spt notifyReviewers()) sebaik SAHAJA permintaan capai Selesai -
-     * $record perlu di-refresh SEBELUM panggil ni (rujuk recalculateFulfillmentStatus()). */
-    private static function notifyIfCompleted(BranchDemandRequest $record): void
-    {
-        $record->refresh();
-
-        if ($record->status !== BranchDemandRequest::STATUS_COMPLETED || ! $record->submittedBy) {
-            return;
-        }
-
-        Notification::make()
-            ->title("Permintaan {$record->request_number} telah selesai")
-            ->body('Semua item yg diluluskan dlm permintaan ni dah selesai diproses (dah delivery/rearrange/tak available).')
-            ->success()
-            ->actions([
-                Action::make('gotoPage')->label('Lihat')
-                    ->url(route('filament.admin.resources.branch-demand-requests.view', ['record' => $record->getKey()]))
-                    ->button(),
-            ])
-            ->sendToDatabase([$record->submittedBy]);
     }
 
     /** Tajuk Section utk satu line - kod design SEBENAR (catalog) atau label sumber (web/upload). */

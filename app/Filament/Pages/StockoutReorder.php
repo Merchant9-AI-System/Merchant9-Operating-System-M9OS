@@ -9,6 +9,7 @@ use App\Models\Jemisys\Category;
 use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
 use App\Models\StockoutReorderCandidate;
+use App\Support\BestSellerLostOpportunityCalculator;
 use App\Support\ProductImageFetcher;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
@@ -57,7 +58,9 @@ use Illuminate\Support\Facades\Cache;
 class StockoutReorder extends Page implements HasTable
 {
     use HasPageShield;
-    use InteractsWithTable;
+    use InteractsWithTable {
+        InteractsWithTable::handleTableFilterUpdates as baseHandleTableFilterUpdates;
+    }
 
     protected string $view = 'filament.pages.stockout-reorder';
 
@@ -92,10 +95,41 @@ class StockoutReorder extends Page implements HasTable
         ];
     }
 
+    /** Isi $summary pd kedua widget header - rujuk App\Filament\Pages\RestockByCategory utk corak sama. */
+    public function getWidgetData(): array
+    {
+        return [
+            'summary' => BestSellerLostOpportunityCalculator::summary($this->currentRange()),
+        ];
+    }
+
+    /**
+     * getWidgetData() cuma isi $summary SEKALI semasa mount pertama widget (widget ni komponen
+     * Livewire berasingan - TIDAK remount bila jadual/penapis sahaja berubah, jadi $summary
+     * "statik" kekal nilai lama walau julat tarikh ditukar). WAJIB dispatch event secara
+     * eksplisit setiap kali penapis betul2 berubah, widget dengar via #[On(...)] (rujuk
+     * BestSellerLostOpportunityStats/Table::refreshSummary()).
+     */
+    protected function handleTableFilterUpdates(): void
+    {
+        $this->baseHandleTableFilterUpdates();
+        $this->dispatchSummaryRefresh();
+    }
+
+    protected function dispatchSummaryRefresh(): void
+    {
+        $this->dispatch('stockout-reorder-summary-updated', summary: BestSellerLostOpportunityCalculator::summary($this->currentRange()));
+    }
+
+    protected function currentRange(): string
+    {
+        return $this->getTableFilterState('range')['value'] ?? StockoutReorderCandidate::RANGE_OVERALL;
+    }
+
     public function table(Table $table): Table
     {
         return $table
-            ->query(fn (): Builder => self::baseQuery())
+            ->query(fn (): Builder => $this->baseQuery())
             ->columns([
                 ImageColumn::make('InternalCodeImage')
                     ->label('Imej')
@@ -145,6 +179,16 @@ class StockoutReorder extends Page implements HasTable
                     ->badge(),
             ])
             ->filters([
+                SelectFilter::make('range')
+                    ->label('Julat Tarikh')
+                    ->native()
+                    ->default(StockoutReorderCandidate::RANGE_1_WEEK)
+                    ->options(StockoutReorderCandidate::RANGE_LABELS)
+                    // Tiada ->query() sengaja - "range" mengubah BASE query (candidateQuery()
+                    // dipanggil semula dgn julat lain, bukan WHERE tambahan atas query sedia
+                    // ada), rujuk StockoutReorder::baseQuery()/currentRange() di atas.
+                    ->query(fn (Builder $query): Builder => $query),
+
                 SelectFilter::make('CategoryCode')
                     ->label('Kategori')
                     ->native()
@@ -206,9 +250,9 @@ class StockoutReorder extends Page implements HasTable
             ->searchPlaceholder('Cari kod design atau jenis item...');
     }
 
-    private static function baseQuery(): Builder
+    private function baseQuery(): Builder
     {
-        return StockoutReorderCandidate::candidateQuery();
+        return StockoutReorderCandidate::candidateQuery(range: $this->currentRange());
     }
 
     /**

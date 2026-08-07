@@ -13,6 +13,9 @@ export interface ProductSearchResult {
     current_stock: number;
     size: string | null;
     weight: number | null;
+    // Nama gaya/nickname tak formal drpd merchant9.com (rujuk App\Jobs\
+    // SyncMerchantNicknamesAndImages) - MUNGKIN null utk design yg blm disegerak/tiada padanan.
+    nickname: string | null;
     image_url: string | null;
 }
 
@@ -116,7 +119,7 @@ async function fetchResults(value: string) {
 }
 
 function select(result: ProductSearchResult) {
-    query.value = `${result.internal_code} - ${result.description}`;
+    query.value = ''; // `${result.internal_code} - ${result.description}`;
     open.value = false;
     emit('select', result);
 }
@@ -141,7 +144,7 @@ async function searchWebsite() {
 }
 
 function selectWeb(result: WebSearchResult) {
-    query.value = result.name;
+    query.value = ''; // result.name;
     open.value = false;
     emit('selectWeb', result);
 }
@@ -205,6 +208,9 @@ function onBlur() {
                     <p class="truncate font-medium">{{ result.internal_code }}</p>
                     <p class="truncate text-muted-foreground">{{ result.description }} &middot; {{ result.category_name
                     }}</p>
+                    <p v-if="result.nickname" class="truncate text-xs italic text-muted-foreground">
+                        a.k.a. "{{ result.nickname }}"
+                    </p>
                     <p v-if="result.size || result.weight" class="truncate text-xs text-muted-foreground">
                         <span v-if="result.size">Saiz {{ result.size }}</span>
                         <span v-if="result.size && result.weight"> &middot; </span>

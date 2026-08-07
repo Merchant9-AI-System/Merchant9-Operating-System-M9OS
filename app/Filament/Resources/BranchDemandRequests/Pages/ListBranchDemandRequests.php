@@ -15,8 +15,8 @@ class ListBranchDemandRequests extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            CreateAction::make()
-                ->label('Buat Permintaan Baharu'),
+            // CreateAction::make()
+            //     ->label('Buat Permintaan Baharu'),
             // ->visible(fn () => filled(Auth::user()?->store_code)),
         ];
     }

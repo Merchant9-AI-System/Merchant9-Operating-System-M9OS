@@ -2,15 +2,22 @@
 
 namespace App\Filament\Widgets;
 
-use App\Support\BestSellerLostOpportunityCalculator;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
+use Livewire\Attributes\On;
 
 /**
  * CEO Dashboard Phase 1 (D) - header widget pada page StockoutReorder sedia ada (rujuk
  * StockoutReorder::getHeaderWidgets(), satu-satunya perubahan pada page tu). Widget baru,
  * table/filter/export sedia ada di page tu TIDAK diubah.
+ *
+ * $summary diisi drpd StockoutReorder::getWidgetData() (rujuk App\Filament\Pages\
+ * RestockByCategory utk corak sama) - widget ni SENDIRI tak panggil
+ * BestSellerLostOpportunityCalculator::summary(), sekadar papar apa yg page hantar, supaya
+ * kekal selari dgn julat tarikh (range filter) yg dipilih di jadual induk. #[On(...)] wajib
+ * sbb widget ni komponen Livewire berasingan - TIDAK remount automatik bila penapis page
+ * berubah (rujuk StockoutReorder::dispatchSummaryRefresh()).
  */
 class BestSellerLostOpportunityStats extends StatsOverviewWidget
 {
@@ -18,9 +25,24 @@ class BestSellerLostOpportunityStats extends StatsOverviewWidget
 
     protected ?string $pollingInterval = null;
 
+    public array $summary = [];
+
+    #[On('stockout-reorder-summary-updated')]
+    public function refreshSummary(array $summary): void
+    {
+        $this->summary = $summary;
+    }
+
     protected function getStats(): array
     {
-        $s = BestSellerLostOpportunityCalculator::summary();
+        $s = $this->summary;
+
+        if ($s === []) {
+            return [
+                Stat::make('Total Design Sold Out', '-')
+                    ->color('gray'),
+            ];
+        }
 
         $stats = [
             Stat::make('Total Design Sold Out', (string) $s['total_count'])
@@ -38,8 +60,8 @@ class BestSellerLostOpportunityStats extends StatsOverviewWidget
                 ->color('gray');
         }
 
-        if ($s['top_branches']->isNotEmpty()) {
-            $topBranch = $s['top_branches']->first();
+        if (! empty($s['top_branches'])) {
+            $topBranch = $s['top_branches'][0];
             $stats[] = Stat::make('Cawangan Paling Terjejas', $topBranch['store_code'])
                 ->description($topBranch['past_sales'].' jualan sejarah bagi design yg kini sold out')
                 ->color('warning');

@@ -10,9 +10,8 @@ use App\Models\Jemisys\Store;
 use App\Models\User;
 use App\Support\MerchantWebsiteSearch;
 use App\Support\ProductImageFetcher;
-use Filament\Actions\Action;
-use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -85,52 +84,42 @@ class BranchDemandEntryController extends Controller
         ]);
     }
 
-    public function requests(Request $request): Response
+    /**
+     * Item SEDIA ADA (dgn progress fulfillment_status semasa) bagi rekod BranchDemandRequest
+     * TERKINI (satu SAHAJA per cawangan, kekal selama-lamanya - rujuk App\Models\
+     * BranchDemandRequest dokblok) - dipanggil drpd Create.vue bila cawangan dipilih, papar
+     * terus dlm "Senarai Item" bersama item baharu yg tgh distaging (GANTI RequestList.vue -
+     * halaman berasingan tak diperlukan lagi bila cuma SATU rekod per cawangan).
+     */
+    public function currentItems(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'store_code' => ['nullable', 'string'],
+            'store_code' => ['required', 'string'],
         ]);
 
-        $store = filled($data['store_code'] ?? null) ? $this->resolveStore($data['store_code']) : null;
+        $store = $this->resolveStore($data['store_code']);
 
-        $requests = collect();
+        $branchDemandRequest = BranchDemandRequest::where('store_code', $store->StoreCode)->latest()->first();
 
-        if ($store) {
-            $requests = BranchDemandRequest::where('store_code', $store->StoreCode)
-                ->with('lines')
-                ->orderByDesc('created_at')
-                ->limit(50)
-                ->get()
-                ->map(fn (BranchDemandRequest $r) => [
-                    'id' => $r->id,
-                    'request_number' => $r->request_number,
-                    'status' => $r->status,
-                    'submitted_by' => $r->submitted_by_label,
-                    'submitted_at' => $r->submitted_at?->format('d/m/Y H:i'),
-                    'notes' => $r->notes,
-                    'lines' => $r->lines->map(fn ($l) => [
-                        'internal_code' => $l->internal_code,
-                        'item_desc' => $l->item_desc,
-                        'source_type' => $l->source_type,
-                        'image_url' => $l->image_url,
-                        'qty_requested' => $l->qty_requested,
-                        'remark' => $l->remark,
-                        'size' => $l->size,
-                        'weight' => $l->weight !== null ? (float) $l->weight : null,
-                        'category_name' => $l->category_name,
-                        'qty_approved' => $l->qty_approved,
-                        'line_status' => $l->line_status,
-                        'fulfillment_status' => $l->fulfillment_status,
-                        'fulfillment_label' => $l->fulfillment_label,
-                    ]),
-                ])
-                ->values();
-        }
-
-        return Inertia::render('BranchDemand/RequestList', [
-            'stores' => $this->storesForSelect(),
-            'storeCode' => $store ? trim($store->StoreCode) : null,
-            'requests' => $requests,
+        return response()->json([
+            'request_number' => $branchDemandRequest?->request_number,
+            // Nama PIC yg pernah taip utk cawangan ni - prefill terus (rujuk Create.vue) supaya
+            // staf x perlu taip semula tiap kali hantar item baharu ke rekod SEDIA ADA yg sama.
+            'submitted_by_name' => $branchDemandRequest?->submitted_by_name,
+            'lines' => $branchDemandRequest?->lines->map(fn ($l) => [
+                'id' => $l->id,
+                'internal_code' => $l->internal_code,
+                'item_desc' => $l->item_desc,
+                'source_type' => $l->source_type,
+                'image_url' => $l->image_url,
+                'qty_requested' => $l->qty_requested,
+                'size' => $l->size,
+                'weight' => $l->weight !== null ? (float) $l->weight : null,
+                'category_name' => $l->category_name,
+                'line_status' => $l->line_status,
+                'fulfillment_status' => $l->fulfillment_status,
+                'fulfillment_label' => $l->fulfillment_label,
+            ])->values() ?? [],
         ]);
     }
 
@@ -273,6 +262,13 @@ class BranchDemandEntryController extends Controller
         // via EXPLAIN+timing sebenar: OR merentasi InternalCode+InventoryCode dlm SATU where()
         // gagalkan pemilihan index utk KEDUA-DUA (MySQL pilih type=ALL, full scan 456k+ baris,
         // walaupun kedua2 lajur ada index sendiri) - query berasingan plih index betul (type=range).
+        //
+        // trim() SEJURUS SELEPAS setiap pluck('InternalCode') di bawah (5 tempat, rujuk 1a/1b/2/3/4)
+        // - disahkan data JEMiSys BERCELARU: sesetengah baris rekod InternalCode CHAR(20) PENUH
+        // berpadding ("AR" + 18 ruang), baris LAIN bagi design SAMA rekod TANPA padding ("AR"
+        // sahaja, byte-length 2) - MySQL DISTINCT/GROUP BY anggap dua ni SAMA (PAD SPACE
+        // comparison, collation lalai), tapi PHP Collection::unique() (byte-exact) anggap DUA
+        // nilai BERLAINAN, jadi design yg sama terbit 2x dlm dropdown carian tanpa trim() ni.
         $internalCodeMatches = InventoryPiece::query()
             ->where(function ($q) use ($codePrefixes) {
                 foreach ($codePrefixes as $prefix) {
@@ -282,7 +278,8 @@ class BranchDemandEntryController extends Controller
             ->tap(fn ($q) => $this->applyProductFilters($q, $data))
             ->distinct()
             ->limit($limit)
-            ->pluck('InternalCode');
+            ->pluck('InternalCode')
+            ->map(fn ($code) => trim((string) $code));
 
         // 1b) InventoryCode awalan - HANYA utk carian >=5 aksara. Diukur sebenar: carian pendek
         // (2-3 aksara, cth. "CE"/"RT0") pd InventoryCode makan 300ms-1.5s WALAUPUN ada index -
@@ -305,7 +302,8 @@ class BranchDemandEntryController extends Controller
                 ->tap(fn ($q) => $this->applyProductFilters($q, $data))
                 ->distinct()
                 ->limit($limit)
-                ->pluck('InternalCode');
+                ->pluck('InternalCode')
+                ->map(fn ($code) => trim((string) $code));
         }
 
         $codeMatches = $internalCodeMatches->merge($inventoryCodeMatches);
@@ -327,7 +325,8 @@ class BranchDemandEntryController extends Controller
             ? collect()
             : InventoryPiece::whereIn('CategoryCode', $matchingCategoryCodes)
                 ->tap(fn ($q) => $this->applyProductFilters($q, $data))
-                ->limit($rawBatch)->pluck('InternalCode')->unique();
+                ->limit($rawBatch)->pluck('InternalCode')
+                ->map(fn ($code) => trim((string) $code))->unique();
 
         // 3) Keterangan produk - FULLTEXT (bukan LIKE '%x%' yg mesti full table scan tanpa index).
         // innodb_ft_min_token_size lalai = 3 - carian < 3 aksara TAK PADAN langsung via FULLTEXT,
@@ -339,10 +338,27 @@ class BranchDemandEntryController extends Controller
                 [$search.'*']
             )
                 ->tap(fn ($q) => $this->applyProductFilters($q, $data))
-                ->limit($rawBatch)->pluck('InternalCode')->unique();
+                ->limit($rawBatch)->pluck('InternalCode')
+                ->map(fn ($code) => trim((string) $code))->unique();
         }
 
-        $internalCodes = $codeMatches->merge($categoryMatches)->merge($descriptionMatches)
+        // 4) Nickname (gaya/nama tak formal drpd merchant9.com, rujuk App\Jobs\
+        // SyncMerchantNicknamesAndImages) - FULLTEXT sama spt Description di atas (rujuk migration
+        // add_fulltext_index_to_nickname_on_jemisys_inventory_mirror_table). Kolum ni MUNGKIN
+        // kosong utk kebanyakan baris sblm job backfill dijalankan - tiada kesan pd carian
+        // sedia ada, cuma tambah lagi satu sumber padanan.
+        $nicknameMatches = collect();
+        if (mb_strlen($search) >= 3) {
+            $nicknameMatches = InventoryPiece::whereRaw(
+                'MATCH(nickname) AGAINST (? IN BOOLEAN MODE)',
+                [$search.'*']
+            )
+                ->tap(fn ($q) => $this->applyProductFilters($q, $data))
+                ->limit($rawBatch)->pluck('InternalCode')
+                ->map(fn ($code) => trim((string) $code))->unique();
+        }
+
+        $internalCodes = $codeMatches->merge($categoryMatches)->merge($descriptionMatches)->merge($nicknameMatches)
             ->unique()
             ->take($limit)
             ->values();
@@ -355,7 +371,7 @@ class BranchDemandEntryController extends Controller
         // berasingan setiap baris) utk keseluruhan set kod yg dijumpai - IN() pd InternalCode
         // (indexed) utk kedua-duanya.
         $meta = InventoryPiece::whereIn('InternalCode', $internalCodes)
-            ->selectRaw('InternalCode, MAX(Description) as Description, MAX(CategoryCode) as CategoryCode, MAX(JewelSize) as JewelSize, MAX(GoldWeight) as GoldWeight')
+            ->selectRaw('InternalCode, MAX(Description) as Description, MAX(CategoryCode) as CategoryCode, MAX(JewelSize) as JewelSize, MAX(GoldWeight) as GoldWeight, MAX(nickname) as nickname')
             ->groupBy('InternalCode')
             ->get()
             ->keyBy(fn ($row) => trim($row->InternalCode));
@@ -381,6 +397,7 @@ class BranchDemandEntryController extends Controller
                 'current_stock' => $stockByCode[$trimmedCode] ?? 0,
                 'size' => filled($row?->JewelSize) ? trim((string) $row->JewelSize) : null,
                 'weight' => $row?->GoldWeight !== null ? (float) $row->GoldWeight : null,
+                'nickname' => $row?->nickname,
                 'image_url' => ProductImageFetcher::firstImageUrlFor($trimmedCode),
             ];
         })->values());
@@ -561,11 +578,20 @@ class BranchDemandEntryController extends Controller
 
         $store = $this->resolveStore($data['store_code']);
 
-        $branchDemandRequest = BranchDemandRequest::create([
-            'store_code' => $store->StoreCode,
-            'submitted_by_name' => $data['submitted_by_name'],
-            'notes' => $data['notes'] ?? null,
-        ]);
+        // Satu SAHAJA rekod BranchDemandRequest per cawangan, kekal selama-lamanya - hantaran
+        // seterusnya tambah line ke rekod SEDIA ADA (yg TERBARU) tu, bukan cipta permintaan
+        // baharu setiap kali. Rekod sejarah (kalau ada, dibuat bawah model lama) kekal x
+        // disentuh, cuma yg TERBARU jadi rekod "aktif" cawangan tsb dari sekarang.
+        $branchDemandRequest = BranchDemandRequest::where('store_code', $store->StoreCode)->latest()->first();
+        $isFirstEver = $branchDemandRequest === null;
+
+        if ($isFirstEver) {
+            $branchDemandRequest = BranchDemandRequest::create([
+                'store_code' => $store->StoreCode,
+                'submitted_by_name' => $data['submitted_by_name'],
+                'notes' => $data['notes'] ?? null,
+            ]);
+        }
 
         foreach ($data['lines'] as $line) {
             $branchDemandRequest->lines()->create([
@@ -584,26 +610,14 @@ class BranchDemandEntryController extends Controller
             ]);
         }
 
-        $branchDemandRequest->notifyReviewers();
+        $newLineCount = count($data['lines']);
+        $branchDemandRequest->notifyReviewers($newLineCount, $isFirstEver);
 
-        // Selepas hantar, bawa terus ke senarai permintaan cawangan tsb supaya boleh nampak
-        // status permintaan baharu tu terus (bukan balik ke borang kosong).
-        $user = User::whereHas('roles', fn ($q) => $q->where('name', 'super_admin'))->first();
-
-        Notification::make()
-            ->title("Permintaan cawangan baharu: {$branchDemandRequest->request_number}")
-            ->body("Permintaan cawangan baru {$branchDemandRequest->request_number} telah dihantar.")
-            ->icon('heroicon-s-bell')
-            ->actions([
-                Action::make('gotoPage')
-                    ->label('Semak')
-                    ->url(route('filament.admin.resources.branch-demand-requests.view', ['record' => $branchDemandRequest->getKey()]))
-                    ->button(),
-            ])
-            ->sendToDatabase($user);
-
-        return redirect()->route('branch-demand.requests', ['store_code' => trim($store->StoreCode)])
-            ->with('success', "Permintaan {$branchDemandRequest->request_number} dihantar - {$branchDemandRequest->lines()->count()} item.");
+        // Balik ke borang yg SAMA (bukan halaman senarai berasingan - RequestList.vue dibuang,
+        // rujuk App\Models\BranchDemandRequest dokblok "satu permintaan setiap cawangan") - staf
+        // terus nampak item sedia ada (termasuk yg baru dihantar) via currentItems().
+        return redirect()->route('branch-demand.create', ['store_code' => trim($store->StoreCode)])
+            ->with('success', "Permintaan {$branchDemandRequest->request_number} dihantar - {$newLineCount} item.");
     }
 
     /** Cari rekod Store sebenar (StoreCode berpadding) drpd kod tertrim yg tiba drpd client. */

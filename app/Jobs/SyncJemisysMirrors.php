@@ -6,7 +6,6 @@ use App\Models\InventoryMirror;
 use App\Models\Jemisys\Category;
 use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
-use App\Support\ProductImageFetcher;
 use App\Support\StockoutReorderMaterializer;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -71,10 +70,10 @@ class SyncJemisysMirrors implements ShouldQueue
             Artisan::call('app:warm-dashboard-cache');
 
             $ms = round((microtime(true) - $start) * 1000);
-            Log::info("SyncJemisysMirrors: selesai - {$total} baris TblInventory + Category/Vendor/Store, " .
+            Log::info("SyncJemisysMirrors: selesai - {$total} baris TblInventory + Category/Vendor/Store, ".
                 "{$stockoutCandidateCount} calon StockoutReorder ({$ms}ms).");
         } catch (Throwable $e) {
-            Log::error('SyncJemisysMirrors gagal: ' . $e->getMessage());
+            Log::error('SyncJemisysMirrors gagal: '.$e->getMessage());
 
             throw $e;
         } finally {
@@ -86,7 +85,7 @@ class SyncJemisysMirrors implements ShouldQueue
     private function syncSmallTable(string $sourceTable, string $localTable): void
     {
         $rows = DB::connection('jemisys')->table($sourceTable)->get()
-            ->map(fn($row) => (array) $row + ['synced_at' => now()])
+            ->map(fn ($row) => (array) $row + ['synced_at' => now()])
             ->all();
 
         DB::table($localTable)->truncate();
@@ -95,7 +94,7 @@ class SyncJemisysMirrors implements ShouldQueue
             DB::table($localTable)->insert($rows);
         }
 
-        Log::info('SyncJemisysMirrors: ' . $sourceTable . ' -> ' . $localTable . ' (' . count($rows) . ' baris).');
+        Log::info('SyncJemisysMirrors: '.$sourceTable.' -> '.$localTable.' ('.count($rows).' baris).');
     }
 
     /** TblInventory (481K baris) - batch per StoreCode, commit berkala. Rujuk nota asal di bawah. */
@@ -117,21 +116,24 @@ class SyncJemisysMirrors implements ShouldQueue
         $rowsPerTransaction = 5000;
         $rowsSinceCommit = 0;
 
-        // image_url BUKAN drpd TblInventory (rujuk migration add_image_url_to_...) - diisi
-        // scrape merchant9.com via ProductImageFetcher, ketara PERLAHAN drpd DB copy biasa
-        // (~700ms/kod SEJUK, rujuk dokblok kelas tsb). truncate() bawah ni buang SEMUA data
-        // termasuk image_url yg dah diisi run SEBELUM ni - kalau kita fetch SEMULA every run utk
-        // SEMUA ~27K InternalCode unik, job ni jadi berjam-jam SETIAP kali (Cache::flush() di
-        // handle() pun basuh cache ProductImageFetcher sendiri di penghujung tiap run, jadi
-        // cache 1-hari dia pun x membantu across-run). Tangkap dulu peta code->url yg SEDIA ADA
-        // sblm truncate, guna balik (skip fetch) utk code yg dah pernah berjaya - hanya design
-        // BAHARU (blm pernah disegerak) kena scrape btul2. Hasilnya: run PERTAMA lepas migration
-        // ni tetap perlahan (semua ~27K kod sejuk), tapi run SETERUSNYA cuma fetch kod baharu.
-        // $knownImageUrls = InventoryMirror::query()
-        //     ->whereNotNull('image_url')
-        //     ->get(['InternalCode', 'image_url'])
-        //     ->mapWithKeys(fn ($row) => [trim((string) $row->InternalCode) => $row->image_url])
-        //     ->all();
+        // nickname/image_url/merchant_synced_at BUKAN drpd TblInventory - diisi BERASINGAN
+        // oleh App\Jobs\SyncMerchantNicknamesAndImages (scrape merchant9.com, rujuk dokblok job
+        // tsb - SENGAJA diasingkan drpd sync ni sbb HTTP fetch amat perlahan, ~700ms/kod SEJUK).
+        // truncate() bawah ni buang SEMUA data termasuk lajur ni - tanpa tangkap dulu, setiap
+        // resync JEMiSys akan null-kan balik apa yg job backfill tu dah berjaya isi, memaksa job
+        // tu scrape SEMULA semua ~27K InternalCode dari kosong setiap kali sync ni jalan. Tangkap
+        // peta code->{nickname,image_url,merchant_synced_at} SEDIA ADA sblm truncate (bacaan DB
+        // SAHAJA, TIADA HTTP - x reintroduce isu timeout), guna balik semasa insert bawah -
+        // hanya design BAHARU (blm pernah disegerak job backfill) akan null lepas resync ni.
+        $knownMerchantData = InventoryMirror::query()
+            ->whereNotNull('merchant_synced_at')
+            ->get(['InternalCode', 'nickname', 'image_url', 'merchant_synced_at'])
+            ->mapWithKeys(fn ($row) => [trim((string) $row->InternalCode) => [
+                'nickname' => $row->nickname,
+                'image_url' => $row->image_url,
+                'merchant_synced_at' => $row->merchant_synced_at,
+            ]])
+            ->all();
 
         // truncate() KENA di luar transaction - TRUNCATE TABLE buat implicit commit dlm MySQL
         // (turut tamatkan transaction terdahulu secara senyap), jadi kalau dipanggil SELEPAS
@@ -158,19 +160,18 @@ class SyncJemisysMirrors implements ShouldQueue
                     ->table('TblInventory')
                     ->where('StoreCode', $storeCode)
                     ->cursor()
-                    ->each(function ($row) use (&$buffer, &$total, &$rowsSinceCommit, $chunkSize, $rowsPerTransaction) {
-                        $buffer[] = (array) $row + ['synced_at' => now()];
-                        // ->each(function ($row) use (&$buffer, &$total, &$rowsSinceCommit, $chunkSize, $rowsPerTransaction, $knownImageUrls) {
-                        //     $internalCode = trim((string) $row->InternalCode);
+                    ->each(function ($row) use (&$buffer, &$total, &$rowsSinceCommit, $chunkSize, $rowsPerTransaction, $knownMerchantData) {
+                        // trim() PHP tulen (bukan SQL) dipanggil 490K kali di sini - kos µs
+                        // setiap satu, BUKAN isu yg sama dgn WHERE TRIM(...)=? diulang dlm SQL
+                        // (rujuk dokblok SyncMerchantNicknamesAndImages) - ini cuma array lookup
+                        // dlm memori, bukan query DB.
+                        $merchantData = $knownMerchantData[trim((string) $row->InternalCode)] ?? [
+                            'nickname' => null,
+                            'image_url' => null,
+                            'merchant_synced_at' => null,
+                        ];
 
-                        //     // Guna balik URL yg dah diketahui (rujuk $knownImageUrls di atas) drpd
-                        //     // scrape semula - hanya kod BAHARU (blm pernah berjaya sebelum ni) kena
-                        //     // panggil ProductImageFetcher (& kena tunggu HTTP fetch sebenar).
-                        //     $imageUrl = $internalCode !== ''
-                        //         ? ($knownImageUrls[$internalCode] ?? ProductImageFetcher::firstImageUrlFor($internalCode))
-                        //         : null;
-
-                        //     $buffer[] = (array) $row + ['synced_at' => now(), 'image_url' => $imageUrl];
+                        $buffer[] = (array) $row + ['synced_at' => now()] + $merchantData;
 
                         if (count($buffer) >= $chunkSize) {
                             InventoryMirror::insert($buffer);
