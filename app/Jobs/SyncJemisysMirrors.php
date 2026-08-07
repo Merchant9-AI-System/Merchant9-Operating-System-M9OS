@@ -48,7 +48,18 @@ class SyncJemisysMirrors implements ShouldQueue
         // materialize() exhaust memory_limit 512M lepas ~490K baris TblInventory disegerak dlm
         // PROSES PHP YG SAMA sebelum sampai ke situ). Job background CLI (queue worker), bukan
         // permintaan web - selamat naikkan sementara utk proses ni sahaja, bukan ubah php.ini global.
-        ini_set('memory_limit', '1536M');
+        //
+        // try/catch WAJIB di sini - disahkan production PHP-FPM kunci memory_limit via
+        // php_admin_value (siling 512M tegar, tak boleh naik langsung via ini_set() runtime).
+        // ini_set() gagal dlm keadaan tu bukan sekadar return false senyap - Laravel tukar
+        // amaran PHP jadi ErrorException yg akan crash job ni SEBELUM try/catch utama bawah
+        // (di luar skop try tu) kalau x ditangkap di sini. Job proceed ikut memory_limit
+        // SEDIA ADA server (kekal berisiko OOM kalau siling server < keperluan sebenar - rujuk
+        // nota production, perlu dinaikkan di tahap php.ini/FPM pool, bukan runtime).
+        try {
+            ini_set('memory_limit', '1536M');
+        } catch (Throwable) {
+        }
 
         // Nilai cache = masa mula (bukan sekadar `true`) - UI guna ni utk papar timer berjalan.
         Cache::put(self::CACHE_KEY_SYNCING, now(), now()->addHours(1));
