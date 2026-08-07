@@ -31,7 +31,7 @@
         </div>
     </x-filament::section>
 
-    {{-- <x-filament::section icon="heroicon-o-photo" icon-size="sm" icon-color="primary" wire:poll.3s.visible="$refresh">
+    <x-filament::section icon="heroicon-o-photo" icon-size="sm" icon-color="primary" wire:poll.3s.visible="$refresh">
         <x-slot name="heading">
             Sync Nickname &amp; Imej Merchant9
         </x-slot>
@@ -58,7 +58,7 @@
                 Belum Diisi: {{ number_format($this->merchantNicknameStatus['missingCount']) }} / {{ number_format($this->merchantNicknameStatus['totalDistinctCount']) }} kod unik
             </x-filament::badge>
         </div>
-    </x-filament::section> --}}
+    </x-filament::section>
 
     @foreach ($checks as $check)
         <x-filament::callout :icon="match ($check['status']) {

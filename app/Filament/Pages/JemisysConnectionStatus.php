@@ -76,8 +76,8 @@ class JemisysConnectionStatus extends Page
                 ->label('Segerak Data JEMiSys')
                 ->icon(Heroicon::OutlinedArrowPath)
                 ->color('warning')
-                ->disabled(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['network']['status'] ?? null) !== 'ok')
-                ->tooltip(fn () => ($this->checks['network']['status'] ?? null) !== 'ok'
+                ->disabled(fn() => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['network']['status'] ?? null) !== 'ok')
+                ->tooltip(fn() => ($this->checks['network']['status'] ?? null) !== 'ok'
                     ? 'Sambungan rangkaian ke JEMiSys gagal - semak Tailscale/VPN (laptop sumber perlu ON & disambung) sebelum segerak.'
                     : null)
                 ->requiresConfirmation()
@@ -86,20 +86,20 @@ class JemisysConnectionStatus extends Page
                     SyncJemisysMirrors::dispatch();
                     Notification::make()->info()->title('Penyegerakan dimulakan di latar belakang...')->send();
                 }),
-            // Action::make('syncMerchantNicknames')
-            //     ->label('Segerak Nickname & Imej Merchant9')
-            //     ->icon(Heroicon::OutlinedPhoto)
-            //     ->color('warning')
-            //     ->disabled(fn () => Cache::has(SyncMerchantNicknamesAndImages::CACHE_KEY_SYNCING) || Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING))
-            //     ->tooltip(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING)
-            //         ? 'Sync JEMiSys utama sedang berjalan - tunggu selesai dahulu.'
-            //         : null)
-            //     ->requiresConfirmation()
-            //     ->modalDescription('Cari nickname & imej produk drpd merchant9.com utk setiap InternalCode yg belum diisi. SANGAT LAMA (boleh berjam-jam pd kali pertama - satu HTTP request + jeda ~200ms setiap design unik). Berjalan di latar belakang, TIDAK menyekat sync JEMiSys utama.')
-            //     ->action(function () {
-            //         SyncMerchantNicknamesAndImages::dispatch();
-            //         Notification::make()->info()->title('Penyegerakan nickname/imej dimulakan di latar belakang...')->send();
-            //     }),
+            Action::make('syncMerchantNicknames')
+                ->label('Segerak Nickname & Imej Merchant9')
+                ->icon(Heroicon::OutlinedPhoto)
+                ->color('warning')
+                ->disabled(fn() => Cache::has(SyncMerchantNicknamesAndImages::CACHE_KEY_SYNCING) || Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING))
+                ->tooltip(fn() => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING)
+                    ? 'Sync JEMiSys utama sedang berjalan - tunggu selesai dahulu.'
+                    : null)
+                ->requiresConfirmation()
+                ->modalDescription('Cari nickname & imej produk drpd merchant9.com utk setiap InternalCode yg belum diisi. SANGAT LAMA (boleh berjam-jam pd kali pertama - satu HTTP request + jeda ~200ms setiap design unik). Berjalan di latar belakang, TIDAK menyekat sync JEMiSys utama.')
+                ->action(function () {
+                    SyncMerchantNicknamesAndImages::dispatch();
+                    Notification::make()->info()->title('Penyegerakan nickname/imej dimulakan di latar belakang...')->send();
+                }),
             Action::make('refresh')
                 ->label('Refresh')
                 ->icon(Heroicon::OutlinedArrowPath)
@@ -137,7 +137,7 @@ class JemisysConnectionStatus extends Page
     {
         $startedAt = Cache::get(SyncMerchantNicknamesAndImages::CACHE_KEY_SYNCING);
 
-        $baseQuery = fn () => InventoryMirror::query()
+        $baseQuery = fn() => InventoryMirror::query()
             ->whereNotNull('InternalCode')
             ->where('InternalCode', '!=', '');
 
@@ -194,12 +194,12 @@ class JemisysConnectionStatus extends Page
             'database' => $config['database'] ?? null,
             'username' => $config['username'] ?? null,
             'password' => $config['password'] ?? null,
-        ], fn ($v) => blank($v));
+        ], fn($v) => blank($v));
 
         return [
             'label' => 'Konfigurasi (.env)',
             'status' => $missing === [] ? 'ok' : 'fail',
-            'detail' => $missing === [] ? $detail : $detail.' - HILANG: '.implode(', ', array_keys($missing)),
+            'detail' => $missing === [] ? $detail : $detail . ' - HILANG: ' . implode(', ', array_keys($missing)),
             'ms' => null,
         ];
     }
@@ -212,7 +212,7 @@ class JemisysConnectionStatus extends Page
         return [
             'label' => 'Extension PHP',
             'status' => ($sqlsrv && $pdoSqlsrv) ? 'ok' : 'fail',
-            'detail' => 'sqlsrv='.($sqlsrv ? 'loaded' : 'TAK LOADED').', pdo_sqlsrv='.($pdoSqlsrv ? 'loaded' : 'TAK LOADED'),
+            'detail' => 'sqlsrv=' . ($sqlsrv ? 'loaded' : 'TAK LOADED') . ', pdo_sqlsrv=' . ($pdoSqlsrv ? 'loaded' : 'TAK LOADED'),
             'ms' => null,
         ];
     }
@@ -266,7 +266,7 @@ class JemisysConnectionStatus extends Page
             return [
                 'label' => 'Auth SQL Server',
                 'status' => 'fail',
-                'detail' => 'Login gagal - '.$e->getMessage(),
+                'detail' => 'Login gagal - ' . $e->getMessage(),
                 'ms' => $ms,
             ];
         }
@@ -283,7 +283,7 @@ class JemisysConnectionStatus extends Page
             return [
                 'label' => 'Query Sebenar (TblInventory)',
                 'status' => 'ok',
-                'detail' => number_format($result->c).' baris.',
+                'detail' => number_format($result->c) . ' baris.',
                 'ms' => $ms,
             ];
         } catch (Throwable $e) {
