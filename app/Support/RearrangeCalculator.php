@@ -37,6 +37,14 @@ class RearrangeCalculator
         // Agregat stock+sold per (InternalCode, StoreCode) - sepadan df.groupby Python.
         // HQ (back-office) & SECURITY (vault/holding) dikecualikan khusus di sini - bukan
         // cawangan jualan sebenar, jadi tak sesuai jadi donor/receiver rearrange stok.
+        // toBase()->get() (bukan ->get() Eloquent terus) - GROUP BY (InternalCode, StoreCode)
+        // TANPA HAVING bermakna bilangan baris cuma dibatasi jumlah kombinasi design x cawangan
+        // sebenar (boleh puluhan ribu) - hydrate SEMUA sbg Model InventoryPiece PENUH (casts
+        // decimal/datetime yg TAK PERNAH terpakai kat lajur alias agregat ni) exhaust memory_limit
+        // 512M production bila jalan serentak dgn calculator lain via app:warm-dashboard-cache.
+        // Casts model ($casts: GoldWeight/QtyOnHand/SalesDate dll) TIDAK terpakai di sini sebab
+        // lajur dipilih SENTIASA alias SUM/MAX (cth. "stock", bukan "QtyOnHand" mentah) - toBase()
+        // selamat 100%, tiada beza tingkah laku.
         $rows = InventoryPiece::query()
             ->realVendor()
             ->physicalStore()
@@ -44,6 +52,7 @@ class RearrangeCalculator
             ->selectRaw('InternalCode, StoreCode, SUM(QtyOnHand) as stock, '.
                 'SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as sold')
             ->groupBy('InternalCode', 'StoreCode')
+            ->toBase()
             ->get();
 
         // Maklumat design (utk paparan) - ambil sekali sahaja per InternalCode.
@@ -51,6 +60,7 @@ class RearrangeCalculator
             ->realVendor()
             ->selectRaw('InternalCode, MAX(Description) as Description, MAX(CategoryCode) as CategoryCode, MAX(VendorCode) as VendorCode')
             ->groupBy('InternalCode')
+            ->toBase()
             ->get()
             ->keyBy('InternalCode');
 

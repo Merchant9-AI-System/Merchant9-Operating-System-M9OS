@@ -40,18 +40,23 @@ class StockRearrangementRecommender
 
     protected static function compute(): Collection
     {
+        // toBase()->get() - rujuk dokblok sebab sama di RearrangeCalculator::compute() (GROUP BY
+        // tanpa HAVING, casts model tak terpakai pd lajur alias agregat, disahkan production OOM
+        // bila dijalankan dlm proses yg sama dgn calculator lain via app:warm-dashboard-cache).
         $rows = InventoryPiece::query()
             ->realVendor()
             ->physicalStore()
             ->selectRaw('InternalCode, StoreCode, SUM(QtyOnHand) as stock, '.
                 'SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as sold')
             ->groupBy('InternalCode', 'StoreCode')
+            ->toBase()
             ->get();
 
         $meta = InventoryPiece::query()
             ->realVendor()
             ->selectRaw('InternalCode, MAX(Description) as Description, MAX(CategoryCode) as CategoryCode, MAX(VendorCode) as VendorCode')
             ->groupBy('InternalCode')
+            ->toBase()
             ->get()
             ->keyBy('InternalCode');
 
