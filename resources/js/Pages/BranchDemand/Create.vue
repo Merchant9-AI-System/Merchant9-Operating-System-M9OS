@@ -65,10 +65,20 @@ interface CategoryOption {
     label: string;
 }
 
+// Pengguna log masuk admin panel yg buka borang ni via NavigationItem "Form Items Request
+// (Branch)" (rujuk AdminPanelProvider) - session dikongsi walaupun route ni tiada middleware
+// 'auth' (staf awam kekal x perlu login, authUser null utk depa). store_code null = leader
+// blm ditetapkan HQ ke cawangan mana, pilih sendiri spt staf awam.
+interface AuthUser {
+    name: string;
+    store_code: string | null;
+}
+
 const props = defineProps<{
     stores: StoreOption[];
     categories: CategoryOption[];
     initialStoreCode?: string | null;
+    authUser?: AuthUser | null;
 }>();
 
 const page = usePage<{ flash: { success: string | null } }>();
@@ -118,11 +128,19 @@ watch([goldTypes, weightRanges, sizeRanges, categoryCodes], () => {
 }, { deep: true });
 
 const form = useForm({
-    store_code: props.initialStoreCode ?? '',
-    submitted_by_name: '',
+    // authUser.store_code (leader dah ditetapkan HQ ke cawangan tsb) diutamakan drpd
+    // initialStoreCode (query param) - keduanya sepatutnya sepadan lepas redirect submit,
+    // tapi store_code rekod User tetap sumber paling dipercayai bila leader log masuk.
+    store_code: props.authUser?.store_code ?? props.initialStoreCode ?? '',
+    submitted_by_name: props.authUser?.name ?? '',
     notes: '',
     lines: [] as LineItem[],
 });
+
+// Leader log masuk yg DAH ada store_code ditetapkan - kunci lajur Cawangan (elak tersalah
+// pilih cawangan lain drpd yg ditetapkan HQ pd rekod User). Leader TANPA store_code (blm
+// ditetapkan) & staf awam (authUser null) kekal boleh pilih sendiri.
+const isStoreLocked = computed(() => Boolean(props.authUser?.store_code));
 
 const confirmOpen = ref(false);
 const searchQuery = ref('');
@@ -160,9 +178,13 @@ async function fetchCurrentItems(storeCode: string) {
         existingLines.value = data.lines ?? [];
         existingRequestNumber.value = data.request_number ?? null;
 
-        // Prefill Nama PIC drpd hantaran SEBELUM ini - cuma bila ADA nilai (elak kosongkan
-        // taipan semasa staf kalau cawangan baharu ditukar tiada sejarah nama lagi).
-        if (data.submitted_by_name) {
+        // Leader log masuk - nama SENDIRI (rekod User) diutamakan, BUKAN nama hantaran
+        // terdahulu (mungkin staf lain drpd cawangan yg sama). Staf awam (authUser null)
+        // kekal ikut nama hantaran sebelum ini - cuma bila ADA nilai (elak kosongkan taipan
+        // semasa kalau cawangan baharu ditukar tiada sejarah nama lagi).
+        if (props.authUser?.name) {
+            form.submitted_by_name = props.authUser.name;
+        } else if (data.submitted_by_name) {
             form.submitted_by_name = data.submitted_by_name ?? '';
         }
     } catch {
@@ -519,6 +541,12 @@ function submit() {
             form.submitted_by_name = picName;
             form.lines = [];
             confirmOpen.value = false;
+
+            // Segerak semula "Item Sedia Ada" terus (item yg baru dihantar tu terus masuk
+            // senarai dgn progress "Requested") - staf x perlu refresh browser secara manual.
+            if (storeCode) {
+                fetchCurrentItems(storeCode);
+            }
         },
     });
 }
@@ -552,12 +580,15 @@ function submit() {
                                 <Store class="size-4" />
                                 Cawangan
                             </Label>
-                            <SelectNative v-model="form.store_code">
+                            <SelectNative v-model="form.store_code" :disabled="isStoreLocked">
                                 <option value="" disabled>Pilih cawangan...</option>
                                 <option v-for="store in stores" :key="store.code" :value="store.code">
                                     {{ store.label }}
                                 </option>
                             </SelectNative>
+                            <p v-if="isStoreLocked" class="mt-1 text-xs text-muted-foreground">
+                                Cawangan anda ditetapkan HQ - tak boleh ditukar di sini.
+                            </p>
                             <p v-if="form.errors.store_code" class="mt-1 text-xs text-destructive">
                                 {{ form.errors.store_code }}
                             </p>

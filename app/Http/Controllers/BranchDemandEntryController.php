@@ -13,6 +13,7 @@ use App\Support\ProductImageFetcher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -77,10 +78,22 @@ class BranchDemandEntryController extends Controller
             $initialStoreCode = trim((string) Store::whereRaw('TRIM(StoreCode) = ?', [trim($code)])->value('StoreCode') ?? '') ?: null;
         }
 
+        /** @var User|null $authUser */
+        $authUser = Auth::user();
+
         return Inertia::render('BranchDemand/Create', [
             'stores' => $this->storesForSelect(),
             'categories' => $this->categoriesForSelect(),
             'initialStoreCode' => $initialStoreCode,
+            // Pautan dari admin panel (NavigationItem "Form Items Request (Branch)", rujuk
+            // AdminPanelProvider) dibuka dlm SESI YG SAMA - session/cookie dikongsi walaupun
+            // route ni TIADA middleware 'auth' (staf awam kekal x perlu login). Kalau leader
+            // tsb dah ada store_code ditetapkan pd rekod User, kunci terus cawangan tu (elak
+            // tersalah pilih); leader TANPA store_code (belum ditetapkan HQ) kekal pilih sendiri.
+            'authUser' => $authUser ? [
+                'name' => $authUser->name,
+                'store_code' => filled($authUser->store_code) ? trim($authUser->store_code) : null,
+            ] : null,
         ]);
     }
 

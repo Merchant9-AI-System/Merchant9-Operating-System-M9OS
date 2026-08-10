@@ -25,11 +25,13 @@ use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Navigation\NavigationGroup;
+use Filament\Navigation\NavigationItem;
 use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\Width;
+use Filament\Support\Icons\Heroicon;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -63,6 +65,13 @@ class AdminPanelProvider extends PanelProvider
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
             ->pages([
                 Dashboard::class,
+            ])
+            ->navigationItems([
+                NavigationItem::make('Form Items Request (Branch)')
+                    ->url('/branch-demand', shouldOpenInNewTab: true)
+                    ->icon(Heroicon::OutlinedPencilSquare)
+                    ->group('Procurement')
+                    ->sort(-1),
             ])
             ->navigationGroups([
                 NavigationGroup::make()
