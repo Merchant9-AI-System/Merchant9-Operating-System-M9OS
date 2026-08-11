@@ -67,10 +67,11 @@ class BranchDemandRequestsTable
                     ->color('danger')
                     ->requiresConfirmation()
                     // Header status TAK dipakai lagi (rujuk App\Models\BranchDemandRequest
-                    // dokblok "satu permintaan setiap cawangan") - kewujudan line PENDING SAHAJA
-                    // yg tentukan boleh batal atau tak.
+                    // dokblok "satu permintaan setiap cawangan") - fulfillment_status (bukan
+                    // line_status, line kini AUTO-APPROVE semasa dicipta) yg tentukan boleh
+                    // batal atau tak (rujuk BranchDemandRequestLine::FULFILLMENT_CANCELLABLE).
                     ->visible(fn (BranchDemandRequest $record) => $record->lines->isNotEmpty()
-                        && $record->lines->every(fn ($l) => $l->line_status === BranchDemandRequestLine::STATUS_PENDING))
+                        && $record->lines->every(fn ($l) => in_array($l->fulfillment_status, BranchDemandRequestLine::FULFILLMENT_CANCELLABLE, true)))
                     ->action(function (BranchDemandRequest $record) {
                         $record->cancel();
                         Notification::make()->title("Permintaan {$record->request_number} dibatalkan")->success()->send();

@@ -8,12 +8,14 @@ use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Store;
 use App\Models\User;
 use App\Support\BranchFocusCalculator;
+use App\Support\RestockAnalysisCalculator;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\Select;
+use Filament\Infolists\Components\ImageEntry;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\RepeatableEntry\TableColumn;
 use Filament\Infolists\Components\TextEntry;
@@ -23,6 +25,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
@@ -61,6 +64,15 @@ class BranchFocus extends Page implements HasTable
         return $base;
     }
 
+    /** Label Bahasa Melayu bagi penapis "Tempoh" semasa - papar pd lajur Jualan(/Bulan) & %
+     *  Terjual supaya pengguna sedar angka tsb ikut tempoh yg dipilih, bukan sentiasa 3 bulan. */
+    protected function currentPeriodLabel(): string
+    {
+        $period = $this->tableFilters['period']['value'] ?? RestockAnalysisCalculator::DEFAULT_PERIOD;
+
+        return RestockAnalysisCalculator::PERIOD_LABELS[$period] ?? RestockAnalysisCalculator::PERIOD_LABELS[RestockAnalysisCalculator::DEFAULT_PERIOD];
+    }
+
     public function table(Table $table): Table
     {
         return $table
@@ -68,7 +80,9 @@ class BranchFocus extends Page implements HasTable
                 // ->records() TIDAK auto-paginate/filter/search/sort spt ->query() - Filament
                 // hantar SEMUA parameter ni terus ke closure, closure WAJIB uruskan semuanya
                 // sendiri (rujuk Filament\Tables\Concerns\HasRecords::getTableRecords()).
-                $all = BranchFocusCalculator::focus()
+                $period = $filters['period']['value'] ?? RestockAnalysisCalculator::DEFAULT_PERIOD;
+
+                $all = BranchFocusCalculator::focus($period)
                     ->map(fn ($r, $i) => $r + ['InventoryCode' => 'bf_'.$i]);
 
                 if ($storeCode = $filters['store_code']['value'] ?? null) {
@@ -114,11 +128,19 @@ class BranchFocus extends Page implements HasTable
                     ->tooltip('Tahap stok disyorkan utk lindungi jualan 1.5 bulan pada kadar jualan semasa (Jualan/Bulan x 1.5)'),
                 TextColumn::make('gap')->label('Gap')->numeric()->sortable()
                     ->tooltip('Stok Disyorkan - Stok Semasa. Positif = kurang stok (perlu restock), 0/negatif = cukup atau lebih.'),
-                TextColumn::make('sell_through_rate')->label('% Terjual')
-                    ->tooltip('Peratus item yang diterima & terjual dlm 3 bulan terkini sahaja (Terjual / Diterima, bukan sejarah penuh)')
+                TextColumn::make('sell_through_rate')
+                    ->label(fn () => '% Terjual ('.$this->currentPeriodLabel().')')
+                    ->tooltip(fn () => 'Peratus item yang diterima & terjual dlm tempoh "'.$this->currentPeriodLabel().'" terkini (Terjual / Diterima, ikut penapis Tempoh)')
                     ->formatStateUsing(fn ($state) => number_format($state * 100, 1).'%'),
-                TextColumn::make('velocity_per_month')->label('Jualan/Bulan')->numeric(2)
-                    ->tooltip('Purata jualan sebulan, dikira drpd 3 BULAN TERKINI sahaja (bukan sejarah penuh)'),
+                TextColumn::make('pieces_sold')->numeric()->sortable()
+                    ->label(fn () => 'Jualan ('.$this->currentPeriodLabel().')')
+                    ->tooltip(fn () => 'Bilangan keping terjual dlm tempoh "'.$this->currentPeriodLabel().'" terkini (ikut penapis Tempoh) - angka MENTAH, bukan anggaran sebulan.'),
+                // Disorok lalai (bukan dibuang) - anggaran "kalau kadar ni berterusan sebulan",
+                // amat tidak stabil pd tempoh singkat. Kekal boleh capai via toggle lajur.
+                TextColumn::make('velocity_per_month')->numeric(2)
+                    ->label(fn () => 'Jualan/Bulan ('.$this->currentPeriodLabel().')')
+                    ->tooltip(fn () => 'Purata jualan sebulan, dikira drpd tempoh "'.$this->currentPeriodLabel().'" terkini sahaja (ikut penapis Tempoh, bukan sejarah penuh) - tukar penapis Tempoh utk lihat jangka masa lain.')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('pieces_sold_this_month')->label('Terjual Bulan Ini')->numeric()->sortable(),
                 TextColumn::make('focus_area')->label('Cadangan Fokus')->badge()
                     ->color(fn ($state) => match ($state) {
@@ -129,11 +151,20 @@ class BranchFocus extends Page implements HasTable
                     }),
             ])
             ->filters([
+                // Tempoh trend utk Jualan/Bulan, % Terjual, pieces_received & pieces_sold - BUKAN
+                // tempoh "Stok Disyorkan" (kekal 1.5 bulan, rujuk TARGET_COVER_MONTHS).
+                SelectFilter::make('period')->label('Tempoh')
+                    ->native()
+                    ->default(RestockAnalysisCalculator::PERIOD_1_WEEK)
+                    ->options(RestockAnalysisCalculator::PERIOD_LABELS),
                 SelectFilter::make('store_code')->label('Cawangan')
                     ->native()
                     // ->multiple()
                     ->searchable('StoreCode')
-                    ->options(fn () => Store::whereNotIn('StoreCode', ['WEB', 'web'])->orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
+                    // trim() - StoreCode dlm jemisys_store_mirror ialah CHAR (padded ruang), tapi
+                    // store_code drpd kalkulator sentiasa trim()-ed, jadi bandingan tanpa trim()
+                    // di sini x akan padan langsung (filter senyap pulangkan 0 baris).
+                    ->options(fn () => Store::whereNotIn('StoreCode', ['WEB', 'web'])->orderBy('StoreCode')->get()->mapWithKeys(fn ($s) => [trim($s->StoreCode) => trim($s->StoreCode)])),
                 SelectFilter::make('category_code')->label('Kategori')
                     ->native()
                     // ->multiple()
@@ -145,7 +176,8 @@ class BranchFocus extends Page implements HasTable
                     'Seimbang' => 'Seimbang',
                     'Data Tak Cukup' => 'Data Tak Cukup',
                 ]),
-            ])
+            ], layout: FiltersLayout::AboveContent)
+            ->filtersFormColumns(4)
             ->recordActions([
                 Action::make('viewDesigns')
                     ->slideOver()
@@ -173,6 +205,7 @@ class BranchFocus extends Page implements HasTable
                                 ->hiddenLabel()
                                 ->state($shown)
                                 ->table([
+                                    TableColumn::make('Imej'),
                                     TableColumn::make('Kod Design'),
                                     TableColumn::make('Jenis Item'),
                                     TableColumn::make('Supplier'),
@@ -181,6 +214,8 @@ class BranchFocus extends Page implements HasTable
                                     TableColumn::make('Terjual Bulan Ini'),
                                 ])
                                 ->schema([
+                                    ImageEntry::make('image_url')->square()->imageSize(50)
+                                        ->placeholder('No image'),
                                     TextEntry::make('internal_code')->weight('bold'),
                                     TextEntry::make('description'),
                                     TextEntry::make('vendor_name'),

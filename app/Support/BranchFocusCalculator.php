@@ -19,20 +19,20 @@ class BranchFocusCalculator
 
     public const MIN_SAMPLE = 3;
 
-    public static function focus(): Collection
+    public static function focus(string $period = RestockAnalysisCalculator::DEFAULT_PERIOD): Collection
     {
-        return collect(Cache::rememberForever('branch_focus', function () {
-            return retry(6, fn () => static::compute()->toArray(), 800);
+        return collect(Cache::rememberForever("branch_focus:{$period}", function () use ($period) {
+            return retry(6, fn () => static::compute($period)->toArray(), 800);
         }));
     }
 
     /** Tempoh "3 bulan terkini" utk % Terjual & Jualan/Bulan - atas permintaan (bukan sejarah penuh). */
     public const TREND_MONTHS = 3;
 
-    protected static function compute(): Collection
+    protected static function compute(string $period = RestockAnalysisCalculator::DEFAULT_PERIOD): Collection
     {
         $monthStart = now()->startOfMonth();
-        $trendStart = now()->subMonths(self::TREND_MONTHS);
+        $trendStart = RestockAnalysisCalculator::trendStartForPeriod($period);
         $trendWindowDays = max((int) $trendStart->diffInDays(now()), 1);
 
         $grp = InventoryPiece::query()
@@ -92,14 +92,18 @@ class BranchFocusCalculator
         $monthStart = now()->startOfMonth();
         $vendorNames = Vendor::pluck('Description', 'VendorCode');
 
-        return InventoryPiece::query()
+        $grouped = InventoryPiece::query()
             ->realVendor()
             ->physicalStore()
             ->where('StoreCode', $storeCode)
             ->where('CategoryCode', $categoryCode)
             ->get(['InternalCode', 'VendorCode', 'Description', 'QtyOnHand', 'SalesDate'])
-            ->groupBy('InternalCode')
-            ->map(function ($group) use ($monthStart, $vendorNames) {
+            ->groupBy('InternalCode');
+
+        $imageUrls = RestockAnalysisCalculator::imageUrlsFor($grouped->keys());
+
+        return $grouped
+            ->map(function ($group) use ($monthStart, $vendorNames, $imageUrls) {
                 $first = $group->first();
                 $piecesSold = $group->filter(fn ($r) => $r->SalesDate !== null)->count();
                 $soldThisMonth = $group->filter(fn ($r) => $r->SalesDate !== null && $r->SalesDate->greaterThanOrEqualTo($monthStart))->count();
@@ -108,6 +112,7 @@ class BranchFocusCalculator
                     'internal_code' => $first->InternalCode,
                     'description' => $first->Description,
                     'vendor_name' => $vendorNames[$first->VendorCode] ?? $first->VendorCode,
+                    'image_url' => $imageUrls->get(trim((string) $first->InternalCode)),
                     'current_stock' => (int) $group->sum('QtyOnHand'),
                     'pieces_sold' => $piecesSold,
                     'sold_this_month' => $soldThisMonth,

@@ -556,7 +556,7 @@ function submit() {
 
     <Head title="Form Permintaan Stok" />
 
-    <div class="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-8">
+    <div class="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-8">
         <div class="flex items-start justify-between gap-3">
             <div>
                 <h1 class="text-xl font-semibold tracking-tight">Permintaan Stok Cawangan</h1>
@@ -571,8 +571,9 @@ function submit() {
             {{ page.props.flash.success }}
         </div>
 
-        <div class="grid gap-4 lg:grid-cols-3">
+        <div class="grid gap-4 lg:grid-cols-3 gap-4">
             <form class="flex flex-col gap-4 col-span-2" @submit.prevent="openConfirm">
+                <!-- Basic Details -->
                 <Card>
                     <CardContent class="grid gap-3 sm:grid-cols-2">
                         <div>
@@ -724,7 +725,8 @@ function submit() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent class="flex flex-col gap-2">
-                        <p v-if="form.lines.length === 0 && existingLines.length === 0" class="text-sm text-muted-foreground">
+                        <p v-if="form.lines.length === 0 && existingLines.length === 0"
+                            class="text-sm text-muted-foreground">
                             Belum ada item ditambah - cari &amp; tambah item di Seksyen 1, atau guna Cadangan Restock.
                         </p>
                         <p v-if="form.errors.lines" class="text-xs text-destructive">
@@ -746,14 +748,17 @@ function submit() {
                                     <Badge v-if="line.source_type === 'web'" variant="outline" class="text-xs bg-white">
                                         Laman Web
                                     </Badge>
-                                    <Badge v-if="line.source_type === 'upload'" variant="outline" class="text-xs bg-white">
+                                    <Badge v-if="line.source_type === 'upload'" variant="outline"
+                                        class="text-xs bg-white">
                                         Gambar Sendiri
                                     </Badge>
                                 </p>
                                 <p class="truncate text-xs text-muted-foreground">
-                                    {{ isTerminal(line.fulfillment_status) ? 'Selesai' : `Diminta: ${line.qty_requested}` }}
+                                    {{ isTerminal(line.fulfillment_status) ? 'Selesai' : `Diminta:
+                                    ${line.qty_requested}` }}
                                     &middot;
-                                    <span :class="`rounded-full px-1.5 py-0.5 font-medium ${fulfillmentBadgeClass(line.fulfillment_status)}`">
+                                    <span
+                                        :class="`rounded-full px-1.5 py-0.5 font-medium ${fulfillmentBadgeClass(line.fulfillment_status)}`">
                                         {{ line.fulfillment_label }}
                                     </span>
                                 </p>
@@ -864,6 +869,7 @@ function submit() {
                     </CardContent>
                 </Card>
 
+                <!-- Nota -->
                 <Card>
                     <CardHeader>
                         <CardTitle class="flex items-center gap-2 text-base">
@@ -881,7 +887,7 @@ function submit() {
                 </Card>
             </form>
 
-            <div class="lg:sticky lg:top-8 lg:self-start lg:max-w-[600px] overflow-hidden">
+            <div class="lg:sticky lg:top-8 lg:self-start lg:max-w-[600px] max-w-full overflow-hidden">
                 <RestockSuggestions :store-code="form.store_code || null" :gold-types="goldTypes"
                     :weight-ranges="weightRanges" :size-ranges="sizeRanges" :category-codes="categoryCodes"
                     @add="addFromSuggestion" />

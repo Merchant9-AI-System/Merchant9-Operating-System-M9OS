@@ -14,6 +14,7 @@ use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Forms\Components\Select;
+use Filament\Infolists\Components\ImageEntry;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
@@ -22,6 +23,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
@@ -60,6 +62,15 @@ class RestockBySize extends Page implements HasTable
         return $base;
     }
 
+    /** Label Bahasa Melayu bagi penapis "Tempoh" semasa - papar pd lajur Jualan/Bulan supaya
+     *  pengguna sedar angka tsb ikut tempoh yg dipilih, bukan sentiasa 3 bulan. */
+    protected function currentPeriodLabel(): string
+    {
+        $period = $this->tableFilters['period']['value'] ?? RestockAnalysisCalculator::DEFAULT_PERIOD;
+
+        return RestockAnalysisCalculator::PERIOD_LABELS[$period] ?? RestockAnalysisCalculator::PERIOD_LABELS[RestockAnalysisCalculator::DEFAULT_PERIOD];
+    }
+
     public function table(Table $table): Table
     {
         return $table
@@ -69,7 +80,9 @@ class RestockBySize extends Page implements HasTable
                 // HasRecords::getTableRecords()), closure WAJIB uruskan semuanya sendiri. Tanpa
                 // ni, filter/carian/sort papar di UI tapi TIADA kesan langsung pada data (disahkan
                 // - total records kekal sama walau apa jua filter/carian/arah sort diguna).
-                $all = RestockAnalysisCalculator::bySize()
+                $period = $filters['period']['value'] ?? RestockAnalysisCalculator::DEFAULT_PERIOD;
+
+                $all = RestockAnalysisCalculator::bySize($period)
                     ->map(fn ($r, $i) => $r + ['InventoryCode' => 'rbs_'.$i]);
 
                 if ($categoryCode = $filters['category_code']['value'] ?? null) {
@@ -117,8 +130,15 @@ class RestockBySize extends Page implements HasTable
                 TextColumn::make('gap')->label('Gap')->numeric()->sortable()
                     ->tooltip('Stok Disyorkan - Stok Semasa. Positif = kurang stok (perlu restock), 0/negatif = cukup atau lebih.')
                     ->color(fn ($state) => $state > 0 ? 'danger' : ($state < 0 ? 'warning' : 'success')),
-                TextColumn::make('velocity_per_month')->label('Jualan/Bulan')->numeric(2)
-                    ->tooltip('Purata jualan sebulan, dikira drpd 3 BULAN TERKINI sahaja (bukan sejarah penuh)'),
+                TextColumn::make('pieces_sold')->numeric()->sortable()
+                    ->label(fn () => 'Jualan ('.$this->currentPeriodLabel().')')
+                    ->tooltip(fn () => 'Bilangan keping terjual dlm tempoh "'.$this->currentPeriodLabel().'" terkini (ikut penapis Tempoh) - angka MENTAH, bukan anggaran sebulan.'),
+                // Disorok lalai (bukan dibuang) - anggaran "kalau kadar ni berterusan sebulan",
+                // amat tidak stabil pd tempoh singkat. Kekal boleh capai via toggle lajur.
+                TextColumn::make('velocity_per_month')->numeric(2)
+                    ->label(fn () => 'Jualan/Bulan ('.$this->currentPeriodLabel().')')
+                    ->tooltip(fn () => 'Purata jualan sebulan, dikira drpd tempoh "'.$this->currentPeriodLabel().'" terkini sahaja (ikut penapis Tempoh, bukan sejarah penuh) - tukar penapis Tempoh utk lihat jangka masa lain.')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('verdict')->label('Cadangan')->badge()
                     ->color(fn ($state) => match ($state) {
                         RestockAnalysisCalculator::VERDICT_SOLD_OUT => 'danger',
@@ -129,6 +149,12 @@ class RestockBySize extends Page implements HasTable
                     }),
             ])
             ->filters([
+                // Tempoh trend utk Jualan/Bulan, pieces_received & pieces_sold - BUKAN tempoh
+                // "Stok Disyorkan" (kekal 1.5 bulan, rujuk TARGET_COVER_MONTHS).
+                SelectFilter::make('period')->label('Tempoh')
+                    ->native()
+                    ->default(RestockAnalysisCalculator::PERIOD_1_WEEK)
+                    ->options(RestockAnalysisCalculator::PERIOD_LABELS),
                 SelectFilter::make('category_code')->label('Kategori')
                     ->native()
                     ->searchable('CategoryCode')
@@ -137,7 +163,10 @@ class RestockBySize extends Page implements HasTable
                     ->native()
                     // ->multiple()
                     ->searchable('StoreCode')
-                    ->options(fn () => Store::orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
+                    // trim() - StoreCode dlm jemisys_store_mirror ialah CHAR (padded ruang), tapi
+                    // store_code drpd kalkulator sentiasa trim()-ed, jadi bandingan tanpa trim()
+                    // di sini x akan padan langsung (filter senyap pulangkan 0 baris).
+                    ->options(fn () => Store::orderBy('StoreCode')->get()->mapWithKeys(fn ($s) => [trim($s->StoreCode) => trim($s->StoreCode)])),
                 SelectFilter::make('verdict')->label('Cadangan')->options([
                     RestockAnalysisCalculator::VERDICT_SOLD_OUT => RestockAnalysisCalculator::VERDICT_SOLD_OUT,
                     RestockAnalysisCalculator::VERDICT_RESTOCK => RestockAnalysisCalculator::VERDICT_RESTOCK,
@@ -145,7 +174,8 @@ class RestockBySize extends Page implements HasTable
                     RestockAnalysisCalculator::VERDICT_OVERSTOCK => RestockAnalysisCalculator::VERDICT_OVERSTOCK,
                     RestockAnalysisCalculator::VERDICT_NO_DATA => RestockAnalysisCalculator::VERDICT_NO_DATA,
                 ]),
-            ])
+            ], layout: FiltersLayout::AboveContent)
+            ->filtersFormColumns(4)
             ->recordActions([
                 Action::make('viewDesigns')
                     ->slideOver()
@@ -173,6 +203,8 @@ class RestockBySize extends Page implements HasTable
                                 ->hiddenLabel()
                                 ->state($shown)
                                 ->schema([
+                                    ImageEntry::make('image_url')->hiddenLabel()->square()->imageSize(50)
+                                        ->placeholder('No image'),
                                     TextEntry::make('internal_code')->label('Kod Design')->weight('bold'),
                                     TextEntry::make('description')->label('Jenis Item'),
                                     TextEntry::make('vendor_name')->label('Supplier'),
@@ -180,7 +212,7 @@ class RestockBySize extends Page implements HasTable
                                     TextEntry::make('pieces_sold')->label('Terjual')->numeric(),
                                     TextEntry::make('sold_this_month')->label('Terjual Bulan Ini')->numeric(),
                                 ])
-                                ->columns(3),
+                                ->columns(4),
                             TextEntry::make('empty_note')
                                 ->hiddenLabel()
                                 ->state('Tiada design dijumpai dalam bucket ini.')

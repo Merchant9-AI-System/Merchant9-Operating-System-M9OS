@@ -21,16 +21,16 @@ class SupplierPerformanceCalculator
     /** Tempoh "3 bulan terkini" utk % Terjual & Fast-Moving Rating - atas permintaan (bukan sejarah penuh). */
     public const TREND_MONTHS = 3;
 
-    public static function performance(): Collection
+    public static function performance(string $period = RestockAnalysisCalculator::DEFAULT_PERIOD): Collection
     {
-        return collect(Cache::rememberForever('supplier_performance_jemisys', function () {
-            return retry(6, fn () => static::compute()->toArray(), 800);
+        return collect(Cache::rememberForever("supplier_performance_jemisys:{$period}", function () use ($period) {
+            return retry(6, fn () => static::compute($period)->toArray(), 800);
         }));
     }
 
-    protected static function compute(): Collection
+    protected static function compute(string $period = RestockAnalysisCalculator::DEFAULT_PERIOD): Collection
     {
-        $trendStart = now()->subMonths(self::TREND_MONTHS);
+        $trendStart = RestockAnalysisCalculator::trendStartForPeriod($period);
         $trendWindowDays = max((int) $trendStart->diffInDays(now()), 1);
 
         $grp = InventoryPiece::query()

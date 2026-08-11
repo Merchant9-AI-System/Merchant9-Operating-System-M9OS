@@ -2,9 +2,11 @@
 
 namespace App\Support;
 
+use App\Models\InventoryMirror;
 use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Vendor;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -40,27 +42,64 @@ class RestockAnalysisCalculator
     /** Tempoh "3 bulan terkini" utk Jualan/Bulan - atas permintaan (bukan sejarah penuh). */
     public const TREND_MONTHS = 3;
 
-    public static function bySize(): Collection
+    public const PERIOD_1_WEEK = '1w';
+
+    public const PERIOD_1_MONTH = '1m';
+
+    public const PERIOD_3_MONTHS = '3m';
+
+    public const PERIOD_6_MONTHS = '6m';
+
+    public const PERIOD_9_MONTHS = '9m';
+
+    public const PERIOD_1_YEAR = '1y';
+
+    public const DEFAULT_PERIOD = self::PERIOD_3_MONTHS;
+
+    /** @var array<string, string> */
+    public const PERIOD_LABELS = [
+        self::PERIOD_1_WEEK => '1 Minggu',
+        self::PERIOD_1_MONTH => '1 Bulan',
+        self::PERIOD_3_MONTHS => '3 Bulan',
+        self::PERIOD_6_MONTHS => '6 Bulan',
+        self::PERIOD_9_MONTHS => '9 Bulan',
+        self::PERIOD_1_YEAR => '1 Tahun',
+    ];
+
+    /** Titik mula tempoh trend (Jualan/Bulan, pieces_received/sold) bagi satu pilihan "Tempoh". */
+    public static function trendStartForPeriod(string $period): Carbon
     {
-        return collect(Cache::rememberForever('restock_by_size', function () {
-            return retry(6, fn () => static::computeBySize()->toArray(), 800);
+        return match ($period) {
+            self::PERIOD_1_WEEK => now()->subWeek(),
+            self::PERIOD_1_MONTH => now()->subMonth(),
+            self::PERIOD_6_MONTHS => now()->subMonths(6),
+            self::PERIOD_9_MONTHS => now()->subMonths(9),
+            self::PERIOD_1_YEAR => now()->subYear(),
+            default => now()->subMonths(self::TREND_MONTHS),
+        };
+    }
+
+    public static function bySize(string $period = self::DEFAULT_PERIOD): Collection
+    {
+        return collect(Cache::rememberForever("restock_by_size:{$period}", function () use ($period) {
+            return retry(6, fn () => static::computeBySize($period)->toArray(), 800);
         }));
     }
 
-    public static function byWeight(): Collection
+    public static function byWeight(string $period = self::DEFAULT_PERIOD): Collection
     {
-        return collect(Cache::rememberForever('restock_by_weight', function () {
-            return retry(6, fn () => static::computeByWeight()->toArray(), 800);
+        return collect(Cache::rememberForever("restock_by_weight:{$period}", function () use ($period) {
+            return retry(6, fn () => static::computeByWeight($period)->toArray(), 800);
         }));
     }
 
-    protected static function computeBySize(): Collection
+    protected static function computeBySize(string $period = self::DEFAULT_PERIOD): Collection
     {
         // JewelSize (TEXT, ~280 nilai unik - jauh lebih kecil drpd GoldWeight berterusan) -
         // kumpul RAW dulu dlm SQL (selamat, bukan combinatorial explosion spt berat), kemudian
         // normalize label (sizeLabel()) & gabung semula dlm PHP - sepadan pendekatan Python
         // analytics.py _size_label() (buang trailing ".0", "(tiada)" utk kosong).
-        $trendStart = now()->subMonths(self::TREND_MONTHS);
+        $trendStart = static::trendStartForPeriod($period);
 
         $raw = InventoryPiece::query()
             ->realVendor()
@@ -85,7 +124,7 @@ class RestockAnalysisCalculator
                 ];
             })->values();
 
-        return static::finalize($merged);
+        return static::finalize($merged, $period);
     }
 
     /**
@@ -99,14 +138,18 @@ class RestockAnalysisCalculator
         $monthStart = now()->startOfMonth();
         $vendorNames = Vendor::pluck('Description', 'VendorCode');
 
-        return InventoryPiece::query()
+        $grouped = InventoryPiece::query()
             ->realVendor()
             ->where('CategoryCode', $categoryCode)
             ->where('StoreCode', $storeCode)
             ->get(['InternalCode', 'VendorCode', 'Description', 'JewelSize', 'QtyOnHand', 'SalesDate'])
             ->filter(fn ($r) => static::sizeLabel($r->JewelSize) === $bucket)
-            ->groupBy('InternalCode')
-            ->map(function ($group) use ($monthStart, $vendorNames) {
+            ->groupBy('InternalCode');
+
+        $imageUrls = static::imageUrlsFor($grouped->keys());
+
+        return $grouped
+            ->map(function ($group) use ($monthStart, $vendorNames, $imageUrls) {
                 $first = $group->first();
                 $piecesSold = $group->filter(fn ($r) => $r->SalesDate !== null)->count();
                 $soldThisMonth = $group->filter(fn ($r) => $r->SalesDate !== null && $r->SalesDate->greaterThanOrEqualTo($monthStart))->count();
@@ -115,6 +158,7 @@ class RestockAnalysisCalculator
                     'internal_code' => $first->InternalCode,
                     'description' => $first->Description,
                     'vendor_name' => $vendorNames[$first->VendorCode] ?? $first->VendorCode,
+                    'image_url' => $imageUrls->get(trim((string) $first->InternalCode)),
                     'current_stock' => (int) $group->sum('QtyOnHand'),
                     'pieces_sold' => $piecesSold,
                     'sold_this_month' => $soldThisMonth,
@@ -132,14 +176,18 @@ class RestockAnalysisCalculator
         $monthStart = now()->startOfMonth();
         $vendorNames = Vendor::pluck('Description', 'VendorCode');
 
-        return InventoryPiece::query()
+        $grouped = InventoryPiece::query()
             ->realVendor()
             ->where('CategoryCode', $categoryCode)
             ->where('StoreCode', $storeCode)
             ->get(['InternalCode', 'VendorCode', 'Description', 'GoldWeight', 'QtyOnHand', 'SalesDate'])
             ->filter(fn ($r) => static::weightBucket($r->GoldWeight) === $bucket)
-            ->groupBy('InternalCode')
-            ->map(function ($group) use ($monthStart, $vendorNames) {
+            ->groupBy('InternalCode');
+
+        $imageUrls = static::imageUrlsFor($grouped->keys());
+
+        return $grouped
+            ->map(function ($group) use ($monthStart, $vendorNames, $imageUrls) {
                 $first = $group->first();
                 $piecesSold = $group->filter(fn ($r) => $r->SalesDate !== null)->count();
                 $soldThisMonth = $group->filter(fn ($r) => $r->SalesDate !== null && $r->SalesDate->greaterThanOrEqualTo($monthStart))->count();
@@ -148,6 +196,7 @@ class RestockAnalysisCalculator
                     'internal_code' => $first->InternalCode,
                     'description' => $first->Description,
                     'vendor_name' => $vendorNames[$first->VendorCode] ?? $first->VendorCode,
+                    'image_url' => $imageUrls->get(trim((string) $first->InternalCode)),
                     'current_stock' => (int) $group->sum('QtyOnHand'),
                     'pieces_sold' => $piecesSold,
                     'sold_this_month' => $soldThisMonth,
@@ -155,6 +204,22 @@ class RestockAnalysisCalculator
             })
             ->sortByDesc('sold_this_month')
             ->values();
+    }
+
+    /**
+     * Lookup kelompok jemisys_inventory_mirror.image_url bagi banyak InternalCode - dikongsi
+     * antara semua drill-down "Lihat Design" (byCategoryPerBranch, designsForWeightBucket,
+     * designsForSizeBucket, designsForFocus) supaya SATU query, bukan satu per InternalCode.
+     *
+     * @param  Collection<int, string>  $internalCodes
+     * @return Collection<string, ?string>
+     */
+    public static function imageUrlsFor(Collection $internalCodes): Collection
+    {
+        return InventoryMirror::query()
+            ->whereIn('InternalCode', $internalCodes->unique())
+            ->get(['InternalCode', 'image_url'])
+            ->mapWithKeys(fn ($m) => [trim((string) $m->InternalCode) => $m->image_url]);
     }
 
     /**
@@ -262,6 +327,86 @@ class RestockAnalysisCalculator
     }
 
     /**
+     * Sama spt byWeight()/bySize() (grain Kategori x Cawangan x [bucket]) tapi bucket DIGANTI
+     * terus dgn InternalCode - jawab "kod design MANA perlu restock, di cawangan MANA" secara
+     * terus tanpa drill-down berasingan (bandingkan byCategory() yg gabung semua cawangan jadi
+     * SATU baris setiap design via stock_by_branch - method ni PECAHKAN balik jadi satu baris
+     * setiap (design, cawangan), sepadan corak paparan RestockByWeight/RestockBySize).
+     *
+     * Cache rememberForever PER KATEGORI + TEMPOH (kunci cache sertakan $period - tempoh
+     * berlainan = trend window berlainan, TIDAK boleh kongsi cache sesama).
+     */
+    public static function byCategoryPerBranch(string $categoryCode, string $period = self::DEFAULT_PERIOD): Collection
+    {
+        return collect(Cache::rememberForever("restock_by_category_per_branch:{$categoryCode}:{$period}", function () use ($categoryCode, $period) {
+            return retry(6, fn () => static::computeByCategoryPerBranch($categoryCode, $period)->toArray(), 800);
+        }));
+    }
+
+    protected static function computeByCategoryPerBranch(string $categoryCode, string $period = self::DEFAULT_PERIOD): Collection
+    {
+        $trendStart = static::trendStartForPeriod($period);
+
+        // toBase()->get() - GROUP BY (InternalCode, StoreCode) dlm SATU kategori terpilih sahaja
+        // (skop jauh lebih kecil drpd 490K baris penuh), tapi kekal toBase() sbg amalan selamat
+        // (rujuk fix OOM RearrangeCalculator/StockRearrangementRecommender hari ni - casts model
+        // tak terpakai pd lajur alias agregat spt ni, toBase() tiada beza tingkah laku).
+        $raw = InventoryPiece::query()
+            ->realVendor()
+            ->where('CategoryCode', $categoryCode)
+            ->selectRaw('InternalCode, StoreCode, MAX(Description) as Description, '.
+                'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received, '.
+                'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold, '.
+                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart])
+            ->groupBy('InternalCode', 'StoreCode')
+            ->toBase()
+            ->get();
+
+        $trendWindowDays = max((int) $trendStart->diffInDays(now()), 1);
+        $categoryName = Category::where('CategoryCode', $categoryCode)->value('Description') ?? $categoryCode;
+
+        // Foto produk hidup di jadual berasingan (jemisys_inventory_mirror.image_url, diisi oleh
+        // SyncMerchantNicknamesAndImages) - bukan InventoryPiece (grain keping/stok). Rujuk
+        // imageUrlsFor() - satu query kelompok utk semua InternalCode dlm kategori ni.
+        $imageUrls = static::imageUrlsFor($raw->pluck('InternalCode'));
+
+        return $raw->map(function ($r) use ($trendWindowDays, $categoryCode, $categoryName, $imageUrls) {
+            $piecesReceived = (int) $r->pieces_received;
+            $piecesSold = (int) $r->pieces_sold;
+            $currentStock = (int) $r->current_stock;
+
+            $velocity = SalesVelocityHelper::velocity($piecesSold, $trendWindowDays);
+            $targetStock = SalesVelocityHelper::targetStock($velocity, self::TARGET_COVER_MONTHS);
+
+            $verdict = match (true) {
+                $piecesReceived < self::MIN_SAMPLE => self::VERDICT_NO_DATA,
+                $currentStock === 0 && $velocity > 0 => self::VERDICT_SOLD_OUT,
+                $currentStock < $targetStock => self::VERDICT_RESTOCK,
+                $targetStock > 0 && $currentStock > $targetStock * 2 => self::VERDICT_OVERSTOCK,
+                default => self::VERDICT_OK,
+            };
+
+            $internalCode = trim((string) $r->InternalCode);
+
+            return [
+                'category_code' => $categoryCode,
+                'category_name' => $categoryName,
+                'store_code' => trim((string) $r->StoreCode),
+                'internal_code' => $internalCode,
+                'description' => $r->Description,
+                'image_url' => $imageUrls->get($internalCode),
+                'pieces_received' => $piecesReceived,
+                'pieces_sold' => $piecesSold,
+                'current_stock' => $currentStock,
+                'velocity_per_month' => $velocity,
+                'target_stock' => $targetStock,
+                'gap' => $targetStock - $currentStock,
+                'verdict' => $verdict,
+            ];
+        })->sortByDesc('gap')->values();
+    }
+
+    /**
      * Sejarah jualan SATU design (InternalCode), pecah ikut bulan x Saiz/Berat x Cawangan - jawab
      * "item ni terjual size/berat/cawangan mana, bila" (satu InternalCode secara teori satu
      * saiz/berat, tapi keping fizikal individu ada variasi kecil - berat khususnya - jadi
@@ -314,7 +459,7 @@ class RestockAnalysisCalculator
         return $s;
     }
 
-    protected static function computeByWeight(): Collection
+    protected static function computeByWeight(string $period = self::DEFAULT_PERIOD): Collection
     {
         // Bucket berat DALAM SQL (CASE WHEN) sebelum GROUP BY - elak kumpul ikut GoldWeight
         // mentah (float berterusan) yg cipta beribu kumpulan tak perlu (punca OOM sblm ni).
@@ -322,7 +467,7 @@ class RestockAnalysisCalculator
 
         // GROUP BY kena ulang $caseExpr penuh, bukan alias 'bucket' - SQLite/MySQL benarkan
         // GROUP BY rujuk alias SELECT, tapi SQL Server tak (throw "Invalid column name").
-        $trendStart = now()->subMonths(self::TREND_MONTHS);
+        $trendStart = static::trendStartForPeriod($period);
 
         $raw = InventoryPiece::query()
             ->realVendor()
@@ -333,7 +478,7 @@ class RestockAnalysisCalculator
             ->groupBy('CategoryCode', 'StoreCode', DB::raw($caseExpr))
             ->get();
 
-        return static::finalize($raw);
+        return static::finalize($raw, $period);
     }
 
     protected static function weightBucketSqlCase(): string
@@ -367,9 +512,9 @@ class RestockAnalysisCalculator
         return '50g+';
     }
 
-    protected static function finalize(Collection $raw): Collection
+    protected static function finalize(Collection $raw, string $period = self::DEFAULT_PERIOD): Collection
     {
-        $trendStart = now()->subMonths(self::TREND_MONTHS);
+        $trendStart = static::trendStartForPeriod($period);
         $trendWindowDays = max((int) $trendStart->diffInDays(now()), 1);
         $categoryNames = Category::pluck('Description', 'CategoryCode');
 

@@ -168,7 +168,10 @@ class StockRearrangementRecommendation extends Page implements HasTable
                     ->native()
                     ->multiple()
                     ->searchable('StoreCode')
-                    ->options(fn () => Store::orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
+                    // trim() - StoreCode dlm jemisys_store_mirror ialah CHAR (padded ruang);
+                    // strtolower() di ->records() atas x cukup sendiri kalau ruang x ditanggalkan
+                    // (cth. "hq " tak pernah sepadan "hq"), jadi trim() jugak di sini.
+                    ->options(fn () => Store::orderBy('StoreCode')->get()->mapWithKeys(fn ($s) => [trim($s->StoreCode) => trim($s->StoreCode)])),
                 SelectFilter::make('priority')->label('Priority')->options([
                     StockRearrangementRecommender::HIGH => StockRearrangementRecommender::HIGH,
                     StockRearrangementRecommender::MEDIUM => StockRearrangementRecommender::MEDIUM,

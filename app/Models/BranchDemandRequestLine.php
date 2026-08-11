@@ -87,12 +87,27 @@ class BranchDemandRequestLine extends Model
         self::FULFILLMENT_ITEM_NOT_AVAILABLE => 'danger',
     ];
 
+    /** Peringkat yg BOLEH capai TANPA sebarang tindakan BO (requested = lalai, stok_kritikal =
+     * ditetapkan cawangan sendiri semasa hantar) - dipakai BranchDemandRequest::cancel() sbg
+     * penentu "BO blm mula proses lagi", gantikan line_status Pending (line kini AUTO-APPROVE
+     * semasa dicipta, jadi line_status x lagi isyarat berguna utk ni). @var array<int, string> */
+    public const FULFILLMENT_CANCELLABLE = [
+        self::FULFILLMENT_REQUESTED,
+        self::FULFILLMENT_STOK_KRITIKAL,
+    ];
+
     protected $guarded = [];
 
     protected static function booted(): void
     {
         static::creating(function (BranchDemandRequestLine $line) {
-            $line->line_status ??= self::STATUS_PENDING;
+            // AUTO-APPROVE semasa dicipta (bukan STATUS_PENDING lagi) - atas permintaan eksplisit,
+            // langkau langkah semakan manual HQ ("Semak Permintaan") yg sebelum ni menghalang
+            // Progress (fulfillment_status) & Module D (BranchDemandAllocationRecommender)
+            // berfungsi (kedua2 perlukan line_status Approved, tapi TIADA line pernah diluluskan
+            // dlm penggunaan sebenar - review() manual tak pernah dipakai).
+            $line->line_status ??= self::STATUS_APPROVED;
+            $line->qty_approved ??= $line->qty_requested;
             $line->fulfillment_status ??= self::FULFILLMENT_REQUESTED;
         });
     }

@@ -7,7 +7,6 @@ use App\Jobs\SyncJemisysMirrors;
 use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Store;
-use App\Support\ProductImageFetcher;
 use App\Support\RestockAnalysisCalculator;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
@@ -104,7 +103,21 @@ class RestockByCategory extends Page implements HasTable
         $this->dispatch('restock-by-category-stats-updated', stats: $this->getFilteredStats());
     }
 
-    /** Dikongsi antara table()->records() & getFilteredStats() - satu logik, dua pengguna. */
+    /** Label Bahasa Melayu bagi penapis "Tempoh" semasa - papar pd lajur Jualan/Bulan supaya
+     *  pengguna sedar angka tsb ikut tempoh yg dipilih, bukan sentiasa 3 bulan. */
+    protected function currentPeriodLabel(): string
+    {
+        $period = $this->tableFilters['period']['value'] ?? RestockAnalysisCalculator::DEFAULT_PERIOD;
+
+        return RestockAnalysisCalculator::PERIOD_LABELS[$period] ?? RestockAnalysisCalculator::PERIOD_LABELS[RestockAnalysisCalculator::DEFAULT_PERIOD];
+    }
+
+    /**
+     * Dikongsi antara table()->records() & getFilteredStats() - satu logik, dua pengguna. Grain
+     * SATU baris setiap (design, cawangan) - rujuk RestockAnalysisCalculator::byCategoryPerBranch()
+     * dokblok, sepadan paparan RestockByWeight/RestockBySize (bukan gabung semua cawangan jadi
+     * satu baris setiap design spt sebelum ni).
+     */
     protected function filteredDesigns(?array $filters, ?string $search): Collection
     {
         $categoryCode = $filters['category_code']['value'] ?? null;
@@ -113,11 +126,15 @@ class RestockByCategory extends Page implements HasTable
             return collect();
         }
 
-        $all = RestockAnalysisCalculator::byCategory($categoryCode)
-            ->map(fn ($r) => $r + ['InventoryCode' => trim($r['internal_code'])]);
+        $period = $filters['period']['value'] ?? RestockAnalysisCalculator::DEFAULT_PERIOD;
+
+        // Kunci indeks (bukan InternalCode mentah) - SATU design boleh muncul BERKALI-KALI (satu
+        // baris setiap cawangan), InternalCode sahaja akan bertembung sesama InventoryPiece::hydrate().
+        $all = RestockAnalysisCalculator::byCategoryPerBranch($categoryCode, $period)
+            ->map(fn ($r, $i) => $r + ['InventoryCode' => 'rbc_'.$i]);
 
         if ($storeCode = $filters['store_code']['value'] ?? null) {
-            $all = $all->where('urgent_branch', $storeCode);
+            $all = $all->where('store_code', $storeCode);
         }
 
         if ($verdict = $filters['verdict']['value'] ?? null) {
@@ -146,7 +163,12 @@ class RestockByCategory extends Page implements HasTable
                 RestockAnalysisCalculator::VERDICT_SOLD_OUT,
             ])->count(),
             'total_gap' => (int) $all->filter(fn ($r) => $r['gap'] > 0)->sum('gap'),
-            'branches_affected' => $all->pluck('urgent_branch')->filter()->unique()->count(),
+            // Cawangan terjejas = cawangan (bukan "urgent_branch" tunggal per design spt dulu,
+            // medan tu tak wujud lagi pd grain baru) yg ADA sekurang2nya satu baris perlu restock.
+            'branches_affected' => $all->whereIn('verdict', [
+                RestockAnalysisCalculator::VERDICT_RESTOCK,
+                RestockAnalysisCalculator::VERDICT_SOLD_OUT,
+            ])->pluck('store_code')->filter()->unique()->count(),
         ];
     }
 
@@ -174,31 +196,33 @@ class RestockByCategory extends Page implements HasTable
                     $page,
                 );
             })
+            // Struktur lajur sepadan RestockByWeight/RestockBySize (satu baris setiap
+            // Kategori x Cawangan x [bucket]) - "bucket" DIGANTI dgn Kod Design (rujuk
+            // RestockAnalysisCalculator::byCategoryPerBranch()), lajur lain kekal sama.
             ->columns([
-                ImageColumn::make('image')
-                    ->label('Imej')
-                    ->state(fn ($record) => ProductImageFetcher::firstImageUrlFor($record->internal_code))
+                ImageColumn::make('image_url')->label('Imej')->square()->imageSize(50)
+                    ->url(fn (?string $state): ?string => $state, true)
                     ->extraImgAttributes(['loading' => 'lazy'])
-                    ->url(fn ($record) => ProductImageFetcher::firstImageUrlFor($record->internal_code))
-                    ->openUrlInNewTab()
-                    ->placeholder('No Image')
-                    ->imageHeight(50),
+                    ->placeholder('No image'),
+                TextColumn::make('category_name')->label('Kategori')->searchable()->sortable(),
+                TextColumn::make('store_code')->label('Cawangan')->badge()->sortable(),
                 TextColumn::make('internal_code')->label('Kod Design')->searchable()->sortable()->weight('bold'),
-                TextColumn::make('description')->label('Jenis Item')->searchable()->toggleable(),
-                TextColumn::make('size')->label('Saiz')->sortable(),
-                TextColumn::make('weight')->label('Berat (g)')->numeric(2)->sortable(),
-                TextColumn::make('current_stock')->label('Stok Semasa')->sortable()
-                    ->state(fn ($record) => collect($record->stock_by_branch ?? [])
-                        ->map(fn ($qty, $branch) => "{$branch}: {$qty}")
-                        ->values()
-                        ->all())
-                    ->badge()
-                    ->wrap()
-                    ->color(fn (string $state) => str_ends_with($state, ': 0') ? 'danger' : 'success')
-                    ->tooltip(fn ($record) => "Jumlah kesemua cawangan: {$record->current_stock}"),
+                TextColumn::make('current_stock')->label('Stok Semasa')->numeric()->sortable(),
+                TextColumn::make('target_stock')->label('Stok Disyorkan (1.5 bulan)')->numeric()->sortable()
+                    ->tooltip('Tahap stok disyorkan utk lindungi jualan 1.5 bulan pada kadar jualan semasa (Jualan/Bulan x 1.5)'),
                 TextColumn::make('gap')->label('Gap')->numeric()->sortable()
-                    ->tooltip('Stok Disyorkan - Stok Semasa. Positif = kurang stok (perlu restock).')
+                    ->tooltip('Stok Disyorkan - Stok Semasa. Positif = kurang stok (perlu restock), 0/negatif = cukup atau lebih.')
                     ->color(fn ($state) => $state > 0 ? 'danger' : ($state < 0 ? 'warning' : 'success')),
+                TextColumn::make('pieces_sold')->numeric()->sortable()
+                    ->label(fn () => 'Jualan ('.$this->currentPeriodLabel().')')
+                    ->tooltip(fn () => 'Bilangan keping terjual dlm tempoh "'.$this->currentPeriodLabel().'" terkini (ikut penapis Tempoh) - angka MENTAH, bukan anggaran sebulan.'),
+                // Disorok lalai (bukan dibuang) - anggaran "kalau kadar ni berterusan sebulan",
+                // amat tidak stabil pd tempoh singkat (cth. 1 keping/minggu -> 4.29/bulan). Kekal
+                // boleh capai via toggle lajur jika perlu bandingkan kadar merentas tempoh berbeza.
+                TextColumn::make('velocity_per_month')->numeric(2)
+                    ->label(fn () => 'Jualan/Bulan ('.$this->currentPeriodLabel().')')
+                    ->tooltip(fn () => 'Purata jualan sebulan, dikira drpd tempoh "'.$this->currentPeriodLabel().'" terkini sahaja (ikut penapis Tempoh, bukan sejarah penuh) - tukar penapis Tempoh utk lihat jangka masa lain.')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('verdict')->label('Cadangan')->badge()
                     ->color(fn ($state) => match ($state) {
                         RestockAnalysisCalculator::VERDICT_SOLD_OUT => 'danger',
@@ -207,20 +231,25 @@ class RestockByCategory extends Page implements HasTable
                         RestockAnalysisCalculator::VERDICT_OK => 'success',
                         default => 'gray',
                     }),
-                TextColumn::make('urgent_branch')->label('Cawangan Paling Perlu')->badge()->color('danger')
-                    ->placeholder('-')
-                    ->formatStateUsing(fn ($state, $record) => $state ? "{$state} (pernah jual {$record->urgent_branch_sold}x)" : null)
-                    ->tooltip('Cawangan sold-out (stok=0) dgn jualan sejarah tertinggi utk design ni.'),
             ])
             ->filters([
+                // Tempoh trend utk Jualan/Bulan, pieces_received & pieces_sold - BUKAN tempoh
+                // "Stok Disyorkan" (kekal 1.5 bulan, rujuk TARGET_COVER_MONTHS).
+                SelectFilter::make('period')->label('Tempoh')
+                    ->native()
+                    ->default(RestockAnalysisCalculator::PERIOD_1_WEEK)
+                    ->options(RestockAnalysisCalculator::PERIOD_LABELS),
                 SelectFilter::make('category_code')->label('Kategori')
                     ->native()
                     ->searchable('CategoryCode')
                     ->options(fn () => Category::where('CategoryCode', '!=', '')->pluck('Description', 'CategoryCode')),
-                SelectFilter::make('store_code')->label('Cawangan Paling Perlu')
+                SelectFilter::make('store_code')->label('Cawangan')
                     ->native()
                     ->searchable('StoreCode')
-                    ->options(fn () => Store::orderBy('StoreCode')->pluck('StoreCode', 'StoreCode')),
+                    // trim() - StoreCode dlm jemisys_store_mirror ialah CHAR (padded ruang), tapi
+                    // store_code drpd kalkulator sentiasa trim()-ed, jadi bandingan tanpa trim()
+                    // di sini x akan padan langsung (filter senyap pulangkan 0 baris).
+                    ->options(fn () => Store::orderBy('StoreCode')->get()->mapWithKeys(fn ($s) => [trim($s->StoreCode) => trim($s->StoreCode)])),
                 SelectFilter::make('verdict')->label('Cadangan')->options([
                     RestockAnalysisCalculator::VERDICT_SOLD_OUT => RestockAnalysisCalculator::VERDICT_SOLD_OUT,
                     RestockAnalysisCalculator::VERDICT_RESTOCK => RestockAnalysisCalculator::VERDICT_RESTOCK,
@@ -229,7 +258,7 @@ class RestockByCategory extends Page implements HasTable
                     RestockAnalysisCalculator::VERDICT_NO_DATA => RestockAnalysisCalculator::VERDICT_NO_DATA,
                 ]),
             ], layout: FiltersLayout::AboveContent)
-            ->filtersFormColumns(3)
+            ->filtersFormColumns(4)
             ->recordActions([
                 Action::make('viewHistory')
                     ->slideOver()

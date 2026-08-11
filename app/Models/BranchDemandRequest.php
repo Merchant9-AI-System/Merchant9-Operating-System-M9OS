@@ -118,12 +118,14 @@ class BranchDemandRequest extends Model
 
     // --- Peralihan status (role/permission-gating dikendalikan di Filament Table/Policy, bukan di sini) ---
 
-    /** Cawangan boleh batal SEBELUM HQ mula semak mana-mana line (semua line masih Pending). */
+    /** Cawangan boleh batal SEBELUM BO mula proses mana-mana line (semua line masih di peringkat
+     * awal - requested/stok_kritikal, rujuk BranchDemandRequestLine::FULFILLMENT_CANCELLABLE).
+     * line_status TIDAK lagi isyarat berguna utk ni (line kini AUTO-APPROVE semasa dicipta). */
     public function cancel(): void
     {
         abort_unless($this->status === self::STATUS_SUBMITTED, 422, 'Cuma request Submitted boleh dibatalkan.');
-        abort_unless($this->lines->every(fn ($l) => $l->line_status === BranchDemandRequestLine::STATUS_PENDING), 422,
-            'Request tak boleh dibatalkan sbb HQ dah mula semak sebahagian item.');
+        abort_unless($this->lines->every(fn ($l) => in_array($l->fulfillment_status, BranchDemandRequestLine::FULFILLMENT_CANCELLABLE, true)), 422,
+            'Request tak boleh dibatalkan sbb BO dah mula proses sebahagian item.');
 
         $this->update(['status' => self::STATUS_CANCELLED]);
     }
