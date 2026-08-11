@@ -571,11 +571,11 @@ function submit() {
             {{ page.props.flash.success }}
         </div>
 
-        <div class="grid gap-4 lg:grid-cols-3 gap-4">
-            <form class="flex flex-col gap-4 col-span-2" @submit.prevent="openConfirm">
+        <div class="grid lg:grid-cols-3 grid-cols-1 gap-4">
+            <form class="flex flex-col gap-4 lg:col-span-2" @submit.prevent="openConfirm">
                 <!-- Basic Details -->
                 <Card>
-                    <CardContent class="grid gap-3 sm:grid-cols-2">
+                    <CardContent class="grid gap-3 sm:grid-cols-2 space-y-3">
                         <div>
                             <Label class="mb-1.5 block flex items-center gap-2">
                                 <Store class="size-4" />
@@ -887,7 +887,7 @@ function submit() {
                 </Card>
             </form>
 
-            <div class="lg:sticky lg:top-8 lg:self-start lg:max-w-[600px] max-w-full overflow-hidden">
+            <div class="lg:sticky lg:top-8 lg:self-start lg:max-w-[600px] col-span-1 overflow-hidden">
                 <RestockSuggestions :store-code="form.store_code || null" :gold-types="goldTypes"
                     :weight-ranges="weightRanges" :size-ranges="sizeRanges" :category-codes="categoryCodes"
                     @add="addFromSuggestion" />
