@@ -481,7 +481,9 @@ class RestockAnalysisCalculator
         return static::finalize($raw, $period);
     }
 
-    protected static function weightBucketSqlCase(): string
+    /** public - dikongsi dgn JobsheetRestockScorer (bucket berat DLM SQL, elak tarik baris
+     * mentah utk bucket dlm PHP - rujuk dokblok kelas tsb). */
+    public static function weightBucketSqlCase(): string
     {
         $cases = [];
         foreach (self::WEIGHT_LABELS as $i => $label) {
