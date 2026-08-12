@@ -37,6 +37,7 @@ use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class AdminPanelProvider extends PanelProvider
@@ -71,6 +72,12 @@ class AdminPanelProvider extends PanelProvider
                     ->url('/branch-demand', shouldOpenInNewTab: true)
                     ->icon(Heroicon::OutlinedPencilSquare)
                     ->group('Procurement')
+                    ->sort(-1),
+                NavigationItem::make('Jobsheet Lookup')
+                    ->url('/jobsheet-lookup', shouldOpenInNewTab: true)
+                    ->icon(Heroicon::OutlinedMagnifyingGlassCircle)
+                    ->group('Inventory Health')
+                    ->visible(fn () => Auth::user()->hasRole(['manager', 'ceo', 'super_admin']))
                     ->sort(-1),
             ])
             // ->font('Roboto Mono')
