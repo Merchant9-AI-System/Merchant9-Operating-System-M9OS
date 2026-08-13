@@ -146,13 +146,6 @@ class AllBranchDemandLinesTable extends TableWidget
         $query = BranchDemandRequestLine::query()
             ->join('branch_demand_requests', 'branch_demand_requests.id', '=', 'branch_demand_request_lines.branch_demand_request_id');
 
-        /** @var User|null $user */
-        $user = Auth::user();
-
-        if ($user && ! $user->isSuperAdmin() && ! $user->hasRole(['hq_reviewer', 'ceo'])) {
-            $query->where('branch_demand_requests.store_code', $user->store_code ?? '__none__');
-        }
-
         return $query
             ->selectRaw("COALESCE(NULLIF(TRIM(branch_demand_request_lines.internal_code), ''), CONCAT('desc:', TRIM(branch_demand_request_lines.item_desc))) as group_key")
             ->selectRaw('MIN(branch_demand_request_lines.id) as id')
