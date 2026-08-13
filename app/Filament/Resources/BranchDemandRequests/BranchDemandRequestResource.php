@@ -40,10 +40,10 @@ class BranchDemandRequestResource extends Resource
     {
         $query = parent::getEloquentQuery()->with(['lines', 'submittedBy', 'reviewedBy']);
 
-        $user = Auth::user();
-        if ($user && ! $user->isSuperAdmin() && ! $user->hasRole(['hq_reviewer', 'ceo'])) {
-            $query->where('store_code', $user->store_code ?? '__none__');
-        }
+        // $user = Auth::user();
+        // if ($user && ! $user->isSuperAdmin() && ! $user->hasRole(['hq_reviewer', 'ceo'])) {
+        //     $query->where('store_code', $user->store_code ?? '__none__');
+        // }
 
         return $query;
     }
