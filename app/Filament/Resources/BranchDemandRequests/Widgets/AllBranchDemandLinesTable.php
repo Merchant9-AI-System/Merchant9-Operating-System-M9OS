@@ -4,9 +4,11 @@ namespace App\Filament\Resources\BranchDemandRequests\Widgets;
 
 use App\Filament\Exports\BranchDemandRequestLineExporter;
 use App\Models\BranchDemandRequestLine;
-use App\Models\User;
 use App\Support\BranchDemandLineSummary;
+use Filament\Actions\Action;
 use Filament\Actions\ExportAction;
+use Filament\Notifications\Notification;
+use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\SelectColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -38,6 +40,12 @@ use Illuminate\Support\Facades\Auth;
  * Eksport ("Eksport (ikut Kategori)") - rujuk App\Filament\Exports\BranchDemandRequestLineExporter
  * & App\Support\BranchDemandLineSummary (pecahan cawangan/nickname DIKONGSI antara widget ni &
  * exporter, SATU sumber kebenaran).
+ *
+ * Action "Selesai" tanda `done_at` SEMUA line SEBENAR dlm kumpulan ni (bukan sekadar baris
+ * agregat) - BERASINGAN drpd fulfillment_status (landasan progress BO). Sekali ditanda, group ni
+ * TERUS HILANG drpd senarai ni (rujuk scopedQuery() whereNull) & drpd "Item Sedia Ada" cawangan
+ * (rujuk BranchDemandEntryController::currentItems()) - cara BO decluttered demand yg dah SEPENUHNYA
+ * selesai (tanpa ubah fulfillment_status sejarah), bukan sekadar dim macam FULFILLMENT_TERMINAL.
  */
 class AllBranchDemandLinesTable extends TableWidget
 {
@@ -64,14 +72,14 @@ class AllBranchDemandLinesTable extends TableWidget
                     ->exporter(BranchDemandRequestLineExporter::class),
             ])
             ->columns([
-                ImageColumn::make('image_url')->label('Gambar')->square()->imageSize(20)->url(fn(?string $state): ?string => $state, true)->extraImgAttributes(['loading' => 'lazy']),
+                ImageColumn::make('image_url')->label('Gambar')->square()->imageSize(20)->url(fn (?string $state): ?string => $state, true)->extraImgAttributes(['loading' => 'lazy']),
                 TextColumn::make('internal_code')->label('Kod Design / Nama Item')
                     // getStateUsing() (bukan formatStateUsing()) sengaja - TextColumn::
                     // toEmbeddedHtml() semak KEKOSONGAN state MENTAH (getState(), drpd
                     // internal_code sebenar) SEBELUM formatStateUsing() sempat dipanggil, jadi
                     // fallback ke item_desc x akan pernah terpapar kalau internal_code=null bila
                     // guna formatStateUsing() - kena override STATE itu sendiri, bukan format lepas.
-                    ->getStateUsing(fn(BranchDemandRequestLine $record) => filled($record->internal_code) ? $record->internal_code : $record->item_desc)
+                    ->getStateUsing(fn (BranchDemandRequestLine $record) => filled($record->internal_code) ? $record->internal_code : $record->item_desc)
                     ->description(function (BranchDemandRequestLine $record) {
                         $base = trim(filled($record->internal_code) ? (string) $record->item_desc : '');
 
@@ -89,21 +97,21 @@ class AllBranchDemandLinesTable extends TableWidget
                     ->wrap(),
                 TextColumn::make('branches')->label('Cawangan')
                     ->badge()
-                    ->getStateUsing(fn(BranchDemandRequestLine $record) => $this->getSummary()->branchBadgesFor($record))
+                    ->getStateUsing(fn (BranchDemandRequestLine $record) => $this->getSummary()->branchBadgesFor($record))
                     // Merah kalau CAWANGAN tsb (bukan design keseluruhan) ada line stok_kritikal
                     // - staf boleh tanda kritikal per-permintaan (rujuk BranchDemandEntryController::
                     // store()), jadi satu design boleh kritikal utk SATU cawangan tapi biasa utk yg lain.
-                    ->color(fn(BranchDemandRequestLine $record, string $state) => $this->getSummary()->branchIsCritical($record, $state) ? 'danger' : 'gray'),
+                    ->color(fn (BranchDemandRequestLine $record, string $state) => $this->getSummary()->branchIsCritical($record, $state) ? 'danger' : 'gray'),
                 TextColumn::make('qty_requested_total')->label('Diminta')->numeric()->sortable(),
                 TextColumn::make('specifications')->label('Spesifikasi')
-                    ->getStateUsing(fn(BranchDemandRequestLine $record) => filled($record->sizes) ? "Saiz: {$record->sizes}" : null)
-                    ->description(fn(BranchDemandRequestLine $record) => filled($record->weights) ? "Berat: {$record->weights}g" : null)
+                    ->getStateUsing(fn (BranchDemandRequestLine $record) => filled($record->sizes) ? "Saiz: {$record->sizes}" : null)
+                    ->description(fn (BranchDemandRequestLine $record) => filled($record->weights) ? "Berat: {$record->weights}g" : null)
                     ->placeholder('-'),
                 SelectColumn::make('fulfillment_status')->label('Progress')
                     ->options(BranchDemandRequestLine::FULFILLMENT_LABELS)
                     ->selectablePlaceholder(true)
-                    ->getStateUsing(fn(BranchDemandRequestLine $record) => $this->groupProgressFor($record))
-                    ->disabled(fn(BranchDemandRequestLine $record) => ! Auth::user()?->can('Update:BranchDemandRequest'))
+                    ->getStateUsing(fn (BranchDemandRequestLine $record) => $this->groupProgressFor($record))
+                    ->disabled(fn (BranchDemandRequestLine $record) => ! Auth::user()?->can('Update:BranchDemandRequest'))
                     ->updateStateUsing(function (BranchDemandRequestLine $record, $state) {
                         foreach ($this->approvedLinesForGroup($record) as $line) {
                             $line->update(['fulfillment_status' => $state]);
@@ -113,17 +121,31 @@ class AllBranchDemandLinesTable extends TableWidget
                     }),
                 TextColumn::make('created_at')->label('Tarikh')->dateTime('d/m/Y H:i')->sortable(),
             ])
+            ->recordActions([
+                Action::make('markDone')
+                    ->label('Selesai')
+                    ->icon(Heroicon::OutlinedCheckCircle)
+                    ->color('success')
+                    ->requiresConfirmation()
+                    ->modalDescription('Kumpulan design ni akan disorok drpd senarai ni & drpd "Item Sedia Ada" cawangan. fulfillment_status tiap line KEKAL x berubah.')
+                    ->visible(fn () => (bool) Auth::user()?->can('Update:BranchDemandRequest'))
+                    ->action(function (BranchDemandRequestLine $record) {
+                        $this->linesForGroup($record)->each(fn (BranchDemandRequestLine $line) => $line->update(['done_at' => now()]));
+
+                        Notification::make()->title('Ditanda selesai & disorok drpd senarai.')->success()->send();
+                    }),
+            ])
             ->filters([
                 Filter::make('has_critical')
                     ->label('Kritikal')
                     ->toggle()
-                    ->query(fn(Builder $query) => $query->havingRaw(
+                    ->query(fn (Builder $query) => $query->havingRaw(
                         'SUM(CASE WHEN branch_demand_request_lines.fulfillment_status = ? THEN 1 ELSE 0 END) > 0',
                         [BranchDemandRequestLine::FULFILLMENT_STOK_KRITIKAL]
                     )),
                 SelectFilter::make('category_name')
                     ->label('Kategori')
-                    ->options(fn() => BranchDemandRequestLine::query()
+                    ->options(fn () => BranchDemandRequestLine::query()
                         ->whereNotNull('category_name')
                         ->distinct()
                         ->orderBy('category_name')
@@ -144,7 +166,8 @@ class AllBranchDemandLinesTable extends TableWidget
     protected function scopedQuery(): Builder
     {
         $query = BranchDemandRequestLine::query()
-            ->join('branch_demand_requests', 'branch_demand_requests.id', '=', 'branch_demand_request_lines.branch_demand_request_id');
+            ->join('branch_demand_requests', 'branch_demand_requests.id', '=', 'branch_demand_request_lines.branch_demand_request_id')
+            ->whereNull('branch_demand_request_lines.done_at');
 
         return $query
             ->selectRaw("COALESCE(NULLIF(TRIM(branch_demand_request_lines.internal_code), ''), CONCAT('desc:', TRIM(branch_demand_request_lines.item_desc))) as group_key")
@@ -169,9 +192,9 @@ class AllBranchDemandLinesTable extends TableWidget
         $code = filled($record->internal_code) ? trim($record->internal_code) : null;
 
         return BranchDemandRequestLine::query()->with('request')
-            ->when($code, fn($q) => $q->whereRaw('TRIM(internal_code) = ?', [$code]))
-            ->when(! $code, fn($q) => $q
-                ->where(fn($q2) => $q2->whereNull('internal_code')->orWhere('internal_code', ''))
+            ->when($code, fn ($q) => $q->whereRaw('TRIM(internal_code) = ?', [$code]))
+            ->when(! $code, fn ($q) => $q
+                ->where(fn ($q2) => $q2->whereNull('internal_code')->orWhere('internal_code', ''))
                 ->whereRaw('TRIM(item_desc) = ?', [trim((string) $record->item_desc)]))
             ->get();
     }

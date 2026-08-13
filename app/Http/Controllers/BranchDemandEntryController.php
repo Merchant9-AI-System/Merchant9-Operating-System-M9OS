@@ -119,7 +119,10 @@ class BranchDemandEntryController extends Controller
             // Nama PIC yg pernah taip utk cawangan ni - prefill terus (rujuk Create.vue) supaya
             // staf x perlu taip semula tiap kali hantar item baharu ke rekod SEDIA ADA yg sama.
             'submitted_by_name' => $branchDemandRequest?->submitted_by_name,
-            'lines' => $branchDemandRequest?->lines->map(fn ($l) => [
+            // done_at ditanda BO drpd AllBranchDemandLinesTable ("Selesai") - line tsb disorok
+            // dari sini (SAMA spt disorok drpd widget ringkasan HQ), berasingan drpd
+            // fulfillment_status (progress) yg kekal x berubah - rujuk widget tsb dokblok.
+            'lines' => $branchDemandRequest?->lines()->whereNull('done_at')->get()->map(fn ($l) => [
                 'id' => $l->id,
                 'internal_code' => $l->internal_code,
                 'item_desc' => $l->item_desc,
