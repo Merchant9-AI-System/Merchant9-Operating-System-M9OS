@@ -6,7 +6,9 @@ use App\Models\InventoryMirror;
 use App\Models\Jemisys\Category;
 use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
+use App\Models\User;
 use App\Support\StockoutReorderMaterializer;
+use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Artisan;
@@ -92,6 +94,20 @@ class SyncJemisysMirrors implements ShouldQueue
                 "{$stockoutCandidateCount} calon StockoutReorder ({$ms}ms).");
         } catch (Throwable $e) {
             Log::error('SyncJemisysMirrors gagal: '.$e->getMessage());
+
+            // Job ni juga dijadualkan scheduler (rujuk routes/console.php) - TIADA sesiapa
+            // tengok Forge log secara aktif bila auto-jalan (bukan klik butang manual spt
+            // biasa), jadi lantunkan juga sbg notifikasi Filament (bell icon) ke super_admin
+            // supaya kegagalan (cth. laptop sumber tertutup/Tailscale down) tetap disedari.
+            $userAdmin = User::role(config('filament-shield.super_admin.name'))->first();
+
+            if ($userAdmin) {
+                Notification::make()
+                    ->danger()
+                    ->title('SyncJemisysMirrors gagal')
+                    ->body($e->getMessage())
+                    ->sendToDatabase($userAdmin);
+            }
 
             throw $e;
         } finally {

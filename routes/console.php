@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\SyncJemisysMirrors;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -21,3 +22,14 @@ Schedule::command('app:warm-dashboard-cache')->everyFifteenMinutes()->withoutOve
 // disahkan production - punca 504 Gateway Timeout). Setiap 5 minit imbang antara data segar &
 // beban semakan live (network+SQL Server+2 query DISTINCT tempatan, jumlah ~26s setiap jalan).
 Schedule::command('app:warm-jemisys-diagnostics')->everyFiveMinutes()->withoutOverlapping();
+
+// Auto-segerak harian (GANTIKAN klik manual butang "Segerak Data JEMiSys" di
+// JemisysConnectionStatus - rujuk dokblok SyncJemisysMirrors::handle() utk apa job ni buat).
+// 09:00 WAKTU MALAYSIA (->timezone() WAJIB - config('app.timezone') apl ni "UTC", TANPA ni
+// dailyAt('09:00') jalan 9pg UTC = 5ptg MYT, silap 8 jam) - lengah ~50 minit lepas SQL Server
+// Agent job tempatan "Daily Local Backup JEMiSys_M9 Restore" mula pd 08:10 (laptop sumber
+// sambungan 'jemisys' via Tailscale), bagi ruang restore tempatan siap dulu. Kalau laptop
+// sumber OFF/Tailscale down hari tsb, job ni GAGAL SENYAP (log + notifikasi Filament ke
+// super_admin - rujuk catch() dlm handle()) - tiada apa dipecahkan, cermin cuma kekal stale
+// sehingga sumber kembali ONLINE.
+Schedule::job(new SyncJemisysMirrors)->dailyAt('09:00')->timezone('Asia/Kuala_Lumpur')->withoutOverlapping();
