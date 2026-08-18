@@ -45,8 +45,11 @@ class WarmDashboardCache extends Command
             'Order Recommendation' => fn () => OrderRecommendationCalculator::recommendations(),
             'Supplier Scorecard' => fn () => SupplierScorecardCalculator::scorecard(),
             'Action Alerts' => fn () => (new \ReflectionMethod(ActionAlerts::class, 'getStats'))->invoke(new ActionAlerts),
-            'Restock by Size' => fn () => RestockAnalysisCalculator::bySize(),
-            'Restock by Weight' => fn () => RestockAnalysisCalculator::byWeight(),
+            // PERIOD_ALL (bukan DEFAULT_PERIOD) - RestockBySize/RestockByWeight kini SENTIASA
+            // minta "Semua" (penapis Tempoh disorok drpd UI, rujuk dokblok halaman tsb & kelas
+            // RestockAnalysisCalculator PERIOD_ALL) - warm kunci cache yg BETUL2 dipakai.
+            'Restock by Size' => fn () => RestockAnalysisCalculator::bySize(RestockAnalysisCalculator::PERIOD_ALL),
+            'Restock by Weight' => fn () => RestockAnalysisCalculator::byWeight(RestockAnalysisCalculator::PERIOD_ALL),
             'Supplier Performance (JEMiSys)' => fn () => SupplierPerformanceCalculator::performance(),
             'Branch Focus' => fn () => BranchFocusCalculator::focus(),
             'Stock vs Optimum' => fn () => (new \ReflectionMethod(StockVsOptimumChart::class, 'getData'))->invoke(new StockVsOptimumChart),

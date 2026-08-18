@@ -62,13 +62,15 @@ class RestockByWeight extends Page implements HasTable
         return $base;
     }
 
-    /** Label Bahasa Melayu bagi penapis "Tempoh" semasa - papar pd lajur Jualan/Bulan supaya
-     *  pengguna sedar angka tsb ikut tempoh yg dipilih, bukan sentiasa 3 bulan. */
+    /** Label Bahasa Melayu bagi penapis "Tempoh" semasa - papar pd lajur Jualan/Bulan.
+     *  Penapis "Tempoh" DISOROK drpd UI buat masa ni (rujuk SelectFilter::make('period') dikomen
+     *  bawah) - jumlah (Jualan/Diterima) kini SENTIASA "Semua" (PERIOD_ALL, tiada sempadan
+     *  tarikh), TIADA lagi nilai lain boleh terhasil drpd tableFilters (filter dah disorok),
+     *  jadi label kekal tetap. Velocity/Cadangan KEKAL guna tetingkap TREND_MONTHS sebenar
+     *  (rujuk RestockAnalysisCalculator::finalize() dokblok PERIOD_ALL) - bukan label ni. */
     protected function currentPeriodLabel(): string
     {
-        $period = $this->tableFilters['period']['value'] ?? RestockAnalysisCalculator::DEFAULT_PERIOD;
-
-        return RestockAnalysisCalculator::PERIOD_LABELS[$period] ?? RestockAnalysisCalculator::PERIOD_LABELS[RestockAnalysisCalculator::DEFAULT_PERIOD];
+        return 'Semua';
     }
 
     public function table(Table $table): Table
@@ -78,7 +80,9 @@ class RestockByWeight extends Page implements HasTable
                 // ->records() TIDAK auto-paginate/filter/search/sort spt ->query() - Filament
                 // hantar SEMUA parameter ni terus ke closure, closure WAJIB uruskan semuanya
                 // sendiri (rujuk Filament\Tables\Concerns\HasRecords::getTableRecords()).
-                $period = $filters['period']['value'] ?? RestockAnalysisCalculator::DEFAULT_PERIOD;
+                // PERIOD_ALL - rujuk nota currentPeriodLabel() di atas (penapis "Tempoh" disorok
+                // drpd UI, jumlah kini SENTIASA "Semua").
+                $period = RestockAnalysisCalculator::PERIOD_ALL;
 
                 $all = RestockAnalysisCalculator::byWeight($period)
                     ->map(fn ($r, $i) => $r + ['InventoryCode' => 'rbw_'.$i]);
@@ -147,12 +151,13 @@ class RestockByWeight extends Page implements HasTable
                     }),
             ])
             ->filters([
-                // Tempoh trend utk Jualan/Bulan, pieces_received & pieces_sold - BUKAN tempoh
-                // "Stok Disyorkan" (kekal 1.5 bulan, rujuk TARGET_COVER_MONTHS).
-                SelectFilter::make('period')->label('Tempoh')
-                    ->native()
-                    ->default(RestockAnalysisCalculator::PERIOD_1_WEEK)
-                    ->options(RestockAnalysisCalculator::PERIOD_LABELS),
+                // Penapis "Tempoh" DISOROK drpd UI buat masa ni (kekal dikomen utk kegunaan
+                // akan datang) - fungsi/fallback PERIOD_1_WEEK kekal (rujuk currentPeriodLabel()
+                // & closure ->records() di atas).
+                // SelectFilter::make('period')->label('Tempoh')
+                //     ->native()
+                //     ->default(RestockAnalysisCalculator::PERIOD_1_WEEK)
+                //     ->options(RestockAnalysisCalculator::PERIOD_LABELS),
                 SelectFilter::make('category_code')->label('Kategori')
                     ->native()
                     ->searchable('CategoryCode')

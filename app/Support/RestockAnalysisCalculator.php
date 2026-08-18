@@ -54,6 +54,14 @@ class RestockAnalysisCalculator
 
     public const PERIOD_1_YEAR = '1y';
 
+    /** "Semua" - jumlah (pieces_received/pieces_sold) TIADA sempadan tarikh langsung, dipakai
+     * RestockByWeight/RestockBySize/RestockByCategory drpd penapis "Tempoh" disorok (rujuk
+     * dokblok finalize()/computeByCategoryPerBranch() - velocity/verdict KEKAL guna tetingkap
+     * TREND_MONTHS, bukan span "semua" ni, elak velocity runtuh hampir sifar). SENGAJA TIADA
+     * label dlm PERIOD_LABELS (const tsb turut dikongsi BranchFocus/SupplierPerformance yg
+     * penapis Tempoh MASIH aktif - elak "Semua" muncul sbg pilihan baharu di situ jugak). */
+    public const PERIOD_ALL = 'all';
+
     public const DEFAULT_PERIOD = self::PERIOD_3_MONTHS;
 
     /** @var array<string, string> */
@@ -75,6 +83,7 @@ class RestockAnalysisCalculator
             self::PERIOD_6_MONTHS => now()->subMonths(6),
             self::PERIOD_9_MONTHS => now()->subMonths(9),
             self::PERIOD_1_YEAR => now()->subYear(),
+            self::PERIOD_ALL => Carbon::createFromTimestamp(0),
             default => now()->subMonths(self::TREND_MONTHS),
         };
     }
@@ -100,13 +109,17 @@ class RestockAnalysisCalculator
         // normalize label (sizeLabel()) & gabung semula dlm PHP - sepadan pendekatan Python
         // analytics.py _size_label() (buang trailing ".0", "(tiada)" utk kosong).
         $trendStart = static::trendStartForPeriod($period);
+        // Tetingkap velocity TETAP (TREND_MONTHS/3 bulan) - berasingan drpd $trendStart di atas
+        // (yg jadi TIADA sempadan bila $period=PERIOD_ALL) - rujuk dokblok PERIOD_ALL & finalize().
+        $velocityWindowStart = now()->subMonths(self::TREND_MONTHS);
 
         $raw = InventoryPiece::query()
             ->realVendor()
             ->selectRaw('CategoryCode, StoreCode, JewelSize, '.
                 'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received, '.
                 'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold, '.
-                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart])
+                'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold_velocity_window, '.
+                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart, $velocityWindowStart])
             ->groupBy('CategoryCode', 'StoreCode', 'JewelSize')
             ->get();
 
@@ -120,6 +133,7 @@ class RestockAnalysisCalculator
                     'bucket' => static::sizeLabel($first->JewelSize),
                     'pieces_received' => $rows->sum('pieces_received'),
                     'pieces_sold' => $rows->sum('pieces_sold'),
+                    'pieces_sold_velocity_window' => $rows->sum('pieces_sold_velocity_window'),
                     'current_stock' => $rows->sum('current_stock'),
                 ];
             })->values();
@@ -346,6 +360,8 @@ class RestockAnalysisCalculator
     protected static function computeByCategoryPerBranch(string $categoryCode, string $period = self::DEFAULT_PERIOD): Collection
     {
         $trendStart = static::trendStartForPeriod($period);
+        // Tetingkap velocity TETAP - rujuk nota sama dlm computeBySize() & dokblok PERIOD_ALL/finalize().
+        $velocityWindowStart = now()->subMonths(self::TREND_MONTHS);
 
         // toBase()->get() - GROUP BY (InternalCode, StoreCode) dlm SATU kategori terpilih sahaja
         // (skop jauh lebih kecil drpd 490K baris penuh), tapi kekal toBase() sbg amalan selamat
@@ -357,12 +373,17 @@ class RestockAnalysisCalculator
             ->selectRaw('InternalCode, StoreCode, MAX(Description) as Description, '.
                 'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received, '.
                 'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold, '.
-                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart])
+                'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold_velocity_window, '.
+                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart, $velocityWindowStart])
             ->groupBy('InternalCode', 'StoreCode')
             ->toBase()
             ->get();
 
         $trendWindowDays = max((int) $trendStart->diffInDays(now()), 1);
+        // PERIOD_ALL - rujuk dokblok finalize() (velocity WAJIB kekal tetingkap TREND_MONTHS
+        // sebenar, bukan span "semua"/epoch).
+        $useFixedVelocityWindow = $period === self::PERIOD_ALL;
+        $velocityWindowDays = max((int) $velocityWindowStart->diffInDays(now()), 1);
         $categoryName = Category::where('CategoryCode', $categoryCode)->value('Description') ?? $categoryCode;
 
         // Foto produk hidup di jadual berasingan (jemisys_inventory_mirror.image_url, diisi oleh
@@ -370,12 +391,15 @@ class RestockAnalysisCalculator
         // imageUrlsFor() - satu query kelompok utk semua InternalCode dlm kategori ni.
         $imageUrls = static::imageUrlsFor($raw->pluck('InternalCode'));
 
-        return $raw->map(function ($r) use ($trendWindowDays, $categoryCode, $categoryName, $imageUrls) {
+        return $raw->map(function ($r) use ($trendWindowDays, $useFixedVelocityWindow, $velocityWindowDays, $categoryCode, $categoryName, $imageUrls) {
             $piecesReceived = (int) $r->pieces_received;
             $piecesSold = (int) $r->pieces_sold;
             $currentStock = (int) $r->current_stock;
 
-            $velocity = SalesVelocityHelper::velocity($piecesSold, $trendWindowDays);
+            $velocityPiecesSold = $useFixedVelocityWindow ? (int) $r->pieces_sold_velocity_window : $piecesSold;
+            $velocityDays = $useFixedVelocityWindow ? $velocityWindowDays : $trendWindowDays;
+
+            $velocity = SalesVelocityHelper::velocity($velocityPiecesSold, $velocityDays);
             $targetStock = SalesVelocityHelper::targetStock($velocity, self::TARGET_COVER_MONTHS);
 
             $verdict = match (true) {
@@ -468,13 +492,16 @@ class RestockAnalysisCalculator
         // GROUP BY kena ulang $caseExpr penuh, bukan alias 'bucket' - SQLite/MySQL benarkan
         // GROUP BY rujuk alias SELECT, tapi SQL Server tak (throw "Invalid column name").
         $trendStart = static::trendStartForPeriod($period);
+        // Tetingkap velocity TETAP - rujuk nota sama dlm computeBySize() & dokblok PERIOD_ALL/finalize().
+        $velocityWindowStart = now()->subMonths(self::TREND_MONTHS);
 
         $raw = InventoryPiece::query()
             ->realVendor()
             ->selectRaw("CategoryCode, StoreCode, {$caseExpr} as bucket, ".
                 'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received, '.
                 'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold, '.
-                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart])
+                'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold_velocity_window, '.
+                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart, $velocityWindowStart])
             ->groupBy('CategoryCode', 'StoreCode', DB::raw($caseExpr))
             ->get();
 
@@ -520,12 +547,23 @@ class RestockAnalysisCalculator
         $trendWindowDays = max((int) $trendStart->diffInDays(now()), 1);
         $categoryNames = Category::pluck('Description', 'CategoryCode');
 
-        $out = $raw->map(function ($r) use ($trendWindowDays, $categoryNames) {
+        // PERIOD_ALL - pieces_received/pieces_sold (jumlah dipaparkan) TIADA sempadan tarikh,
+        // TAPI velocity/target_stock/verdict WAJIB kekal guna tetingkap TREND_MONTHS sebenar
+        // (bukan span "semua"/epoch ni) - kalau tidak, velocity runtuh hampir sifar (dibahagi
+        // puluhan ribu hari), rosakkan cadangan restock. Rujuk pieces_sold_velocity_window
+        // (dikira berasingan dlm computeBySize()/computeByWeight()) & dokblok PERIOD_ALL.
+        $useFixedVelocityWindow = $period === self::PERIOD_ALL;
+        $velocityWindowDays = max((int) now()->subMonths(self::TREND_MONTHS)->diffInDays(now()), 1);
+
+        $out = $raw->map(function ($r) use ($trendWindowDays, $categoryNames, $useFixedVelocityWindow, $velocityWindowDays) {
             $piecesReceived = (int) $r->pieces_received;
             $piecesSold = (int) $r->pieces_sold;
             $currentStock = (int) $r->current_stock;
 
-            $velocity = SalesVelocityHelper::velocity($piecesSold, $trendWindowDays);
+            $velocityPiecesSold = $useFixedVelocityWindow ? (int) $r->pieces_sold_velocity_window : $piecesSold;
+            $velocityDays = $useFixedVelocityWindow ? $velocityWindowDays : $trendWindowDays;
+
+            $velocity = SalesVelocityHelper::velocity($velocityPiecesSold, $velocityDays);
             $targetStock = SalesVelocityHelper::targetStock($velocity, self::TARGET_COVER_MONTHS);
 
             if ($piecesReceived < self::MIN_SAMPLE) {
