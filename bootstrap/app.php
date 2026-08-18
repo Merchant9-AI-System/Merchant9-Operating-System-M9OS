@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -16,6 +17,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             HandleInertiaRequests::class,
         ]);
+
+        // Global (bukan ->web() sahaja) - panel Filament (/admin/*) ada middleware stack
+        // sendiri (rujuk AdminPanelProvider), header keselamatan WAJIB kena semua respons.
+        $middleware->append(SecurityHeaders::class);
 
         // Filament dikendalikan pd guard 'web' yg SAMA (bukan guard berasingan) - login sedia
         // ada di /admin/login (filament.admin.auth.login), bukan laluan 'login' lalai Laravel
