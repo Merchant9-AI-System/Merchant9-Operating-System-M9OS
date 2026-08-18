@@ -25,11 +25,11 @@ Schedule::command('app:warm-jemisys-diagnostics')->everyFiveMinutes()->withoutOv
 
 // Auto-segerak harian (GANTIKAN klik manual butang "Segerak Data JEMiSys" di
 // JemisysConnectionStatus - rujuk dokblok SyncJemisysMirrors::handle() utk apa job ni buat).
-// 09:35 WAKTU MALAYSIA (->timezone() WAJIB - config('app.timezone') apl ni "UTC", TANPA ni
-// dailyAt('09:35') jalan 9:35pg UTC = 5:35ptg MYT, silap 8 jam) - lengah lepas SQL Server
-// Agent job tempatan "Daily Local Backup JEMiSys_M9 Restore" mula pd 08:10 (laptop sumber
+// 10:00 WAKTU MALAYSIA (->timezone() WAJIB - config('app.timezone') apl ni "UTC", TANPA ni
+// dailyAt('10:00') jalan 10pg UTC = 6ptg MYT, silap 8 jam) - lengah lepas SQL Server Agent
+// job tempatan "Daily Local Backup JEMiSys_M9 Restore" mula pd 08:10 (laptop sumber
 // sambungan 'jemisys' via Tailscale), bagi ruang restore tempatan siap dulu. Kalau laptop
 // sumber OFF/Tailscale down hari tsb, job ni GAGAL SENYAP (log + notifikasi Filament ke
 // super_admin - rujuk catch() dlm handle()) - tiada apa dipecahkan, cermin cuma kekal stale
 // sehingga sumber kembali ONLINE.
-Schedule::job(new SyncJemisysMirrors)->dailyAt('09:35')->timezone('Asia/Kuala_Lumpur')->withoutOverlapping();
+Schedule::job(new SyncJemisysMirrors)->dailyAt('10:00')->timezone('Asia/Kuala_Lumpur')->withoutOverlapping();
