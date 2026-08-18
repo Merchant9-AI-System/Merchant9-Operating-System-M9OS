@@ -9,12 +9,15 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// Refresh-ahead: cache widget/Rearrange TTL 3600s (1 jam) - jalankan setiap 15 minit supaya
-// cache SENTIASA segar (margin selamat sebelum tamat tempoh), elak pengguna sesekali terkena
-// "cold cache" bertembung dgn lock sementara Windows (rujuk memori projek: bug #9/#11/#12).
+// Refresh-ahead: cache widget/Rearrange TTL 3600s (1 jam) - jalankan SETIAP JAM (padan tepat
+// dgn TTL, atas permintaan explisit - kurangkan kekerapan notifikasi Filament WarmDashboardCache
+// hantar SETIAP kali jalan). NOTA: ni buang margin selamat asal (dulu 15 minit, 4x lebih kerap
+// drpd TTL) - kalau SATU jalanan hourly ni lengah/gagal, cache BOLEH tamat tempoh sebelum
+// percubaan seterusnya, pengguna sesekali terkena "cold cache" live (~10-40+ saat, disahkan
+// sesi ni) sblm jalanan seterusnya sempat panaskan semula.
 // PENTING: perlukan `php artisan schedule:work` (dev) atau cron `schedule:run` (VM production)
 // berjalan - definisi ni sahaja TIDAK auto-jalan tanpa salah satu proses tu aktif.
-Schedule::command('app:warm-dashboard-cache')->everyFifteenMinutes()->withoutOverlapping();
+Schedule::command('app:warm-dashboard-cache')->hourly()->withoutOverlapping();
 
 // JemisysConnectionStatus::mount() SENGAJA baca cache SAHAJA (TTL 300s, rujuk
 // JemisysConnectionStatus::CACHE_TTL_SECONDS) - tanpa jadual ni, cache tamat tempoh & pelawat
