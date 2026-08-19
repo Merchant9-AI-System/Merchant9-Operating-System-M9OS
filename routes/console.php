@@ -24,7 +24,7 @@ Schedule::command('app:warm-dashboard-cache')->hourly()->withoutOverlapping();
 // SETERUSNYA yg buka page tu terkena semakan LIVE network+auth+query SQL Server penuh (~12s,
 // disahkan production - punca 504 Gateway Timeout). Setiap 5 minit imbang antara data segar &
 // beban semakan live (network+SQL Server+2 query DISTINCT tempatan, jumlah ~26s setiap jalan).
-Schedule::command('app:warm-jemisys-diagnostics')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('app:warm-jemisys-diagnostics')->daily()->withoutOverlapping();
 
 // Auto-segerak harian (GANTIKAN klik manual butang "Segerak Data JEMiSys" di
 // JemisysConnectionStatus - rujuk dokblok SyncJemisysMirrors::handle() utk apa job ni buat).

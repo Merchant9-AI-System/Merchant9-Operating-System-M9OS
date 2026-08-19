@@ -57,9 +57,9 @@ class InventoryKpiStats extends StatsOverviewWidget
                 ->description('RM '.number_format($m['dead_value'] / 1_000_000, 2).'j terikat (>12 bln)')
                 ->color($deadPct > 15 ? 'danger' : ($deadPct > 5 ? 'warning' : 'success')),
 
-            Stat::make('Best-seller Sold Out', (string) $m['stockout_proven'])
-                ->description('Design pernah laku (>=3) tapi stok=0')
-                ->color($m['stockout_proven'] > 0 ? 'danger' : 'success'),
+            // Stat::make('Best-seller Sold Out', (string) $m['stockout_proven'])
+            //     ->description('Design pernah laku (>=3) tapi stok=0')
+            //     ->color($m['stockout_proven'] > 0 ? 'danger' : 'success'),
         ];
     }
 }
