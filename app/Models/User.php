@@ -24,6 +24,18 @@ class User extends Authenticatable implements FilamentUser
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, HasRoles, LogsActivity, Notifiable;
 
+    // SENGAJA TIADA Laravel\Passport\HasApiTokens/Contracts\OAuthenticatable di sini - disahkan
+    // (baca terus source vendor/laravel/passport, bukan teka) guard 'passport' (TokenGuard::
+    // user(), rujuk routes/ai.php auth:sanctum,api) HANYA panggil withAccessToken() pd model -
+    // Sanctum::HasApiTokens (di atas) SUDAH sediakan withAccessToken()/currentAccessToken()/
+    // tokenCan()/tokenCant() generik yg serasi (token Passport implement Contracts\
+    // ScopeAuthorizable::can()/cant(), padan panggilan Sanctum). Menambah trait Passport
+    // pula CIPTA percanggahan PROPERTY $accessToken antara dua trait (disahkan cubaan
+    // sebenar - Fatal Error "define the same property... considered incompatible") - method-
+    // level insteadof/as TAK BOLEH selesaikan percanggahan property. oauthApps()/
+    // getProviderName() (kaedah Passport tambahan) hanya dipakai fitur "urus app OAuth
+    // pengguna" (ClientRepository) yg TIDAK dibina di sini - x diperlukan.
+
     /**
      * Get the attributes that should be cast.
      *

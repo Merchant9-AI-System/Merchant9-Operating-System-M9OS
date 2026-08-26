@@ -42,6 +42,16 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // Mcp::web('/mcp/restock', ...)->middleware('auth:sanctum,api') (rujuk routes/ai.php) -
+        // guard 'api' ni WAJIB wujud secara eksplisit di sini utk auth:api rujuk driver
+        // 'passport' (PassportServiceProvider daftar DRIVER 'passport' via Auth::extend(), tapi
+        // TIDAK auto-cipta guard 'api' bernama - config/auth.php app ni tiada blok 'api' asal
+        // (dipangkas sblm ni), jadi ditambah manual di sini.
+        'api' => [
+            'driver' => 'passport',
+            'provider' => 'users',
+        ],
     ],
 
     /*

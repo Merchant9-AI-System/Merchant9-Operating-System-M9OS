@@ -9,6 +9,7 @@ use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\ResponseFactory;
 use Laravel\Mcp\Server\Attributes\Description;
+use Laravel\Mcp\Server\Attributes\Name;
 use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
@@ -22,7 +23,11 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
  * ADA) - sesetengah kategori ada beribu design (cth. "CINCIN EMAS" 6298 design, disahkan sesi
  * ni), AI assistant perlukan calon TERATAS, bukan longgokan penuh. Baris dipangkas
  * dilaporkan (bukan disorok senyap) via `truncated_count`.
+ *
+ * #[Name(...)] WAJIB - rujuk nota sama di ListRestockCategoriesTool (lalai Primitive::name()
+ * bawa baki "Tool" dlm nama, disahkan sebab sebenar ralat "Tool not found" semasa ujian).
  */
+#[Name('get-restock-suggestions')]
 #[Description('Cadangan restock (design + cawangan mana perlu restock, & kenapa) bagi SATU kod kategori - guna list-restock-categories dulu utk dapatkan kod kategori yg sah.')]
 #[IsReadOnly]
 class GetRestockSuggestionsTool extends Tool
