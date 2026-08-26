@@ -28,3 +28,17 @@ Route::middleware('auth')->group(function () {
     // JobsheetLookupController dokblok), BERBEZA drpd Branch Demand di atas.
     Route::get('/jobsheet-lookup', [JobsheetLookupController::class, 'index'])->name('jobsheet-lookup.index');
 });
+
+// DEV SAHAJA - pratonton visual resources/views/mcp/authorize.blade.php (skrin kelulusan
+// OAuth) tanpa perlu daftar client Passport sebenar/PKCE - data rekaan, klik Authorize/Cancel
+// x akan berjaya (client_id palsu), tapi cukup utk semak rupa & interaktiviti.
+// if (app()->environment('local')) {
+//     Route::get('/_dev/oauth-authorize-preview', function () {
+//         return view('mcp.authorize', [
+//             'client' => (object) ['id' => 'preview-client-id', 'name' => 'Claude'],
+//             'user' => (object) ['email' => 'superadmin@m9.com'],
+//             'scopes' => [(object) ['description' => 'Use available MCP functionality.']],
+//             'authToken' => 'preview-auth-token',
+//         ]);
+//     });
+// }

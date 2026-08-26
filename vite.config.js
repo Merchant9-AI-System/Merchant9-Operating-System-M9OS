@@ -15,7 +15,18 @@ export default defineConfig({
             // inertia.css/inertia.ts ENTRY BERASINGAN utk permukaan Inertia+Vue+shadcn-vue baharu
             // (rujuk resources/views/app.blade.php), supaya dua "dunia" frontend (Filament/Livewire
             // & Inertia/Vue) tak bercampur dlm satu bundle.
-            input: ['resources/css/app.css', 'resources/js/app.js', 'resources/css/inertia.css', 'resources/js/inertia.ts'],
+            // oauth-authorize.ts - Vue MANDIRI (bukan Inertia) utk resources/views/mcp/
+            // authorize.blade.php - laluan ni dirender terus oleh Passport punya
+            // AuthorizationController (SimpleViewResponse), BUKAN laluan Inertia, jadi x boleh
+            // guna createInertiaApp() sedia ada - mount App Vue kecil sendiri, guna token/komponen
+            // shadcn-vue (inertia.css, @/components/ui/*) yg SAMA.
+            input: [
+                'resources/css/app.css',
+                'resources/js/app.js',
+                'resources/css/inertia.css',
+                'resources/js/inertia.ts',
+                'resources/js/oauth-authorize.ts',
+            ],
             refresh: true,
             // fonts: [
             //     bunny('Instrument Sans', {

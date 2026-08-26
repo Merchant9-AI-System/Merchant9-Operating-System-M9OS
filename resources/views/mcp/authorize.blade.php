@@ -41,140 +41,34 @@
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet" />
 
-    @vite(['resources/css/app.css'])
+    {{-- inertia.css (bukan app.css) - satu2nya entry yg mendefinisikan token warna shadcn-vue
+    (--card, --primary, --muted-foreground dll., rujuk resources/css/inertia.css) yg dipakai
+    komponen Card/Button Vue di bawah. --}}
+    @vite(['resources/css/inertia.css', 'resources/js/oauth-authorize.ts'])
 </head>
-<body class="font-sans antialiased bg-background text-white">
-<div class="min-h-screen flex items-center justify-center p-4">
-    <div class="w-full max-w-md">
-        <!-- Card Container -->
-        <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
-            <!-- Header -->
-            <div class="flex flex-col space-y-1.5 p-6">
-                <div class="flex items-center justify-center mb-4">
-                    <!-- Shield Icon -->
-                    <svg class="h-12 w-12 text-primary" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.618 5.984A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
-                    </svg>
-                </div>
+<body class="font-sans antialiased bg-background text-foreground">
+    {{--
+        Skrin kelulusan OAuth ni dirender Passport punya AuthorizationController terus
+        (SimpleViewResponse), BUKAN laluan Inertia - x boleh guna createInertiaApp() sedia ada
+        (rujuk resources/js/inertia.ts). Mount App Vue MANDIRI (resources/js/oauth-authorize.ts)
+        supaya boleh guna komponen shadcn-vue sebenar (@/components/ui/card, @/components/ui/button)
+        drpd Tailwind class tulis-tangan.
 
-                <h3 class="text-2xl font-semibold leading-none tracking-tight text-center">
-                    Authorize {{ $client->name }}
-                </h3>
+        JSON_HEX_* WAJIB - $client->name/scopes datang dari client OAuth yg daftar sendiri via DCR
+        (Mcp::oauthRoutes(), POST oauth/register) - input BUKAN dipercayai, tanpa flag ni nama client
+        boleh bawa "</script>" atau aksara HTML utk keluar dari tag <script> ni (XSS).
+    --}}
+    <script type="application/json" id="oauth-authorize-props">{!! json_encode([
+        'clientName' => $client->name,
+        'clientId' => (string) $client->id,
+        'userEmail' => $user->email,
+        'scopes' => collect($scopes)->map(fn ($scope) => ['description' => $scope->description])->values()->all(),
+        'authToken' => $authToken,
+        'csrfToken' => csrf_token(),
+        'approveUrl' => route('passport.authorizations.approve'),
+        'denyUrl' => route('passport.authorizations.deny'),
+    ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) !!}</script>
 
-                <p class="text-sm text-muted-foreground text-center">
-                    This application will be able to:<br/>Use available MCP functionality.
-                </p>
-            </div>
-
-            <!-- Content -->
-            <div class="p-6 pt-0 space-y-4">
-                <!-- User Info -->
-                <div class="rounded-lg border p-4 bg-muted/50">
-                    <p class="text-sm text-muted-foreground mb-2">Logged in as:</p>
-                    <p class="font-medium">{{ $user->email }}</p>
-                </div>
-
-                <!-- Scopes / Permissions -->
-                @if(count($scopes) > 0)
-                    <div class="space-y-2">
-                        <p class="text-sm font-medium">Permissions:</p>
-
-                        <ul class="space-y-2">
-                            @foreach($scopes as $scope)
-                                <li class="flex items-start gap-2">
-                                    <div class="rounded-full bg-primary/10 p-1 mt-0.5">
-                                        <div class="h-1.5 w-1.5 rounded-full bg-primary"></div>
-                                    </div>
-                                    <span class="text-sm text-muted-foreground">
-                                        {{ $scope->description }}
-                                    </span>
-                                </li>
-                            @endforeach
-                        </ul>
-                    </div>
-                @endif
-            </div>
-
-            <!-- Footer With Buttons -->
-            <div class="flex items-center p-6 pt-0 gap-3">
-                <!-- Deny Form -->
-                <form method="POST" action="{{ route('passport.authorizations.deny') }}" class="flex-1">
-                    @csrf
-                    @method('DELETE')
-                    <input type="hidden" name="state" value="">
-                    <input type="hidden" name="client_id" value="{{ $client->id }}">
-                    <input type="hidden" name="auth_token" value="{{ $authToken }}">
-                    <button type="submit" class="inline-flex cursor-pointer items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2 w-full">
-                        <svg class="mr-2 h-4 w-4" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                        </svg>
-                        Cancel
-                    </button>
-                </form>
-
-                <!-- Approve Form -->
-                <form method="POST" action="{{ route('passport.authorizations.approve') }}" class="flex-1" id="authorizeForm">
-                    @csrf
-                    <input type="hidden" name="state" value="">
-                    <input type="hidden" name="client_id" value="{{ $client->id }}">
-                    <input type="hidden" name="auth_token" value="{{ $authToken }}">
-                    <button type="submit" class="inline-flex cursor-pointer items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2 w-full" id="authorizeButton">
-                        <span id="authorizeText">Authorize</span>
-
-                        <svg id="loadingSpinner" class="animate-spin -ml-1 mr-3 h-4 w-4 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const form = document.getElementById('authorizeForm');
-        const button = document.getElementById('authorizeButton');
-        const authorizeText = document.getElementById('authorizeText');
-        const loadingSpinner = document.getElementById('loadingSpinner');
-
-        form.addEventListener('submit', function(e) {
-            // Show loading state...
-            button.disabled = true;
-            authorizeText.textContent = 'Authorizing...';
-            loadingSpinner.classList.remove('hidden');
-
-            // After form submission, watch for redirect and close window...
-            setTimeout(function() {
-                const checkRedirect = setInterval(function() {
-                    // If URL changed or we have OAuth params, redirect happened...
-                    if (!window.location.href.includes('/oauth/authorize') ||
-                        window.location.search.includes('code=') ||
-                        window.location.search.includes('error=')) {
-                        clearInterval(checkRedirect);
-                        window.close();
-                    }
-                }, 100);
-
-                // Fallback: Close after five seconds...
-                setTimeout(function() {
-                    clearInterval(checkRedirect);
-                    window.close();
-                }, 5000);
-            }, 200);
-        });
-
-        // Handle cancel button...
-        const cancelForm = document.querySelector('form[method="POST"]:has(input[name="_method"][value="DELETE"])');
-        if (cancelForm) {
-            cancelForm.addEventListener('submit', function(e) {
-                setTimeout(function() {
-                    window.close();
-                }, 200);
-            });
-        }
-    });
-</script>
+    <div id="oauth-authorize-app"></div>
 </body>
 </html>
