@@ -28,7 +28,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectGuestsTo(fn () => route('filament.admin.auth.login'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // 'mcp/*' turut disertakan - TANPA ni, kegagalan auth:sanctum di laluan Mcp::web()
+        // (rujuk routes/ai.php) tersasar ke redirectGuestsTo() (login Filament, HTML) drpd
+        // JSON 401 bersih - klien MCP/JSON-RPC (Claude.ai, dll) jangka JSON, bukan redirect.
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*'),
+            fn (Request $request) => $request->is('api/*') || $request->is('mcp/*'),
         );
     })->create();
