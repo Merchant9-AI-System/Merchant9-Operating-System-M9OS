@@ -44,7 +44,7 @@ class SecurityHeaders
             $response->headers->set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
         }
 
-        $response->headers->set('Content-Security-Policy', implode('; ', [
+        $directives = [
             "default-src 'self'",
             "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
             "style-src 'self' 'unsafe-inline'",
@@ -55,7 +55,22 @@ class SecurityHeaders
             "base-uri 'self'",
             "form-action 'self'",
             "frame-ancestors 'self'",
-        ]));
+        ];
+
+        // Skrin kelulusan OAuth Passport (rujuk resources/views/mcp/authorize.blade.php) - lepas
+        // approve, Passport redirect (302) balik ke redirect_uri client OAuth yg didaftar via DCR
+        // (cth. https://claude.ai/api/mcp/auth_callback) - CROSS-ORIGIN, itu memang tujuan OAuth.
+        // Chrome kuatkuasa form-action 'self' terhadap redirect POST tsb (bukan setakat sasaran
+        // POST awal), jadi form-action SEKAT redirect yg SAH tu (disahkan sebenar - ralat CSP
+        // "form-action 'self'" semasa ujian production). Passport SENDIRI dah sahkan redirect_uri
+        // padan client berdaftar (rujuk oauth_clients) - itu sempadan keselamatan open-redirect yg
+        // betul di sini, form-action app-wide jadi lebih. Buang directive ni utk 3 laluan
+        // passport.authorizations.* sahaja (bukan CSP seluruh app).
+        if ($request->route()?->named('passport.authorizations.*')) {
+            $directives = array_values(array_filter($directives, fn (string $directive) => ! str_starts_with($directive, 'form-action ')));
+        }
+
+        $response->headers->set('Content-Security-Policy', implode('; ', $directives));
 
         return $response;
     }
