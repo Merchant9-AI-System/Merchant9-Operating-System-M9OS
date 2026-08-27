@@ -45,6 +45,17 @@ class JemisysConnectionStatus extends Page
 
     public const CACHE_TTL_SECONDS = 300;
 
+    /**
+     * Had statement PDO_SQLSRV (BUKAN login_timeout config/database.php - itu utk sambungan
+     * awal SAHAJA, tak lindungi query lepas connect). Disahkan sebenar: Tailscale connected
+     * tapi butang "Refresh" (checkQuery()) masih 504 Gateway Timeout Cloudflare - query
+     * SELECT COUNT(*) TblInventory boleh hang lama tanpa had ni kalau SQL Server sesak/perlahan,
+     * BUKAN semestinya isu rangkaian. 20s - margin selesa drpd baseline semakan PENUH ~12s pd
+     * JEMiSys sihat (rujuk dokblok kelas), tapi jauh drpd cukup utk 504 nginx/Cloudflare
+     * (biasa 30-100s) - gagal PANTAS & JELAS drpd hang senyap sehingga gateway putuskan.
+     */
+    private const QUERY_TIMEOUT_SECONDS = 20;
+
     /** @var array<string, array{label: string, status: string, detail: string, ms: ?float}> */
     public array $checks = [];
 
@@ -313,7 +324,14 @@ class JemisysConnectionStatus extends Page
 
         try {
             DB::purge('jemisys');
-            DB::connection('jemisys')->getPdo();
+            $pdo = DB::connection('jemisys')->getPdo();
+
+            // Rujuk dokblok QUERY_TIMEOUT_SECONDS - PDO_SQLSRV attribute ni terpakai utk
+            // SEMUA statement seterusnya atas sambungan (PDO) yg SAMA, jadi checkQuery() lepas
+            // ni (guna semula sambungan ni dlm request sama, bukan purge() lagi) turut
+            // dilindungi - x perlu tetapkan dua kali.
+            $pdo->setAttribute(\PDO::SQLSRV_ATTR_QUERY_TIMEOUT, self::QUERY_TIMEOUT_SECONDS);
+
             $ms = round((microtime(true) - $start) * 1000, 1);
 
             return ['label' => 'Auth SQL Server', 'status' => 'ok', 'detail' => 'Login berjaya.', 'ms' => $ms];
