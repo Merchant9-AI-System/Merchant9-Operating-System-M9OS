@@ -3,9 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class BranchDemandRequestLine extends Model
 {
+    use LogsActivity;
+
     public const STATUS_PENDING = 'Pending';
 
     public const STATUS_APPROVED = 'Approved';
@@ -155,5 +159,11 @@ class BranchDemandRequestLine extends Model
             'qty_approved' => $status === self::STATUS_APPROVED ? $qtyApproved : 0,
             'review_notes' => $notes,
         ]);
+    }
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logAll();
     }
 }
