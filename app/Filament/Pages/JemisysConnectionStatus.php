@@ -99,6 +99,25 @@ class JemisysConnectionStatus extends Page
                     SyncJemisysMirrors::dispatch();
                     Notification::make()->info()->title('Penyegerakan dimulakan di latar belakang...')->send();
                 }),
+            // Guna bila sync PENUH di atas gagal SENYAP separuh jalan (cth. Tailscale putus lepas
+            // beberapa cawangan - disahkan production TIADA exception terlantun, job log "selesai"
+            // walau ada cawangan kosong/separa). TIADA truncate() jadual penuh - bandingkan kiraan
+            // per-cawangan (sumber vs cermin) dulu, hanya cawangan xtepat disegerak semula, jauh
+            // lebih laju drpd sync penuh (rujuk dokblok SyncJemisysMirrors::resumeInventory()).
+            Action::make('resumeSyncMirrors')
+                ->label('Resume Data Tidak Lengkap')
+                ->icon(Heroicon::OutlinedWrenchScrewdriver)
+                ->color('gray')
+                ->disabled(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['network']['status'] ?? null) !== 'ok')
+                ->tooltip(fn () => ($this->checks['network']['status'] ?? null) !== 'ok'
+                    ? 'Sambungan rangkaian ke JEMiSys gagal - semak Tailscale/VPN (laptop sumber perlu ON & disambung) sebelum segerak.'
+                    : null)
+                ->requiresConfirmation()
+                ->modalDescription('Bandingkan kiraan per-cawangan (sumber JEMiSys vs cermin tempatan) - hanya cawangan yg kiraan xtepat (jurang >2%) dipadam & disegerak semula. Guna ni bila sync PENUH sebelum ni disyaki tak lengkap (cth. sambungan putus tengah jalan), jauh lebih laju drpd sync penuh sbb cawangan yg dah betul tidak disentuh.')
+                ->action(function () {
+                    SyncJemisysMirrors::dispatch(resume: true);
+                    Notification::make()->info()->title('Resume dimulakan di latar belakang - hanya cawangan tidak lengkap akan disegerak semula...')->send();
+                }),
             Action::make('syncMerchantNicknames')
                 ->label('Segerak Nickname & Imej Merchant9')
                 ->icon(Heroicon::OutlinedPhoto)
