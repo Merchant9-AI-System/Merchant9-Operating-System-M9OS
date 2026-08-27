@@ -11,6 +11,7 @@ interface Props {
     clientName: string;
     clientId: string;
     userEmail: string;
+    userName: string;
     scopes: Scope[];
     authToken: string;
     csrfToken: string;
@@ -78,7 +79,7 @@ function onDenySubmit() {
                 <CardContent class="space-y-4">
                     <div class="rounded-lg border bg-muted/50 p-4">
                         <p class="mb-2 text-sm text-muted-foreground">Logged in as:</p>
-                        <p class="font-medium">{{ userEmail }}</p>
+                        <p class="font-medium">{{ userName }}</p>
                     </div>
 
                     <div v-if="scopes.length > 0" class="space-y-2">

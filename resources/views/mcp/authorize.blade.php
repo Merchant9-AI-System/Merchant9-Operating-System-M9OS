@@ -62,6 +62,7 @@
         'clientName' => $client->name,
         'clientId' => (string) $client->id,
         'userEmail' => $user->email,
+        'userName' => $user->username,
         'scopes' => collect($scopes)->map(fn ($scope) => ['description' => $scope->description])->values()->all(),
         'authToken' => $authToken,
         'csrfToken' => csrf_token(),
