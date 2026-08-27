@@ -352,13 +352,23 @@ class JemisysConnectionStatus extends Page
         $start = microtime(true);
 
         try {
-            $result = DB::connection('jemisys')->selectOne('SELECT COUNT(*) AS c FROM [TblInventory]');
+            // sys.partitions (metadata SQL Server, BUKAN COUNT(*) terus) - disahkan sebenar
+            // production: COUNT(*) atas TblInventory (~495K baris, TIADA index sesuai - rujuk
+            // dokblok App\Models\Jemisys\InventoryPiece sebab cermin tempatan wujud) buat full
+            // table scan, ambil 25s+ (QUERY_TIMEOUT_SECONDS gagal). Metadata katalog SQL Server
+            // (row_count tersimpan, bukan dikira semula) instant tak kira saiz jadual - index_id
+            // 0 (heap, TIADA clustered index - kes TblInventory) + 1 (clustered, jaga-jaga kalau
+            // berubah kelak) dijumlah supaya betul kedua-dua keadaan.
+            $result = DB::connection('jemisys')->selectOne(
+                'SELECT SUM(p.rows) AS c FROM sys.partitions p '.
+                "WHERE p.object_id = OBJECT_ID('TblInventory') AND p.index_id IN (0, 1)"
+            );
             $ms = round((microtime(true) - $start) * 1000, 1);
 
             return [
                 'label' => 'Query Sebenar (TblInventory)',
                 'status' => 'ok',
-                'detail' => number_format($result->c).' baris.',
+                'detail' => number_format($result->c).' baris (anggaran metadata, bukan COUNT langsung).',
                 'ms' => $ms,
             ];
         } catch (Throwable $e) {
