@@ -40,7 +40,7 @@ class UserForm
                             ->label('Cawangan')
                             ->helperText('Kosongkan utk HQ/CEO - tidak terikat kepada satu cawangan.')
                             ->options(fn () => Store::orderBy('StoreCode')->get()
-                                ->mapWithKeys(fn ($s) => [$s->StoreCode => trim($s->StoreCode).' - '.$s->Description]))
+                                ->mapWithKeys(fn ($s) => [trim($s->StoreCode) => trim($s->StoreCode).' - '.$s->Description]))
                             ->searchable()
                             ->native(false),
                     ])

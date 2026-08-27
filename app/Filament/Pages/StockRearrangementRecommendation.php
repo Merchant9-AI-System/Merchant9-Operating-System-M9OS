@@ -156,7 +156,20 @@ class StockRearrangementRecommendation extends Page implements HasTable
                 SelectFilter::make('from_branch')->label('From Branch')
                     ->options(fn () => StockRearrangementRecommender::recommendations()->pluck('from_branch', 'from_branch')->unique()->sort()),
                 SelectFilter::make('to_branch')->label('To Branch')
-                    ->options(fn () => StockRearrangementRecommender::recommendations()->pluck('to_branch', 'to_branch')->unique()->sort()),
+                    ->options(fn () => StockRearrangementRecommender::recommendations()->pluck('to_branch', 'to_branch')->unique()->sort())
+                    // Default terus ke cawangan user log masuk. Beza drpd penapis Cawangan lain -
+                    // option to_branch di sini PADDED (terus drpd StoreCode mentah kalkulator,
+                    // rujuk StockRearrangementRecommender::compute()), jadi default WAJIB cari
+                    // StoreCode mentah (padded) yg sepadan, bukan guna nilai trim() user terus.
+                    ->default(function () {
+                        $userStore = trim((string) auth()->user()?->store_code);
+
+                        if ($userStore === '') {
+                            return null;
+                        }
+
+                        return Store::query()->get()->first(fn ($s) => trim($s->StoreCode) === $userStore)?->StoreCode;
+                    }),
 
                 // Tiada ->query() di sini sengaja - table ni guna ->records() (bukan ->query()),
                 // jadi Filament TIDAK PERNAH panggil closure ->query() filter (rujuk

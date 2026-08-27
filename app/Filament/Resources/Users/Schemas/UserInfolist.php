@@ -21,16 +21,19 @@ class UserInfolist
                     ->aside()
                     ->schema([
                         TextEntry::make('name'),
-                        TextEntry::make('created_at')
-                            ->dateTime()
-                            ->placeholder('-'),
+                        TextEntry::make('username')
+                            ->label('Username')
+                            ->badge(),
                         TextEntry::make('email')
                             ->label('Email address'),
                         TextEntry::make('store_code')
                             ->label('Cawangan')
-                            ->formatStateUsing(fn (?string $state) => filled($state) ? trim($state) : 'HQ')
+                            ->formatStateUsing(fn(?string $state) => filled($state) ? trim($state) : 'HQ')
                             ->badge(),
                         TextEntry::make('email_verified_at')
+                            ->dateTime()
+                            ->placeholder('-'),
+                        TextEntry::make('created_at')
                             ->dateTime()
                             ->placeholder('-'),
                     ])
@@ -46,7 +49,7 @@ class UserInfolist
                             ->placeholder('-'),
                         // ->getOptionLabelFromRecordUsing(fn(Model $record) => Str::headline($record->name)),
                     ])
-                    ->hidden(fn () => ! Auth::user()->hasRole('super-admin')),
+                    ->hidden(fn() => ! Auth::user()->hasRole('super-admin')),
             ])->columns(1);
     }
 }

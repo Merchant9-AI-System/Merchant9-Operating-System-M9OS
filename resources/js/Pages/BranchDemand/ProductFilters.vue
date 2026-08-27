@@ -52,7 +52,7 @@ function toggle(list: string[], value: string): string[] {
 
 <template>
     <div class="flex flex-col gap-2">
-        <button type="button" class="flex w-full items-center justify-between text-sm font-medium"
+        <button type="button" class="flex px-2 rounded-md w-full items-center justify-between text-sm font-medium cursor-pointer hover:underline hover:bg-muted/50"
             @click="filtersOpen = !filtersOpen">
             <span class="flex items-center gap-2">
                 <Filter class="size-4" />

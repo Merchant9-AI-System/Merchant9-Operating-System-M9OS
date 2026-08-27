@@ -254,7 +254,10 @@ class RestockByCategory extends Page implements HasTable
                     // trim() - StoreCode dlm jemisys_store_mirror ialah CHAR (padded ruang), tapi
                     // store_code drpd kalkulator sentiasa trim()-ed, jadi bandingan tanpa trim()
                     // di sini x akan padan langsung (filter senyap pulangkan 0 baris).
-                    ->options(fn () => Store::orderBy('StoreCode')->get()->mapWithKeys(fn ($s) => [trim($s->StoreCode) => trim($s->StoreCode)])),
+                    ->options(fn () => Store::orderBy('StoreCode')->get()->mapWithKeys(fn ($s) => [trim($s->StoreCode) => trim($s->StoreCode)]))
+                    // Default terus ke cawangan user log masuk (kosong/null utk HQ/CEO - Filament
+                    // anggap null sbg "tiada default", filter papar All spt biasa).
+                    ->default(fn () => trim((string) auth()->user()?->store_code) ?: null),
                 SelectFilter::make('verdict')->label('Cadangan')->options([
                     RestockAnalysisCalculator::VERDICT_SOLD_OUT => RestockAnalysisCalculator::VERDICT_SOLD_OUT,
                     RestockAnalysisCalculator::VERDICT_RESTOCK => RestockAnalysisCalculator::VERDICT_RESTOCK,

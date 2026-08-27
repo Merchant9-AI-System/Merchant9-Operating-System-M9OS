@@ -30,22 +30,26 @@ class UsersTable
                 TextColumn::make('email')
                     ->label('Email address')
                     ->searchable(),
+                TextColumn::make('username')
+                    ->label('Username')
+                    ->searchable(),
                 TextColumn::make('roles.name')
                     ->label('Role')
-                    ->formatStateUsing(fn ($state): string => Str::headline($state))
+                    ->formatStateUsing(fn($state): string => Str::headline($state))
                     ->colors(['info'])
                     ->badge()
                     ->toggleable(),
                 TextColumn::make('store_code')
                     ->label('Cawangan')
-                    ->formatStateUsing(fn (?string $state) => filled($state) ? trim($state) : 'HQ')
+                    ->formatStateUsing(fn(?string $state) => filled($state) ? trim($state) : 'HQ')
                     ->badge()
-                    ->color(fn (?string $state) => filled($state) ? 'gray' : 'info')
+                    ->color(fn(?string $state) => filled($state) ? 'gray' : 'info')
                     ->sortable()
                     ->toggleable(),
                 TextColumn::make('email_verified_at')
                     ->dateTime()
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('created_at')
                     ->dateTime()
                     ->sortable()
@@ -74,19 +78,19 @@ class UsersTable
                         ->form([
                             Select::make('roles')
                                 ->relationship('roles', 'name')
-                                ->getOptionLabelFromRecordUsing(fn (Model $record) => Str::headline($record->name))
+                                ->getOptionLabelFromRecordUsing(fn(Model $record) => Str::headline($record->name))
                                 ->multiple()
                                 ->preload()
                                 ->searchable(),
                         ])
                         ->action(
-                            fn () => Notification::make()
+                            fn() => Notification::make()
                                 ->success()
                                 ->title('Updated successfully')
                                 ->body('Role has been updated.')
                                 ->send()
                         )
-                        ->hidden(fn (User $record): bool => $record->isSuperAdmin() || ! auth()->user()->isSuperAdmin()),
+                        ->hidden(fn(User $record): bool => $record->isSuperAdmin() || ! auth()->user()->isSuperAdmin()),
                     ActionGroup::make([
                         DeleteAction::make(),
                     ])
