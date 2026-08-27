@@ -12,6 +12,7 @@ use App\Models\Jemisys\Vendor;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
@@ -96,53 +97,6 @@ class JemisysConnectionStatus extends Page
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('syncMirrors')
-                ->label('Segerak Data JEMiSys')
-                ->icon(Heroicon::OutlinedArrowPath)
-                ->color('warning')
-                ->disabled(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['network']['status'] ?? null) !== 'ok')
-                ->tooltip(fn () => ($this->checks['network']['status'] ?? null) !== 'ok'
-                    ? 'Sambungan rangkaian ke JEMiSys gagal - semak Tailscale/VPN (laptop sumber perlu ON & disambung) sebelum segerak.'
-                    : null)
-                ->requiresConfirmation()
-                ->modalDescription('Segerak Category/Vendor/Store/TblInventory drpd SQL Server VPN ke cermin tempatan. Berjalan di latar belakang - ianya mengambil masa beberapa minit.')
-                ->action(function () {
-                    SyncJemisysMirrors::dispatch();
-                    Notification::make()->info()->title('Penyegerakan dimulakan di latar belakang...')->send();
-                }),
-            // Guna bila sync PENUH di atas gagal SENYAP separuh jalan (cth. Tailscale putus lepas
-            // beberapa cawangan - disahkan production TIADA exception terlantun, job log "selesai"
-            // walau ada cawangan kosong/separa). TIADA truncate() jadual penuh - bandingkan kiraan
-            // per-cawangan (sumber vs cermin) dulu, hanya cawangan xtepat disegerak semula, jauh
-            // lebih laju drpd sync penuh (rujuk dokblok SyncJemisysMirrors::resumeInventory()).
-            Action::make('resumeSyncMirrors')
-                ->label('Resume Data Tidak Lengkap')
-                ->icon(Heroicon::OutlinedWrenchScrewdriver)
-                ->color('gray')
-                ->disabled(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['network']['status'] ?? null) !== 'ok')
-                ->tooltip(fn () => ($this->checks['network']['status'] ?? null) !== 'ok'
-                    ? 'Sambungan rangkaian ke JEMiSys gagal - semak Tailscale/VPN (laptop sumber perlu ON & disambung) sebelum segerak.'
-                    : null)
-                ->requiresConfirmation()
-                ->modalDescription('Bandingkan kiraan per-cawangan (sumber JEMiSys vs cermin tempatan) - hanya cawangan yg kiraan xtepat (jurang >2%) dipadam & disegerak semula. Guna ni bila sync PENUH sebelum ni disyaki tak lengkap (cth. sambungan putus tengah jalan), jauh lebih laju drpd sync penuh sbb cawangan yg dah betul tidak disentuh.')
-                ->action(function () {
-                    SyncJemisysMirrors::dispatch(resume: true);
-                    Notification::make()->info()->title('Resume dimulakan di latar belakang - hanya cawangan tidak lengkap akan disegerak semula...')->send();
-                }),
-            Action::make('syncMerchantNicknames')
-                ->label('Segerak Nickname & Imej Merchant9')
-                ->icon(Heroicon::OutlinedPhoto)
-                ->color('warning')
-                ->disabled(fn () => Cache::has(SyncMerchantNicknamesAndImages::CACHE_KEY_SYNCING) || Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING))
-                ->tooltip(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING)
-                    ? 'Sync JEMiSys utama sedang berjalan - tunggu selesai dahulu.'
-                    : null)
-                ->requiresConfirmation()
-                ->modalDescription('Cari nickname & imej produk drpd merchant9.com utk setiap InternalCode yg belum diisi. SANGAT LAMA (boleh berjam-jam pd kali pertama - satu HTTP request + jeda ~200ms setiap design unik). Berjalan di latar belakang, TIDAK menyekat sync JEMiSys utama.')
-                ->action(function () {
-                    SyncMerchantNicknamesAndImages::dispatch();
-                    Notification::make()->info()->title('Penyegerakan nickname/imej dimulakan di latar belakang...')->send();
-                }),
             Action::make('refresh')
                 ->label('Refresh')
                 ->icon(Heroicon::OutlinedArrowPath)
@@ -150,6 +104,58 @@ class JemisysConnectionStatus extends Page
                     $this->runDiagnostics();
                     Notification::make()->success()->title('Diagnostik selesai')->send();
                 }),
+            ActionGroup::make([
+                Action::make('syncMirrors')
+                    ->label('Segerak Data JEMiSys')
+                    ->icon(Heroicon::OutlinedArrowPath)
+                    ->color('warning')
+                    ->disabled(fn() => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['network']['status'] ?? null) !== 'ok')
+                    ->tooltip(fn() => ($this->checks['network']['status'] ?? null) !== 'ok'
+                        ? 'Sambungan rangkaian ke JEMiSys gagal - semak Tailscale/VPN (laptop sumber perlu ON & disambung) sebelum segerak.'
+                        : null)
+                    ->requiresConfirmation()
+                    ->modalDescription('Segerak Category/Vendor/Store/TblInventory drpd SQL Server VPN ke cermin tempatan. Berjalan di latar belakang - ianya mengambil masa beberapa minit.')
+                    ->action(function () {
+                        SyncJemisysMirrors::dispatch();
+                        Notification::make()->info()->title('Penyegerakan dimulakan di latar belakang...')->send();
+                    }),
+                // Guna bila sync PENUH di atas gagal SENYAP separuh jalan (cth. Tailscale putus lepas
+                // beberapa cawangan - disahkan production TIADA exception terlantun, job log "selesai"
+                // walau ada cawangan kosong/separa). TIADA truncate() jadual penuh - bandingkan kiraan
+                // per-cawangan (sumber vs cermin) dulu, hanya cawangan xtepat disegerak semula, jauh
+                // lebih laju drpd sync penuh (rujuk dokblok SyncJemisysMirrors::resumeInventory()).
+                Action::make('resumeSyncMirrors')
+                    ->label('Resume Data Tidak Lengkap')
+                    ->icon(Heroicon::OutlinedWrenchScrewdriver)
+                    ->color('gray')
+                    ->disabled(fn() => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['network']['status'] ?? null) !== 'ok')
+                    ->tooltip(fn() => ($this->checks['network']['status'] ?? null) !== 'ok'
+                        ? 'Sambungan rangkaian ke JEMiSys gagal - semak Tailscale/VPN (laptop sumber perlu ON & disambung) sebelum segerak.'
+                        : null)
+                    ->requiresConfirmation()
+                    ->modalDescription('Bandingkan kiraan per-cawangan (sumber JEMiSys vs cermin tempatan) - hanya cawangan yg kiraan xtepat (jurang >2%) dipadam & disegerak semula. Guna ni bila sync PENUH sebelum ni disyaki tak lengkap (cth. sambungan putus tengah jalan), jauh lebih laju drpd sync penuh sbb cawangan yg dah betul tidak disentuh.')
+                    ->action(function () {
+                        SyncJemisysMirrors::dispatch(resume: true);
+                        Notification::make()->info()->title('Resume dimulakan di latar belakang - hanya cawangan tidak lengkap akan disegerak semula...')->send();
+                    }),
+                Action::make('syncMerchantNicknames')
+                    ->label('Segerak Nickname & Imej Merchant9')
+                    ->icon(Heroicon::OutlinedPhoto)
+                    ->color('warning')
+                    ->disabled(fn() => Cache::has(SyncMerchantNicknamesAndImages::CACHE_KEY_SYNCING) || Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING))
+                    ->tooltip(fn() => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING)
+                        ? 'Sync JEMiSys utama sedang berjalan - tunggu selesai dahulu.'
+                        : null)
+                    ->requiresConfirmation()
+                    ->modalDescription('Cari nickname & imej produk drpd merchant9.com utk setiap InternalCode yg belum diisi. SANGAT LAMA (boleh berjam-jam pd kali pertama - satu HTTP request + jeda ~200ms setiap design unik). Berjalan di latar belakang, TIDAK menyekat sync JEMiSys utama.')
+                    ->action(function () {
+                        SyncMerchantNicknamesAndImages::dispatch();
+                        Notification::make()->info()->title('Penyegerakan nickname/imej dimulakan di latar belakang...')->send();
+                    }),
+            ])
+                ->icon(Heroicon::EllipsisVertical)
+                ->button()
+                ->color(''),
         ];
     }
 
@@ -167,8 +173,8 @@ class JemisysConnectionStatus extends Page
             // - lajur ni dibaca via wire:poll.3s (rujuk blade view). MAX(synced_at) disahkan
             // ~9.6s SEBELUM index ditambah (rujuk migration add_synced_at_indexes_...) - kekal
             // dicache sbg pertahanan tambahan (server production sibuk boleh perlahankan lagi).
-            'lastSyncedAt' => Cache::remember('jemisys_last_synced_at', self::CACHE_TTL_SECONDS, fn () => InventoryMirror::max('synced_at')),
-            'mirrors' => Cache::remember('jemisys_mirror_counts', self::CACHE_TTL_SECONDS, fn () => [
+            'lastSyncedAt' => Cache::remember('jemisys_last_synced_at', self::CACHE_TTL_SECONDS, fn() => InventoryMirror::max('synced_at')),
+            'mirrors' => Cache::remember('jemisys_mirror_counts', self::CACHE_TTL_SECONDS, fn() => [
                 'Category' => Category::count(),
                 'Vendor' => Vendor::count(),
                 'Store' => Store::count(),
@@ -188,7 +194,7 @@ class JemisysConnectionStatus extends Page
         // WHERE merchant_synced_at IS NULL) disahkan ~9.3s SETIAP panggilan pd 490K baris -
         // tanpa cache ni, wire:poll.3s jalankan query 9+ saat tu setiap 3 saat selagi page dibuka.
         $counts = Cache::remember('jemisys_nickname_status_counts', self::CACHE_TTL_SECONDS, function () {
-            $baseQuery = fn () => InventoryMirror::query()
+            $baseQuery = fn() => InventoryMirror::query()
                 ->whereNotNull('InternalCode')
                 ->where('InternalCode', '!=', '');
 
@@ -203,7 +209,7 @@ class JemisysConnectionStatus extends Page
             'syncStartedAt' => $startedAt instanceof Carbon ? $startedAt->toIso8601String() : null,
             // MAX(merchant_synced_at) disahkan ~9.9s SEBELUM index ditambah (sama rasional dgn
             // 'lastSyncedAt' di getMirrorStatusProperty() atas).
-            'lastCompletedAt' => Cache::remember('jemisys_merchant_last_completed_at', self::CACHE_TTL_SECONDS, fn () => InventoryMirror::max('merchant_synced_at')),
+            'lastCompletedAt' => Cache::remember('jemisys_merchant_last_completed_at', self::CACHE_TTL_SECONDS, fn() => InventoryMirror::max('merchant_synced_at')),
             'missingCount' => $counts['missingCount'],
             'totalDistinctCount' => $counts['totalDistinctCount'],
         ];
@@ -262,12 +268,12 @@ class JemisysConnectionStatus extends Page
             'database' => $config['database'] ?? null,
             'username' => $config['username'] ?? null,
             'password' => $config['password'] ?? null,
-        ], fn ($v) => blank($v));
+        ], fn($v) => blank($v));
 
         return [
             'label' => 'Konfigurasi (.env)',
             'status' => $missing === [] ? 'ok' : 'fail',
-            'detail' => $missing === [] ? $detail : $detail.' - HILANG: '.implode(', ', array_keys($missing)),
+            'detail' => $missing === [] ? $detail : $detail . ' - HILANG: ' . implode(', ', array_keys($missing)),
             'ms' => null,
         ];
     }
@@ -280,7 +286,7 @@ class JemisysConnectionStatus extends Page
         return [
             'label' => 'Extension PHP',
             'status' => ($sqlsrv && $pdoSqlsrv) ? 'ok' : 'fail',
-            'detail' => 'sqlsrv='.($sqlsrv ? 'loaded' : 'TAK LOADED').', pdo_sqlsrv='.($pdoSqlsrv ? 'loaded' : 'TAK LOADED'),
+            'detail' => 'sqlsrv=' . ($sqlsrv ? 'loaded' : 'TAK LOADED') . ', pdo_sqlsrv=' . ($pdoSqlsrv ? 'loaded' : 'TAK LOADED'),
             'ms' => null,
         ];
     }
@@ -341,7 +347,7 @@ class JemisysConnectionStatus extends Page
             return [
                 'label' => 'Auth SQL Server',
                 'status' => 'fail',
-                'detail' => 'Login gagal - '.$e->getMessage(),
+                'detail' => 'Login gagal - ' . $e->getMessage(),
                 'ms' => $ms,
             ];
         }
@@ -360,15 +366,15 @@ class JemisysConnectionStatus extends Page
             // 0 (heap, TIADA clustered index - kes TblInventory) + 1 (clustered, jaga-jaga kalau
             // berubah kelak) dijumlah supaya betul kedua-dua keadaan.
             $result = DB::connection('jemisys')->selectOne(
-                'SELECT SUM(p.rows) AS c FROM sys.partitions p '.
-                "WHERE p.object_id = OBJECT_ID('TblInventory') AND p.index_id IN (0, 1)"
+                'SELECT SUM(p.rows) AS c FROM sys.partitions p ' .
+                    "WHERE p.object_id = OBJECT_ID('TblInventory') AND p.index_id IN (0, 1)"
             );
             $ms = round((microtime(true) - $start) * 1000, 1);
 
             return [
                 'label' => 'Query Sebenar (TblInventory)',
                 'status' => 'ok',
-                'detail' => number_format($result->c).' baris (anggaran metadata, bukan COUNT langsung).',
+                'detail' => number_format($result->c) . ' baris (anggaran metadata, bukan COUNT langsung).',
                 'ms' => $ms,
             ];
         } catch (Throwable $e) {
