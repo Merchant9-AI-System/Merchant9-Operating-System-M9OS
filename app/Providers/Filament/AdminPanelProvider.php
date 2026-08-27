@@ -3,6 +3,8 @@
 namespace App\Providers\Filament;
 
 use AlizHarb\ActivityLog\ActivityLogPlugin;
+use App\Filament\Pages\Auth\EditProfile;
+use App\Filament\Pages\Auth\Login;
 use App\Filament\Widgets\ActionAlerts;
 use App\Filament\Widgets\BookVsPhysicalGoldChart;
 use App\Filament\Widgets\BranchHealthTable;
@@ -32,6 +34,7 @@ use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
+use Guava\FilamentMcp\McpPlugin;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -48,8 +51,9 @@ class AdminPanelProvider extends PanelProvider
             ->default()
             ->id('admin')
             ->path('admin')
-            ->login()
-            ->profile()
+            ->viteTheme('resources/css/filament/admin/theme.css')
+            ->login(Login::class)
+            ->profile(EditProfile::class)
             ->colors([
                 'primary' => Color::Amber,
                 'secondary' => Color::Zinc,
@@ -100,6 +104,9 @@ class AdminPanelProvider extends PanelProvider
                 NavigationGroup::make()
                     ->label('Data Management')
                     ->collapsible(false),
+                NavigationGroup::make()
+                    ->label('API Docs')
+                    ->collapsible(false),
             ])
             ->widgets([
                 UserWidget::class,
@@ -137,6 +144,19 @@ class AdminPanelProvider extends PanelProvider
                 DispatchServingFilamentEvent::class,
             ])
             ->plugins([
+                // Server MCP kedua (rujuk App\Filament\Pages\ApiDocs* & routes/ai.php utk
+                // RestockServer, server PERTAMA) - endpoint auto /mcp/{panel-id} = /mcp/admin
+                // (rujuk McpServerRegistry::compile(), path lalai bila ->path() x dipanggil).
+                // SENGAJA tiada ->resources()/->tokens() lagi - belum ada Resource Filament
+                // didedahkan kpd agen AI (keputusan eksplisit, rujuk menu API Docs > Overview).
+                // McpPlugin::make()
+                //     ->resources([
+                //         \Guava\FilamentMcp\Mcp\McpResource::make(\App\Filament\Resources\BudgetPeriods\BudgetPeriodResource::class)->readOnly(),
+                //         // ->crud() instead of ->readOnly() to also allow create/update/delete
+                //     ])
+                //     ->instructions('Admin panel M9OS - server MCP ni terpasang tapi BELUM ada resource didedahkan lagi.')
+                //     ->navigationGroup('Data Management')
+                //     ->tokens(),
                 ActivityLogPlugin::make()
                     ->label('Log')
                     ->pluralLabel('Logs')

@@ -26,6 +26,7 @@ export default defineConfig({
                 'resources/css/inertia.css',
                 'resources/js/inertia.ts',
                 'resources/js/oauth-authorize.ts',
+                'resources/css/filament/admin/theme.css',
             ],
             refresh: true,
             // fonts: [

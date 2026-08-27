@@ -32,6 +32,10 @@ class UserForm
                             ->unique(User::class, 'email', ignoreRecord: true)
                             ->email()
                             ->required(),
+                        TextInput::make('username')
+                            ->placeholder('Enter username here.')
+                            ->helperText('Pilihan - benarkan log masuk guna username selain email (rujuk skrin login).')
+                            ->unique(User::class, 'username', ignoreRecord: true),
                         Select::make('store_code')
                             ->label('Cawangan')
                             ->helperText('Kosongkan utk HQ/CEO - tidak terikat kepada satu cawangan.')
