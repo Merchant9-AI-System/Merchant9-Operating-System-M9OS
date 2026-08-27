@@ -3,12 +3,12 @@
         <x-slot name="heading">
             <div class="flex items-center gap-2">
                 <x-filament::icon icon="heroicon-o-cube" class="h-5 w-5 text-primary-500" />
-                Restock Intelligence
+                Inventory Intelligence
             </div>
         </x-slot>
         <x-slot name="description">
-            <span class="font-mono">{{ url('/mcp/restock') }}</span> - senarai di bawah auto-baca drpd
-            <code>RestockServer.php</code>, sentiasa padan dgn apa yg sebenarnya didaftar. Klik "Try it out"
+            <span class="font-mono">{{ url('/mcp/inventory') }}</span> - senarai di bawah auto-baca drpd
+            <code>InventoryServer.php</code>, sentiasa padan dgn apa yg sebenarnya didaftar. Klik "Try it out"
             utk hantar panggilan <code>tools/call</code> SEBENAR guna token anda sendiri.
         </x-slot>
 
@@ -21,7 +21,7 @@
         </div>
 
         <div class="space-y-3">
-            @foreach($this->getRestockTools() as $i => $tool)
+            @foreach($this->getInventoryTools() as $i => $tool)
                 @php $isExpanded = $expandedTool === $tool['name']; @endphp
 
                 <div class="rounded-lg border border-gray-200 dark:border-white/10">
@@ -49,7 +49,7 @@
                                     @foreach((array) $tool['inputSchema']['properties'] as $field => $property)
                                         @php $isRequired = in_array($field, (array) ($tool['inputSchema']['required'] ?? []), true); @endphp
 
-                                        <div class="{{ ($property['type'] ?? 'string') === 'boolean' ? 'sm:col-span-2' : '' }}">
+                                        <div class="{{ in_array($property['type'] ?? 'string', ['boolean', 'array']) ? 'sm:col-span-2' : '' }}">
                                             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
                                                 <code>{{ $field }}</code>
                                                 @if($isRequired)
@@ -67,9 +67,12 @@
                                                     <x-filament::input
                                                         type="{{ ($property['type'] ?? 'string') === 'integer' ? 'number' : 'text' }}"
                                                         wire:model="toolInputs.{{ $tool['name'] }}.{{ $field }}"
-                                                        placeholder="{{ $property['description'] ?? '' }}"
+                                                        placeholder="{{ ($property['type'] ?? 'string') === 'array' ? 'Pisahkan dgn koma - cth. HQ, SECURITY' : ($property['description'] ?? '') }}"
                                                     />
                                                 </x-filament::input.wrapper>
+                                                @if(($property['type'] ?? 'string') === 'array' && filled($property['description'] ?? null))
+                                                    <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ $property['description'] }}</p>
+                                                @endif
                                             @endif
                                         </div>
                                     @endforeach

@@ -17,14 +17,14 @@
                         <x-filament::icon icon="heroicon-o-cube" class="h-5 w-5" />
                     </span>
                     <div class="min-w-0">
-                        <h3 class="text-base font-semibold text-gray-950 dark:text-white">Restock Intelligence</h3>
+                        <h3 class="text-base font-semibold text-gray-950 dark:text-white">Inventory Intelligence</h3>
                         <p class="text-xs text-gray-500 dark:text-gray-400">Server tersuai</p>
                     </div>
                 </div>
                 <x-filament::badge color="success" icon="heroicon-o-check-circle" class="shrink-0">Aktif</x-filament::badge>
             </div>
 
-            <x-api-docs.copyable :value="url('/mcp/restock')" />
+            <x-api-docs.copyable :value="url('/mcp/inventory')" />
 
             <div class="flex flex-wrap gap-1.5">
                 <x-filament::badge color="gray">token Sanctum</x-filament::badge>
@@ -34,7 +34,7 @@
             <ul class="space-y-1.5 text-sm text-gray-600 dark:text-gray-300">
                 <li class="flex items-start gap-2">
                     <x-filament::icon icon="heroicon-o-check" class="mt-0.5 h-4 w-4 shrink-0 text-success-500" />
-                    <span>{{ count($this->getRestockTools()) }} tool tersedia sekarang - rujuk menu "Available Tools"</span>
+                    <span>{{ count($this->getInventoryTools()) }} tool tersedia sekarang - rujuk menu "Available Tools"</span>
                 </li>
                 <li class="flex items-start gap-2">
                     <x-filament::icon icon="heroicon-o-check" class="mt-0.5 h-4 w-4 shrink-0 text-success-500" />

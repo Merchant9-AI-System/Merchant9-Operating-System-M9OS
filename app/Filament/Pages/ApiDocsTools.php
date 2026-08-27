@@ -3,7 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Pages\Concerns\HasApiDocsStatus;
-use App\Filament\Pages\Concerns\HasRestockToolsList;
+use App\Filament\Pages\Concerns\HasInventoryToolsList;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Pages\Page;
@@ -13,17 +13,17 @@ use Throwable;
 
 /**
  * Menu "API Docs" > Available Tools - senarai tool BENAR2 wujud, dibaca terus drpd
- * RestockServer::$tools (rujuk Tool::toArray() - laman ni auto ikut kalau tool baharu
+ * InventoryServer::$tools (rujuk Tool::toArray() - laman ni auto ikut kalau tool baharu
  * ditambah/nama/description/schema diubah, bukan senarai statik yg boleh terlapuk).
  *
  * Turut sediakan "Try it out" sebenar - guna Laravel\Mcp\Client (client RASMI package
  * laravel/mcp, BUKAN Laravel\Mcp\Facades\Mcp yg dipakai utk daftar SERVER di routes/ai.php,
  * dua kelas berbeza walaupun sama-sama ada kaedah web()) utk panggil tools/call SEBENAR ke
- * /mcp/restock guna token bearer pengguna sendiri - sama protokol/laluan spt client luar.
+ * /mcp/inventory guna token bearer pengguna sendiri - sama protokol/laluan spt client luar.
  */
 class ApiDocsTools extends Page
 {
-    use HasApiDocsStatus, HasPageShield, HasRestockToolsList;
+    use HasApiDocsStatus, HasInventoryToolsList, HasPageShield;
 
     protected string $view = 'filament.pages.api-docs-tools';
 
@@ -68,7 +68,7 @@ class ApiDocsTools extends Page
 
         // Pra-isi default drpd schema (cth. only_actionable => true) - padan tingkah laku tool
         // sebenar bila field tsb ditinggalkan kosong.
-        $tool = collect($this->getRestockTools())->firstWhere('name', $name);
+        $tool = collect($this->getInventoryTools())->firstWhere('name', $name);
         $properties = (array) ($tool['inputSchema']['properties'] ?? []);
 
         $this->toolInputs[$name] = collect($properties)
@@ -88,12 +88,27 @@ class ApiDocsTools extends Page
             return;
         }
 
+        // Field jenis "array" (cth. exclude_branches, vendor_codes) dipaparkan sbg SATU text
+        // input (senarai dipisah koma, rujuk view) - pecahkan balik ke array string sebelum
+        // dihantar, padan apa yg tool sebenarnya jangka (rujuk inputSchema properties.*.type).
+        $tool = collect($this->getInventoryTools())->firstWhere('name', $name);
+        $arrayFields = collect((array) ($tool['inputSchema']['properties'] ?? []))
+            ->filter(fn (array $property) => ($property['type'] ?? null) === 'array')
+            ->keys();
+
         $arguments = collect($this->toolInputs[$name] ?? [])
             ->filter(fn ($value) => $value !== null && $value !== '')
+            ->map(function ($value, $field) use ($arrayFields) {
+                if (! $arrayFields->contains($field) || ! is_string($value)) {
+                    return $value;
+                }
+
+                return collect(explode(',', $value))->map(fn (string $v) => trim($v))->filter()->values()->all();
+            })
             ->all();
 
         try {
-            $result = Client::web(url('/mcp/restock'))
+            $result = Client::web(url('/mcp/inventory'))
                 ->withToken($this->bearerToken)
                 ->connect()
                 ->callTool($name, $arguments);

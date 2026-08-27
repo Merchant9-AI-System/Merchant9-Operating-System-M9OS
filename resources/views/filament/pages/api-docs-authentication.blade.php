@@ -7,7 +7,7 @@
                     <h3 class="text-base font-semibold text-gray-950 dark:text-white">Token Sanctum</h3>
                     <p class="text-xs text-gray-500 dark:text-gray-400">skrip / curl / integrasi dalaman</p>
                 </div>
-                <x-filament::badge color="gray" class="ml-auto">{{ url('/mcp/restock') }}</x-filament::badge>
+                <x-filament::badge color="gray" class="ml-auto">{{ url('/mcp/inventory') }}</x-filament::badge>
             </div>
 
             <p class="mb-3 text-sm text-gray-500 dark:text-gray-400">Utk client yg boleh simpan satu token tetap (bukan browser popup).</p>
@@ -20,7 +20,7 @@
                     Hantar sbg header
                     <x-api-docs.copyable value="Authorization: Bearer <token>" />
                     ke
-                    <x-api-docs.copyable :value="url('/mcp/restock')" />
+                    <x-api-docs.copyable :value="url('/mcp/inventory')" />
                 </li>
             </ol>
         </div>
@@ -32,14 +32,14 @@
                     <h3 class="text-base font-semibold text-gray-950 dark:text-white">OAuth (Claude.ai Custom Connector)</h3>
                     <p class="text-xs text-gray-500 dark:text-gray-400">aplikasi pihak ketiga</p>
                 </div>
-                <x-filament::badge color="gray" class="ml-auto">{{ url('/mcp/restock') }}</x-filament::badge>
+                <x-filament::badge color="gray" class="ml-auto">{{ url('/mcp/inventory') }}</x-filament::badge>
             </div>
 
             <p class="mb-3 text-sm text-gray-500 dark:text-gray-400">URL SAMA dgn kaedah 1 - kaedah auth beza ikut client.</p>
 
             <ol class="list-decimal space-y-1.5 pl-5 text-sm text-gray-600 dark:text-gray-300">
                 <li>Claude.ai &rarr; Settings &rarr; Connectors &rarr; <b>Add custom connector</b>.</li>
-                <li>URL: <x-api-docs.copyable :value="url('/mcp/restock')" /></li>
+                <li>URL: <x-api-docs.copyable :value="url('/mcp/inventory')" /></li>
                 <li>Authentication: <b>Always required</b> (OAuth).</li>
                 <li>OAuth client: <b>No client ID - register one automatically (DCR)</b> - <u>bukan</u> CIMD, tidak disokong.</li>
                 <li>Log masuk & klik <b>Authorize</b> pd skrin kelulusan yg terbuka.</li>

@@ -3,7 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Pages\Concerns\HasApiDocsStatus;
-use App\Filament\Pages\Concerns\HasRestockToolsList;
+use App\Filament\Pages\Concerns\HasInventoryToolsList;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Pages\Page;
@@ -11,13 +11,13 @@ use Filament\Support\Icons\Heroicon;
 
 /**
  * Menu "API Docs" > Overview - rujukan MANUAL utk staf/dev (bukan UI guava/filament-mcp
- * sendiri), sbb kandungan perlu jujur ttg APA YG SEBENARNYA wujud (RestockServer tersedia
+ * sendiri), sbb kandungan perlu jujur ttg APA YG SEBENARNYA wujud (InventoryServer tersedia
  * penuh, laluan /mcp/admin guava terpasang tapi BELUM ada resource didedahkan) - rujuk
  * routes/ai.php & AdminPanelProvider::panel()->plugin(McpPlugin::make()...).
  */
 class ApiDocsOverview extends Page
 {
-    use HasApiDocsStatus, HasPageShield, HasRestockToolsList;
+    use HasApiDocsStatus, HasInventoryToolsList, HasPageShield;
 
     protected string $view = 'filament.pages.api-docs-overview';
 

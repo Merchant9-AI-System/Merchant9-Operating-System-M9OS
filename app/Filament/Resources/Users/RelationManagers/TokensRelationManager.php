@@ -13,7 +13,7 @@ use Filament\Tables\Table;
 
 /**
  * Token API (Sanctum) - dipakai klien luar spt Claude.ai Custom Connectors sambung ke
- * Mcp::web('/mcp/restock', ...) (rujuk routes/ai.php) via header Authorization: Bearer.
+ * Mcp::web('/mcp/inventory', ...) (rujuk routes/ai.php) via header Authorization: Bearer.
  * TIADA CreateAction lalai Filament sengaja - borang generik x sesuai (createToken() Sanctum
  * jana rentetan plaintext SATU KALI sahaja, bukan medan boleh mass-assign terus spt model
  * biasa) - rujuk action "generateToken" tersendiri bawah.

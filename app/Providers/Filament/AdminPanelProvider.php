@@ -145,7 +145,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->plugins([
                 // Server MCP kedua (rujuk App\Filament\Pages\ApiDocs* & routes/ai.php utk
-                // RestockServer, server PERTAMA) - endpoint auto /mcp/{panel-id} = /mcp/admin
+                // InventoryServer, server PERTAMA) - endpoint auto /mcp/{panel-id} = /mcp/admin
                 // (rujuk McpServerRegistry::compile(), path lalai bila ->path() x dipanggil).
                 // SENGAJA tiada ->resources()/->tokens() lagi - belum ada Resource Filament
                 // didedahkan kpd agen AI (keputusan eksplisit, rujuk menu API Docs > Overview).
