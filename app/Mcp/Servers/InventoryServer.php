@@ -2,7 +2,9 @@
 
 namespace App\Mcp\Servers;
 
+use App\Mcp\Tools\GetOrderRecommendationTool;
 use App\Mcp\Tools\GetRearrangeRecommendationsTool;
+use App\Mcp\Tools\GetRestockByBucketTool;
 use App\Mcp\Tools\GetRestockSuggestionsTool;
 use App\Mcp\Tools\GetStockoutReorderCandidatesTool;
 use App\Mcp\Tools\ListRestockCategoriesTool;
@@ -28,9 +30,11 @@ class InventoryServer extends Server
     protected array $tools = [
         ListRestockCategoriesTool::class,
         GetRestockSuggestionsTool::class,
+        GetRestockByBucketTool::class,
         GetRearrangeRecommendationsTool::class,
         GetStockoutReorderCandidatesTool::class,
         LookupInventoryPiecesTool::class,
+        GetOrderRecommendationTool::class,
     ];
 
     protected array $resources = [

@@ -94,7 +94,12 @@ class RestockBySize extends Page implements HasTable
                 }
 
                 if ($storeCode = $filters['store_code']['value'] ?? null) {
-                    $all = $all->where('store_code', $storeCode);
+                    // trim() kedua-dua belah - store_code drpd RestockAnalysisCalculator::bySize()/
+                    // byWeight() SEBENARNYA padded (CHAR(20) mentah, disahkan Tinker), BUKAN
+                    // trim()-ed spt didakwa nota lama di bawah (SelectFilter) - tanpa trim() di
+                    // sini, filter Cawangan senyap pulangkan 0 baris.
+                    $storeCode = trim($storeCode);
+                    $all = $all->filter(fn ($r) => trim((string) $r['store_code']) === $storeCode);
                 }
 
                 if ($verdict = $filters['verdict']['value'] ?? null) {
@@ -168,9 +173,9 @@ class RestockBySize extends Page implements HasTable
                     ->native()
                     // ->multiple()
                     ->searchable('StoreCode')
-                    // trim() - StoreCode dlm jemisys_store_mirror ialah CHAR (padded ruang), tapi
-                    // store_code drpd kalkulator sentiasa trim()-ed, jadi bandingan tanpa trim()
-                    // di sini x akan padan langsung (filter senyap pulangkan 0 baris).
+                    // Pilihan trim()-ed drpd Store, TAPI store_code drpd kalkulator (bySize/
+                    // byWeight) SEBENARNYA padded (disahkan Tinker sesi ni) - trim() perbandingan
+                    // di ->records() atas (bukan sekadar di sini) yg pastikan padanan sebenar.
                     ->options(fn () => Store::orderBy('StoreCode')->get()->mapWithKeys(fn ($s) => [trim($s->StoreCode) => trim($s->StoreCode)]))
                     // Default terus ke cawangan user log masuk (kosong/null utk HQ/CEO - Filament
                     // anggap null sbg "tiada default", filter papar All spt biasa).
