@@ -637,7 +637,7 @@ function submit() {
                                             <span v-if="stagedItem.internal_code">{{ stagedItem.internal_code }}
                                                 -</span>
                                             <span v-if="stagedItem.source_type !== 'upload'">{{ stagedItem.item_desc
-                                                }}</span>
+                                            }}</span>
                                             <Badge v-if="stagedItem.source_type === 'web'" variant="outline"
                                                 class="text-xs">
                                                 Laman Web
@@ -655,7 +655,7 @@ function submit() {
                                             class="text-xs text-muted-foreground">
                                             Stok semasa cawangan anda: <span class="font-medium">{{
                                                 stagedItem.current_stock
-                                                }} unit</span>
+                                            }} unit</span>
                                         </p>
                                         <p v-else class="text-xs text-muted-foreground">
                                             Kod design blm disahkan - HQ akan padankan ke stok sebenar semasa semakan.
@@ -724,7 +724,7 @@ function submit() {
                             <ClipboardList class="size-4" />Senarai Item ({{ form.lines.length }})
                         </CardTitle>
                     </CardHeader>
-                    <CardContent class="flex flex-col gap-2">
+                    <CardContent class="flex flex-col gap-4">
                         <p v-if="form.lines.length === 0 && existingLines.length === 0"
                             class="text-sm text-muted-foreground">
                             Belum ada item ditambah - cari &amp; tambah item di Seksyen 1, atau guna Cadangan Restock.
@@ -732,46 +732,6 @@ function submit() {
                         <p v-if="form.errors.lines" class="text-xs text-destructive">
                             {{ form.errors.lines }}
                         </p>
-
-                        <p v-if="existingLines.length > 0 && form.lines.length > 0"
-                            class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            Item Sedia Ada{{ existingRequestNumber ? ` (${existingRequestNumber})` : '' }}
-                        </p>
-                        <div v-for="line in existingLines" :key="`existing-${line.id}`"
-                            class="flex items-center gap-3 rounded-xl border p-3"
-                            :class="isTerminal(line.fulfillment_status) ? 'opacity-50' : 'bg-muted'">
-                            <ImagePreview :src="line.image_url" :alt="line.item_desc" class="size-11 rounded-lg" />
-                            <div class="min-w-0 flex-1">
-                                <p class="flex flex-wrap items-center gap-1.5 truncate font-medium">
-                                    <span v-if="line.internal_code">{{ line.internal_code }} -</span>
-                                    {{ line.item_desc }}
-                                    <Badge v-if="line.source_type === 'web'" variant="outline" class="text-xs bg-white">
-                                        Laman Web
-                                    </Badge>
-                                    <Badge v-if="line.source_type === 'upload'" variant="outline"
-                                        class="text-xs bg-white">
-                                        Gambar Sendiri
-                                    </Badge>
-                                </p>
-                                <p class="truncate text-xs text-muted-foreground">
-                                    {{ isTerminal(line.fulfillment_status) ? 'Selesai' : `Diminta:
-                                    ${line.qty_requested}` }}
-                                    &middot;
-                                    <span
-                                        :class="`rounded-full px-1.5 py-0.5 font-medium ${fulfillmentBadgeClass(line.fulfillment_status)}`">
-                                        {{ line.fulfillment_label }}
-                                    </span>
-                                </p>
-                            </div>
-                            <span class="shrink-0 font-medium">
-                                {{ isTerminal(line.fulfillment_status) ? 0 : line.qty_requested }} unit
-                            </span>
-                            <Button v-if="isTerminal(line.fulfillment_status)" type="button" variant="outline"
-                                size="icon" class="shrink-0" @click="requestAgain(line)">
-                                <Plus class="size-4" />
-                                <span class="sr-only">Minta semula</span>
-                            </Button>
-                        </div>
 
                         <p v-if="existingLines.length > 0 && form.lines.length > 0"
                             class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -803,7 +763,7 @@ function submit() {
                                         <span v-if="line.weight">{{ line.weight }}g</span>
                                     </p>
                                     <p v-if="line.remark" class="truncate text-sm text-muted-foreground">{{ line.remark
-                                        }}
+                                    }}
                                     </p>
                                 </div>
                                 <NumberField v-model="line.qty_requested" :min="1" class="w-28 shrink-0 bg-white">
@@ -865,6 +825,46 @@ function submit() {
                                 <p v-if="lineImageError" class="text-xs text-destructive sm:col-span-2">{{
                                     lineImageError }}</p>
                             </div>
+                        </div>
+
+                        <p v-if="existingLines.length > 0 && form.lines.length > 0"
+                            class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            Item Sedia Ada{{ existingRequestNumber ? ` (${existingRequestNumber})` : '' }}
+                        </p>
+                        <div v-for="line in existingLines" :key="`existing-${line.id}`"
+                            class="flex items-center gap-3 rounded-xl border border-dashed border-muted-background p-3"
+                            :class="isTerminal(line.fulfillment_status) ? 'opacity-50' : 'bg-muted/50'">
+                            <ImagePreview :src="line.image_url" :alt="line.item_desc" class="size-11 rounded-lg" />
+                            <div class="min-w-0 flex-1">
+                                <p class="flex flex-wrap items-center gap-1.5 truncate font-medium">
+                                    <span v-if="line.internal_code">{{ line.internal_code }} -</span>
+                                    {{ line.item_desc }}
+                                    <Badge v-if="line.source_type === 'web'" variant="outline" class="text-xs bg-white">
+                                        Laman Web
+                                    </Badge>
+                                    <Badge v-if="line.source_type === 'upload'" variant="outline"
+                                        class="text-xs bg-white">
+                                        Gambar Sendiri
+                                    </Badge>
+                                </p>
+                                <p class="truncate text-xs font-medium text-muted-foreground">
+                                    {{ isTerminal(line.fulfillment_status) ? 'Selesai' : `Diminta:
+                                    ${line.qty_requested}` }}
+                                    &middot;
+                                    <span
+                                        :class="`rounded-full px-1.5 py-0.5 font-medium ${fulfillmentBadgeClass(line.fulfillment_status)}`">
+                                        {{ line.fulfillment_label }}
+                                    </span>
+                                </p>
+                            </div>
+                            <span class="shrink-0 font-medium">
+                                {{ isTerminal(line.fulfillment_status) ? 0 : line.qty_requested }} unit
+                            </span>
+                            <Button v-if="isTerminal(line.fulfillment_status)" type="button" variant="outline"
+                                size="icon" class="shrink-0" @click="requestAgain(line)">
+                                <Plus class="size-4" />
+                                <span class="sr-only">Minta semula</span>
+                            </Button>
                         </div>
                     </CardContent>
                 </Card>
