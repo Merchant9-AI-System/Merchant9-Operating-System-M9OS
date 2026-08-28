@@ -42,7 +42,10 @@ class GetOrderRecommendationTool extends Tool
             'category_code' => ['nullable', 'string'],
             'search' => ['nullable', 'string'],
             'min_recommend_qty' => ['nullable', 'integer', 'min:1'],
+            'offset' => ['nullable', 'integer', 'min:0'],
         ]);
+
+        $offset = $validated['offset'] ?? 0;
 
         if ($rawCategoryCode = $validated['category_code'] ?? null) {
             $categoryCode = trim($rawCategoryCode);
@@ -76,7 +79,7 @@ class GetOrderRecommendationTool extends Tool
         $totalCount = $rows->count();
         // Susun semula ikut recommend_qty menurun utk output tool ni - rujuk dokblok kelas.
         // TIDAK ubah susunan cache asal OrderRecommendationCalculator (vendor_code->recommend_qty).
-        $rows = $rows->sortByDesc('recommend_qty')->take(self::MAX_RESULTS);
+        $rows = $rows->sortByDesc('recommend_qty')->values()->slice($offset, self::MAX_RESULTS);
 
         $result = $rows->map(fn (array $row) => [
             'vendor_code' => trim((string) $row['vendor_code']),
@@ -94,7 +97,8 @@ class GetOrderRecommendationTool extends Tool
 
         return Response::structured([
             'total_count' => $totalCount,
-            'truncated_count' => max(0, $totalCount - count($result)),
+            'offset' => $offset,
+            'truncated_count' => max(0, $totalCount - $offset - count($result)),
             'recommendations' => $result,
         ]);
     }
@@ -111,6 +115,8 @@ class GetOrderRecommendationTool extends Tool
                 ->description('Pilihan - cari ikut kod design (InternalCode) atau perihal item, sepadan sebahagian.'),
             'min_recommend_qty' => $schema->integer()
                 ->description('Pilihan - hanya pulangkan design dgn recommend_qty >= nilai ni.'),
+            'offset' => $schema->integer()
+                ->description('Pilihan - langkau seberapa banyak baris (halaman seterusnya) - lalai 0. Cth. offset=20 utk baris 21-40.'),
         ];
     }
 
@@ -119,7 +125,8 @@ class GetOrderRecommendationTool extends Tool
     {
         return [
             'total_count' => $schema->integer()->description('Jumlah baris sepadan sebelum dipangkas.')->required(),
-            'truncated_count' => $schema->integer()->description('Bilangan baris disorok kerana melebihi had '.self::MAX_RESULTS.'.')->required(),
+            'offset' => $schema->integer()->description('Offset yg dipakai.')->required(),
+            'truncated_count' => $schema->integer()->description('Bilangan baris disorok kerana melebihi had '.self::MAX_RESULTS.' selepas offset.')->required(),
             'recommendations' => $schema->array()->description('Senarai cadangan order, susun ikut recommend_qty menurun.')->required(),
         ];
     }

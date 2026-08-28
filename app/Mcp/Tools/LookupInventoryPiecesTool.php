@@ -35,7 +35,10 @@ class LookupInventoryPiecesTool extends Tool
             'store_code' => ['nullable', 'string'],
             'vendor_code' => ['nullable', 'string'],
             'class_code' => ['nullable', 'string'],
+            'offset' => ['nullable', 'integer', 'min:0'],
         ]);
+
+        $offset = $validated['offset'] ?? 0;
 
         // whereRaw(TRIM(...)) - CategoryCode/StoreCode/VendorCode/ClassCode SEMUA lajur CHAR
         // terpadding dlm jemisys_inventory_mirror (cth. "DAMAI" + ruang hingga 20 aksara,
@@ -53,6 +56,7 @@ class LookupInventoryPiecesTool extends Tool
         $totalCount = (clone $query)->count();
 
         $pieces = $query->orderByDesc('PurchDate')
+            ->offset($offset)
             ->limit(self::MAX_RESULTS)
             ->get()
             ->map(fn (InventoryPiece $piece) => [
@@ -74,7 +78,8 @@ class LookupInventoryPiecesTool extends Tool
 
         return Response::structured([
             'total_count' => $totalCount,
-            'truncated_count' => max(0, $totalCount - count($pieces)),
+            'offset' => $offset,
+            'truncated_count' => max(0, $totalCount - $offset - count($pieces)),
             'pieces' => $pieces,
         ]);
     }
@@ -93,6 +98,8 @@ class LookupInventoryPiecesTool extends Tool
                 ->description('Pilihan - hadkan kpd SATU kod supplier.'),
             'class_code' => $schema->string()
                 ->description('Pilihan - purity (cth. "916").'),
+            'offset' => $schema->integer()
+                ->description('Pilihan - langkau seberapa banyak baris (halaman seterusnya) - lalai 0. Cth. offset=20 utk baris 21-40.'),
         ];
     }
 
@@ -101,7 +108,8 @@ class LookupInventoryPiecesTool extends Tool
     {
         return [
             'total_count' => $schema->integer()->description('Jumlah piece sepadan sebelum dipangkas.')->required(),
-            'truncated_count' => $schema->integer()->description('Bilangan disorok kerana melebihi had '.self::MAX_RESULTS.'.')->required(),
+            'offset' => $schema->integer()->description('Offset yg dipakai.')->required(),
+            'truncated_count' => $schema->integer()->description('Bilangan disorok kerana melebihi had '.self::MAX_RESULTS.' selepas offset.')->required(),
             'pieces' => $schema->array()->description('Senarai piece stok, susun ikut tarikh beli menurun.')->required(),
         ];
     }

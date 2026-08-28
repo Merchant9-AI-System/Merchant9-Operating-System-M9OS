@@ -39,11 +39,13 @@ class GetRestockByBucketTool extends Tool
             'category_code' => ['nullable', 'string'],
             'store_code' => ['nullable', 'string'],
             'only_actionable' => ['nullable', 'boolean'],
+            'offset' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $grain = $validated['grain'];
         $period = $validated['period'] ?? RestockAnalysisCalculator::DEFAULT_PERIOD;
         $onlyActionable = $validated['only_actionable'] ?? true;
+        $offset = $validated['offset'] ?? 0;
         $categoryCode = null;
 
         if ($rawCategoryCode = $validated['category_code'] ?? null) {
@@ -72,7 +74,7 @@ class GetRestockByBucketTool extends Tool
         }
 
         $totalCount = $rows->count();
-        $rows = $rows->take(self::MAX_RESULTS);
+        $rows = $rows->slice($offset, self::MAX_RESULTS);
 
         $result = $rows->map(fn (array $row) => [
             'category_code' => trim((string) $row['category_code']),
@@ -92,7 +94,8 @@ class GetRestockByBucketTool extends Tool
             'grain' => $grain,
             'period' => $period,
             'total_count' => $totalCount,
-            'truncated_count' => max(0, $totalCount - count($result)),
+            'offset' => $offset,
+            'truncated_count' => max(0, $totalCount - $offset - count($result)),
             'rows' => $result,
         ]);
     }
@@ -113,6 +116,8 @@ class GetRestockByBucketTool extends Tool
             'only_actionable' => $schema->boolean()
                 ->description('Lalai true - sorok baris "Stok Cukup" (verdict OK), pulangkan hanya bucket yg PERLU tindakan.')
                 ->default(true),
+            'offset' => $schema->integer()
+                ->description('Pilihan - langkau seberapa banyak baris (halaman seterusnya) - lalai 0. Cth. offset=20 utk baris 21-40.'),
         ];
     }
 
@@ -123,7 +128,8 @@ class GetRestockByBucketTool extends Tool
             'grain' => $schema->string()->required(),
             'period' => $schema->string()->required(),
             'total_count' => $schema->integer()->description('Jumlah baris sepadan sebelum dipangkas.')->required(),
-            'truncated_count' => $schema->integer()->description('Bilangan baris disorok kerana melebihi had '.self::MAX_RESULTS.'.')->required(),
+            'offset' => $schema->integer()->description('Offset yg dipakai.')->required(),
+            'truncated_count' => $schema->integer()->description('Bilangan baris disorok kerana melebihi had '.self::MAX_RESULTS.' selepas offset.')->required(),
             'rows' => $schema->array()->description('Senarai cadangan, susun ikut gap menurun.')->required(),
         ];
     }

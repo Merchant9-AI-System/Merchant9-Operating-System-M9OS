@@ -43,9 +43,11 @@ class GetStockoutReorderCandidatesTool extends Tool
             'exclude_vendor_codes.*' => ['string'],
             'exclude_store_codes' => ['nullable', 'array'],
             'exclude_store_codes.*' => ['string'],
+            'offset' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $range = $validated['range'] ?? StockoutReorderCandidate::RANGE_OVERALL;
+        $offset = $validated['offset'] ?? 0;
         $vendorCodes = $validated['vendor_codes'] ?? [];
         $excludeVendorCodes = $validated['exclude_vendor_codes'] ?? [];
         $excludeStoreCodes = $validated['exclude_store_codes'] ?? [];
@@ -71,7 +73,7 @@ class GetStockoutReorderCandidatesTool extends Tool
         // kecil selepas GROUP BY/HAVING, jadi get() penuh di sini kekal murah).
         $totalCount = (clone $query)->get()->count();
 
-        $rows = $query->orderByDesc('sold_count')->limit(self::MAX_RESULTS)->get();
+        $rows = $query->orderByDesc('sold_count')->offset($offset)->limit(self::MAX_RESULTS)->get();
 
         $candidates = $rows->map(fn (StockoutReorderCandidate $row) => [
             'internal_code' => $row->InternalCode,
@@ -93,7 +95,8 @@ class GetStockoutReorderCandidatesTool extends Tool
         return Response::structured([
             'range' => $range,
             'total_count' => $totalCount,
-            'truncated_count' => max(0, $totalCount - count($candidates)),
+            'offset' => $offset,
+            'truncated_count' => max(0, $totalCount - $offset - count($candidates)),
             'candidates' => $candidates,
         ]);
     }
@@ -112,6 +115,8 @@ class GetStockoutReorderCandidatesTool extends Tool
                 ->description('Pilihan - kecualikan supplier ni drpd kiraan.'),
             'exclude_store_codes' => $schema->array()
                 ->description('Pilihan - kecualikan cawangan ni drpd kiraan (anggap cawangan tsb "tak wujud" merentasi semua angka).'),
+            'offset' => $schema->integer()
+                ->description('Pilihan - langkau seberapa banyak baris (halaman seterusnya) - lalai 0. Cth. offset=20 utk baris 21-40.'),
         ];
     }
 
@@ -121,7 +126,8 @@ class GetStockoutReorderCandidatesTool extends Tool
         return [
             'range' => $schema->string()->description('Julat tarikh yg dipakai.')->required(),
             'total_count' => $schema->integer()->description('Jumlah design layak sebelum dipangkas.')->required(),
-            'truncated_count' => $schema->integer()->description('Bilangan disorok kerana melebihi had '.self::MAX_RESULTS.'.')->required(),
+            'offset' => $schema->integer()->description('Offset yg dipakai.')->required(),
+            'truncated_count' => $schema->integer()->description('Bilangan disorok kerana melebihi had '.self::MAX_RESULTS.' selepas offset.')->required(),
             'candidates' => $schema->array()->description('Senarai calon reorder, susun ikut sold_count menurun.')->required(),
         ];
     }

@@ -40,7 +40,10 @@ class GetRearrangeRecommendationsTool extends Tool
             'exclude_branches' => ['nullable', 'array'],
             'exclude_branches.*' => ['string'],
             'search' => ['nullable', 'string'],
+            'offset' => ['nullable', 'integer', 'min:0'],
         ]);
+
+        $offset = $validated['offset'] ?? 0;
 
         $rows = StockRearrangementRecommender::recommendations();
 
@@ -80,14 +83,15 @@ class GetRearrangeRecommendationsTool extends Tool
         // trim() from_branch/to_branch drpd baris DIPULANGKAN (bukan reason/suggestion/
         // receiver_label - teks bebas dibina terus dlm StockRearrangementRecommender, kekal
         // asal drpd sumber sedia ada, elak sentuh kelas dikongsi page sebenar).
-        $recommendations = $rows->take(self::MAX_RESULTS)
+        $recommendations = $rows->slice($offset, self::MAX_RESULTS)
             ->map(fn (array $r) => [...$r, 'from_branch' => trim($r['from_branch']), 'to_branch' => trim($r['to_branch'])])
             ->values()
             ->all();
 
         return Response::structured([
             'total_count' => $totalCount,
-            'truncated_count' => max(0, $totalCount - count($recommendations)),
+            'offset' => $offset,
+            'truncated_count' => max(0, $totalCount - $offset - count($recommendations)),
             'recommendations' => $recommendations,
         ]);
     }
@@ -106,6 +110,8 @@ class GetRearrangeRecommendationsTool extends Tool
                 ->description('Pilihan - senarai kod cawangan utk dikecualikan (cth. ["HQ", "SECURITY"]).'),
             'search' => $schema->string()
                 ->description('Pilihan - carian teks bebas atas kod design atau jenis item.'),
+            'offset' => $schema->integer()
+                ->description('Pilihan - langkau seberapa banyak baris (halaman seterusnya) - lalai 0. Cth. offset=20 utk baris 21-40.'),
         ];
     }
 
@@ -114,7 +120,8 @@ class GetRearrangeRecommendationsTool extends Tool
     {
         return [
             'total_count' => $schema->integer()->description('Jumlah baris sepadan sebelum dipangkas.')->required(),
-            'truncated_count' => $schema->integer()->description('Bilangan baris disorok kerana melebihi had '.self::MAX_RESULTS.'.')->required(),
+            'offset' => $schema->integer()->description('Offset yg dipakai.')->required(),
+            'truncated_count' => $schema->integer()->description('Bilangan baris disorok kerana melebihi had '.self::MAX_RESULTS.' selepas offset.')->required(),
             'recommendations' => $schema->array()->description('Senarai cadangan pindah stok.')->required(),
         ];
     }

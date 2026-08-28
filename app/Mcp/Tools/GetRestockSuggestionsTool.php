@@ -40,10 +40,12 @@ class GetRestockSuggestionsTool extends Tool
             'category_code' => ['required', 'string'],
             'store_code' => ['nullable', 'string'],
             'only_actionable' => ['nullable', 'boolean'],
+            'offset' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $categoryCode = trim($validated['category_code']);
         $onlyActionable = $validated['only_actionable'] ?? true;
+        $offset = $validated['offset'] ?? 0;
 
         if (! Category::where('CategoryCode', $categoryCode)->exists()) {
             return Response::error("Kod kategori \"{$categoryCode}\" tidak wujud - guna list-restock-categories utk dapatkan kod yg sah.");
@@ -60,7 +62,7 @@ class GetRestockSuggestionsTool extends Tool
         }
 
         $totalCount = $rows->count();
-        $rows = $rows->take(self::MAX_RESULTS);
+        $rows = $rows->slice($offset, self::MAX_RESULTS);
 
         $suggestions = $rows->map(fn (array $row) => [
             'internal_code' => $row['internal_code'],
@@ -75,7 +77,8 @@ class GetRestockSuggestionsTool extends Tool
         return Response::structured([
             'category_code' => $categoryCode,
             'total_count' => $totalCount,
-            'truncated_count' => max(0, $totalCount - count($suggestions)),
+            'offset' => $offset,
+            'truncated_count' => max(0, $totalCount - $offset - count($suggestions)),
             'suggestions' => $suggestions,
         ]);
     }
@@ -92,6 +95,8 @@ class GetRestockSuggestionsTool extends Tool
             'only_actionable' => $schema->boolean()
                 ->description('Lalai true - sorok baris "Stok Cukup" (verdict OK), pulangkan hanya design yg PERLU tindakan.')
                 ->default(true),
+            'offset' => $schema->integer()
+                ->description('Pilihan - langkau seberapa banyak baris (halaman seterusnya) - lalai 0. Cth. offset=20 utk baris 21-40.'),
         ];
     }
 
@@ -101,7 +106,8 @@ class GetRestockSuggestionsTool extends Tool
         return [
             'category_code' => $schema->string()->required(),
             'total_count' => $schema->integer()->description('Jumlah baris sepadan sebelum dipangkas.')->required(),
-            'truncated_count' => $schema->integer()->description('Bilangan baris disorok kerana melebihi had '.self::MAX_RESULTS.'.')->required(),
+            'offset' => $schema->integer()->description('Offset yg dipakai.')->required(),
+            'truncated_count' => $schema->integer()->description('Bilangan baris disorok kerana melebihi had '.self::MAX_RESULTS.' selepas offset.')->required(),
             'suggestions' => $schema->array()->description('Senarai cadangan restock, susun ikut gap menurun.')->required(),
         ];
     }
