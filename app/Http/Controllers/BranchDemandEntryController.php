@@ -130,7 +130,7 @@ class BranchDemandEntryController extends Controller
                 'image_url' => $l->image_url,
                 'qty_requested' => $l->qty_requested,
                 'size' => $l->size,
-                'weight' => $l->weight !== null ? (float) $l->weight : null,
+                'weight' => $l->weight,
                 'category_name' => $l->category_name,
                 'line_status' => $l->line_status,
                 'fulfillment_status' => $l->fulfillment_status,
@@ -585,7 +585,7 @@ class BranchDemandEntryController extends Controller
             'lines.*.qty_requested' => ['required', 'integer', 'min:1'],
             'lines.*.remark' => ['nullable', 'string', 'max:255'],
             'lines.*.size' => ['nullable', 'string', 'max:20'],
-            'lines.*.weight' => ['nullable', 'numeric', 'min:0'],
+            'lines.*.weight' => ['nullable', 'string', 'max:20'],
             'lines.*.category_name' => ['nullable', 'string', 'max:255'],
             // Toggle "Kritikal" staf cawangan - TIADA lajur berasingan, cuma menentukan
             // fulfillment_status AWAL line (rujuk BranchDemandRequestLine::FULFILLMENT_STOK_KRITIKAL).

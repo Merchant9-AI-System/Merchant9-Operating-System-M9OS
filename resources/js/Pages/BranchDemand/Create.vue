@@ -25,7 +25,7 @@ interface LineItem {
     current_stock: number | null;
     image_url: string | null;
     size: string | null;
-    weight: number | null;
+    weight: string | null;
     category_name: string | null;
     // 'web' = cadangan carian laman web merchant9.com; 'upload' = staf langkau carian/dua2
     // carian TIADA hasil, muat naik gambar sendiri (rujuk ProductPicker) - kedua2 TIADA
@@ -48,7 +48,7 @@ interface ExistingLine {
     image_url: string | null;
     qty_requested: number;
     size: string | null;
-    weight: number | null;
+    weight: string | null;
     category_name: string | null;
     line_status: string;
     fulfillment_status: string;
@@ -284,7 +284,7 @@ function onSelect(result: ProductSearchResult) {
         current_stock: result.current_stock,
         image_url: result.image_url,
         size: result.size,
-        weight: result.weight,
+        weight: result.weight !== null ? String(result.weight) : null,
         category_name: result.category_name || null,
         source_type: 'catalog',
         is_critical: false,
@@ -488,7 +488,7 @@ function addFromSuggestion(item: RestockSuggestion) {
         current_stock: item.current_stock,
         image_url: item.image_url,
         size: item.size,
-        weight: item.weight,
+        weight: String(item.weight),
         category_name: item.category_name || null,
         source_type: 'catalog',
         is_critical: false,
@@ -686,7 +686,7 @@ function submit() {
                                 </div>
                                 <div>
                                     <Label class="mb-1.5 block">Berat (g)</Label>
-                                    <Input v-model.number="stagedItem.weight" type="number" step="0.01" min="0" />
+                                    <Input v-model="stagedItem.weight" placeholder="cth. 2.50" />
                                 </div>
                             </div>
                             <div class="flex flex-wrap items-center gap-2">
@@ -800,7 +800,7 @@ function submit() {
                                 </div>
                                 <div>
                                     <Label class="mb-1.5 block">Berat (g)</Label>
-                                    <Input v-model.number="line.weight" type="number" step="0.01" min="0" />
+                                    <Input v-model="line.weight" placeholder="cth. 2.50" />
                                 </div>
                                 <div class="sm:col-span-2">
                                     <Label class="mb-1.5 block">Remark (pilihan)</Label>
