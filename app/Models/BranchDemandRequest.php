@@ -101,7 +101,7 @@ class BranchDemandRequest extends Model
         $title = $isFirstEver
             ? "Permintaan cawangan baharu: {$this->request_number}"
             : "Item baharu ditambah: {$this->request_number}";
-        $body = trim((string) $this->store_code).' - '.($newLineCount ?: $this->lines()->count()).' item diminta oleh '.$this->submitted_by_label;
+        $body = trim((string) $this->store_code).' - '.($newLineCount ?: $this->lines()->count()).' item diminta oleh '. auth()->user()->name;
 
         Notification::make()
             ->title($title)
