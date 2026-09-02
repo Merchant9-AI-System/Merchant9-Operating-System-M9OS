@@ -33,7 +33,7 @@ class PhysicalGoldReportsTable
                         default => 'gray',
                     }),
                 TextColumn::make('net_pure_weight')->label('Physical Net Pure Gold')
-                    ->state(fn (PhysicalGoldReport $record) => number_format(PhysicalGoldReportCalculator::netPureWeight($record), 4).' g'),
+                    ->state(fn (PhysicalGoldReport $record) => number_format(PhysicalGoldReportCalculator::netPureWeight($record), 2).' g'),
                 TextColumn::make('prepared_by')->label('Disediakan oleh'),
                 TextColumn::make('approved_by')->label('Diluluskan oleh')->placeholder('-'),
                 TextColumn::make('created_at')->label('Dicipta')->dateTime('d/m/Y H:i')->toggleable(isToggledHiddenByDefault: true),

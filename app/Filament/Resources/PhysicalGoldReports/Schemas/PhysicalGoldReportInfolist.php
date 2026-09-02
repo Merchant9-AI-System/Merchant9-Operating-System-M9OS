@@ -35,9 +35,9 @@ class PhysicalGoldReportInfolist
                                         default => 'gray',
                                     }),
                                 TextEntry::make('gross_weight_total')->label('Jumlah Berat Kasar')
-                                    ->state(fn (PhysicalGoldReport $r) => number_format(PhysicalGoldReportCalculator::grossWeightTotal($r), 4).' g'),
+                                    ->state(fn (PhysicalGoldReport $r) => number_format(PhysicalGoldReportCalculator::grossWeightTotal($r), 2).' g'),
                                 TextEntry::make('net_pure_weight')->label('Physical Net Pure Gold')
-                                    ->state(fn (PhysicalGoldReport $r) => number_format(PhysicalGoldReportCalculator::netPureWeight($r), 4).' g')
+                                    ->state(fn (PhysicalGoldReport $r) => number_format(PhysicalGoldReportCalculator::netPureWeight($r), 2).' g')
                                     ->weight('bold'),
                                 TextEntry::make('prepared_by')->label('Disediakan oleh'),
                                 TextEntry::make('submitted_by')->label('Dihantar oleh')->placeholder('-'),
@@ -97,7 +97,7 @@ class PhysicalGoldReportInfolist
                                 TextEntry::make('day_on_day_movement')
                                     ->label('Pergerakan Fizikal Harian')
                                     ->state(fn (PhysicalGoldReport $r) => ($v = static::reconciliation($r)['day_on_day_movement']) !== null
-                                        ? number_format($v, 4).' g'
+                                        ? number_format($v, 2).' g'
                                         : 'Tiada laporan Approved sebelum ini'),
                             ]),
                     ])
@@ -118,8 +118,8 @@ class PhysicalGoldReportInfolist
                             ])
                             ->schema([
                                 TextEntry::make('category.name')->label('Kategori'),
-                                TextEntry::make('gross_weight')->label('Berat Kasar')->numeric(4),
-                                TextEntry::make('pure_weight')->label('Berat Tulen')->numeric(4),
+                                TextEntry::make('gross_weight')->label('Berat Kasar')->numeric(2),
+                                TextEntry::make('pure_weight')->label('Berat Tulen')->numeric(2),
                             ]),
                     ])
                     ->columnSpanFull(),
@@ -141,8 +141,8 @@ class PhysicalGoldReportInfolist
                             ])
                             ->schema([
                                 TextEntry::make('purity.code')->label('Ketulenan'),
-                                TextEntry::make('gross_weight')->label('Berat Kasar')->numeric(4),
-                                TextEntry::make('pure_weight')->label('Berat Tulen')->numeric(4),
+                                TextEntry::make('gross_weight')->label('Berat Kasar')->numeric(2),
+                                TextEntry::make('pure_weight')->label('Berat Tulen')->numeric(2),
                                 TextEntry::make('remarks')->label('Catatan')->placeholder('-'),
                             ]),
                     ])
@@ -154,18 +154,25 @@ class PhysicalGoldReportInfolist
                     ->collapsible()
                     ->visible(fn (PhysicalGoldReport $r) => static::categoryLines($r, 'STOCK_BRANCH')->isNotEmpty())
                     ->schema([
+                        // Pecahan ketulenan per cawangan (bukan lagi satu baris "blended" per
+                        // cawangan) - susun ikut cawangan dulu supaya baris satu cawangan
+                        // berkumpul sesama, bukan bercampur ikut susunan create() sync.
                         RepeatableEntry::make('stock_branch_lines')
                             ->label('')
-                            ->state(fn (PhysicalGoldReport $r) => static::categoryLines($r, 'STOCK_BRANCH'))
+                            ->state(fn (PhysicalGoldReport $r) => static::categoryLines($r, 'STOCK_BRANCH')->sortBy('store_code')->values())
                             ->table([
                                 TableColumn::make('Cawangan'),
+                                TableColumn::make('Ketulenan'),
                                 TableColumn::make('Berat Kasar (g)'),
                                 TableColumn::make('Berat Tulen (g)'),
+                                TableColumn::make('Catatan'),
                             ])
                             ->schema([
                                 TextEntry::make('store_code')->label('Cawangan'),
-                                TextEntry::make('gross_weight')->label('Berat Kasar')->numeric(4),
-                                TextEntry::make('pure_weight')->label('Berat Tulen')->numeric(4),
+                                TextEntry::make('purity.code')->label('Ketulenan'),
+                                TextEntry::make('gross_weight')->label('Berat Kasar')->numeric(2),
+                                TextEntry::make('pure_weight')->label('Berat Tulen')->numeric(2),
+                                TextEntry::make('remarks')->label('Catatan')->placeholder('-'),
                             ]),
                     ])
                     ->columnSpanFull(),
@@ -181,14 +188,16 @@ class PhysicalGoldReportInfolist
                             ->label('')
                             ->state(fn (PhysicalGoldReport $r) => static::categoryLines($r, 'STOCK_HQ'))
                             ->table([
-                                TableColumn::make('Cawangan'),
+                                TableColumn::make('Ketulenan'),
                                 TableColumn::make('Berat Kasar (g)'),
                                 TableColumn::make('Berat Tulen (g)'),
+                                TableColumn::make('Catatan'),
                             ])
                             ->schema([
-                                TextEntry::make('store_code')->label('Cawangan'),
-                                TextEntry::make('gross_weight')->label('Berat Kasar')->numeric(4),
-                                TextEntry::make('pure_weight')->label('Berat Tulen')->numeric(4),
+                                TextEntry::make('purity.code')->label('Ketulenan'),
+                                TextEntry::make('gross_weight')->label('Berat Kasar')->numeric(2),
+                                TextEntry::make('pure_weight')->label('Berat Tulen')->numeric(2),
+                                TextEntry::make('remarks')->label('Catatan')->placeholder('-'),
                             ]),
                     ])
                     ->columnSpanFull(),
@@ -213,8 +222,8 @@ class PhysicalGoldReportInfolist
                             ])
                             ->schema([
                                 TextEntry::make('vendor.VendorCode')->label('Supplier')->placeholder(fn ($record) => $record->vendor_code),
-                                TextEntry::make('gross_weight')->label('Berat Kasar')->numeric(4),
-                                TextEntry::make('pure_weight')->label('Berat Tulen')->numeric(4),
+                                TextEntry::make('gross_weight')->label('Berat Kasar')->numeric(2),
+                                TextEntry::make('pure_weight')->label('Berat Tulen')->numeric(2),
                                 TextEntry::make('workmanship_amount')->label('Workmanship')->money('MYR')->placeholder('-'),
                                 TextEntry::make('gold_price_per_gram')->label('Gold Price')->money('MYR')->placeholder('-'),
                                 TextEntry::make('gold_amount')->label('Gold Amount')->money('MYR')->placeholder('-'),
@@ -242,8 +251,8 @@ class PhysicalGoldReportInfolist
                             ])
                             ->schema([
                                 TextEntry::make('purity.code')->label('Ketulenan'),
-                                TextEntry::make('gross_weight')->label('Berat Kasar')->numeric(4),
-                                TextEntry::make('pure_weight')->label('Berat Tulen')->numeric(4),
+                                TextEntry::make('gross_weight')->label('Berat Kasar')->numeric(2),
+                                TextEntry::make('pure_weight')->label('Berat Tulen')->numeric(2),
                                 TextEntry::make('date_range_from')->label('Dari')->date('d/m/Y')->placeholder('-'),
                                 TextEntry::make('date_range_to')->label('Hingga')->date('d/m/Y')->placeholder('-'),
                                 TextEntry::make('remarks')->label('Catatan')->placeholder('-'),
@@ -269,10 +278,10 @@ class PhysicalGoldReportInfolist
                             ])
                             ->schema([
                                 TextEntry::make('vendor.VendorCode')->label('Supplier')->placeholder(fn ($record) => $record->vendor_code),
-                                TextEntry::make('payable_gross_weight')->label('Payable Kasar')->numeric(4)->placeholder('-'),
-                                TextEntry::make('payable_pure_weight')->label('Payable Tulen')->numeric(4)->placeholder('-')->color('danger'),
-                                TextEntry::make('receivable_gross_weight')->label('Receivable Kasar')->numeric(4)->placeholder('-'),
-                                TextEntry::make('receivable_pure_weight')->label('Receivable Tulen')->numeric(4)->placeholder('-')->color('success'),
+                                TextEntry::make('payable_gross_weight')->label('Payable Kasar')->numeric(2)->placeholder('-'),
+                                TextEntry::make('payable_pure_weight')->label('Payable Tulen')->numeric(2)->placeholder('-')->color('danger'),
+                                TextEntry::make('receivable_gross_weight')->label('Receivable Kasar')->numeric(2)->placeholder('-'),
+                                TextEntry::make('receivable_pure_weight')->label('Receivable Tulen')->numeric(2)->placeholder('-')->color('success'),
                             ]),
                     ])
                     ->columnSpanFull(),
@@ -298,6 +307,6 @@ class PhysicalGoldReportInfolist
 
     protected static function formatOrPending(?float $value): string
     {
-        return $value !== null ? number_format($value, 4).' g' : 'Belum Tersedia';
+        return $value !== null ? number_format($value, 2).' g' : 'Belum Tersedia';
     }
 }

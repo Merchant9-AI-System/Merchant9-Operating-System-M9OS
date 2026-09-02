@@ -34,12 +34,12 @@ class PhysicalGoldReportCalculator
             $net += $category->is_deduction ? -$pure : $pure;
         }
 
-        return round($net, 4);
+        return round($net, 2);
     }
 
     public static function grossWeightTotal(PhysicalGoldReport $report): float
     {
-        return round((float) $report->lines->sum(fn ($line) => (float) ($line->gross_weight ?? 0)), 4);
+        return round((float) $report->lines->sum(fn ($line) => (float) ($line->gross_weight ?? 0)), 2);
     }
 
     /** @return Collection<int, array{category: PhysicalGoldCategory, gross_weight: float, pure_weight: float}> */
@@ -49,8 +49,8 @@ class PhysicalGoldReportCalculator
             ->groupBy('physical_gold_category_id')
             ->map(fn ($lines) => [
                 'category' => $lines->first()->category,
-                'gross_weight' => round((float) $lines->sum(fn ($l) => (float) ($l->gross_weight ?? 0)), 4),
-                'pure_weight' => round((float) $lines->sum(fn ($l) => (float) ($l->pure_weight ?? 0)), 4),
+                'gross_weight' => round((float) $lines->sum(fn ($l) => (float) ($l->gross_weight ?? 0)), 2),
+                'pure_weight' => round((float) $lines->sum(fn ($l) => (float) ($l->pure_weight ?? 0)), 2),
             ])
             ->values();
     }
@@ -81,6 +81,6 @@ class PhysicalGoldReportCalculator
             return null;
         }
 
-        return round(static::netPureWeight($report) - static::netPureWeight($previous), 4);
+        return round(static::netPureWeight($report) - static::netPureWeight($previous), 2);
     }
 }

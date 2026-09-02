@@ -45,12 +45,12 @@ class PhysicalGoldReconciliationCalculator
 
         // Utama: banding vs net_weight (sudah netkan supplier hutang/overpaid, sepadan dgn
         // kategori SUPPLIER_OUTSTANDING modul ni yg turut dilipat kedlm physical net pure gold).
-        $variance = round($physicalNetPureGold - $book['net_weight'], 4);
+        $variance = round($physicalNetPureGold - $book['net_weight'], 2);
         $variancePct = static::safePercentage($variance, $book['net_weight'], $physicalNetPureGold);
 
         // Sekunder/informational: banding vs closing_stock mentah (sebelum pelarasan supplier) -
         // TIADA gred warna berasingan, sekadar rujukan tambahan (arahan eksplisit pengguna: "both").
-        $varianceVsClosing = round($physicalNetPureGold - $book['closing_stock'], 4);
+        $varianceVsClosing = round($physicalNetPureGold - $book['closing_stock'], 2);
         $varianceVsClosingPct = static::safePercentage($varianceVsClosing, $book['closing_stock'], $physicalNetPureGold);
 
         return [

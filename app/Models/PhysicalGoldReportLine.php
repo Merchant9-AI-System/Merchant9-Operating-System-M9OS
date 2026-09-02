@@ -13,12 +13,12 @@ class PhysicalGoldReportLine extends Model
     protected $casts = [
         'date_range_from' => 'date',
         'date_range_to' => 'date',
-        'gross_weight' => 'decimal:4',
-        'pure_weight' => 'decimal:4',
-        'payable_gross_weight' => 'decimal:4',
-        'receivable_gross_weight' => 'decimal:4',
-        'payable_pure_weight' => 'decimal:4',
-        'receivable_pure_weight' => 'decimal:4',
+        'gross_weight' => 'decimal:2',
+        'pure_weight' => 'decimal:2',
+        'payable_gross_weight' => 'decimal:2',
+        'receivable_gross_weight' => 'decimal:2',
+        'payable_pure_weight' => 'decimal:2',
+        'receivable_pure_weight' => 'decimal:2',
         'workmanship_amount' => 'decimal:4',
         'gold_price_per_gram' => 'decimal:4',
         'gold_amount' => 'decimal:4',
@@ -38,7 +38,7 @@ class PhysicalGoldReportLine extends Model
 
             if ($category->value_mode === PhysicalGoldCategory::VALUE_MODE_GROSS_PURITY) {
                 $line->pure_weight = $line->gross_weight !== null
-                    ? round((float) $line->gross_weight * $factor, 4)
+                    ? round((float) $line->gross_weight * $factor, 2)
                     : null;
 
                 // Utk New Stock Not Yet Key-in - Gold Amount & Total Price sentiasa dikira
@@ -58,11 +58,11 @@ class PhysicalGoldReportLine extends Model
             // tulen guna faktor ketulenan "blended" baris ni (cth. 930 -> 0.93) - sepadan
             // rawatan Stock at Branch/HQ/New Stock yg turut tiada pecahan ketulenan per-item.
             $line->payable_pure_weight = $line->payable_gross_weight !== null
-                ? round((float) $line->payable_gross_weight * $factor, 4)
+                ? round((float) $line->payable_gross_weight * $factor, 2)
                 : null;
 
             $line->receivable_pure_weight = $line->receivable_gross_weight !== null
-                ? round((float) $line->receivable_gross_weight * $factor, 4)
+                ? round((float) $line->receivable_gross_weight * $factor, 2)
                 : null;
         });
     }

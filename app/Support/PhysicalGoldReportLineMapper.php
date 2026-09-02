@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Store;
 use App\Models\PhysicalGoldCategory;
 use App\Models\PhysicalGoldPurity;
@@ -21,9 +22,7 @@ class PhysicalGoldReportLineMapper
 
     public static function defaultUsedGoldHqRows(): array
     {
-        return static::gradedPurities()
-            ->map(fn (PhysicalGoldPurity $p) => ['purity_code' => $p->code, 'gross_weight' => null, 'remarks' => null])
-            ->all();
+        return static::defaultPurityRows();
     }
 
     public static function defaultGdnRows(): array
@@ -39,17 +38,34 @@ class PhysicalGoldReportLineMapper
             ->all();
     }
 
+    /** Setiap cawangan pra-isi dgn pecahan ketulenan sendiri (nested repeater "purity_lines")
+     * - sepadan Used Gold at HQ, atas permintaan eksplisit ("stock at branch tunjuk ikut
+     * cawangan JUGA ikut ketulenan", bukan satu baris "blended" sahaja spt sebelum ni). */
     public static function defaultBranchRows(): array
     {
         return static::branches()
-            ->map(fn (Store $s) => ['store_code' => $s->StoreCode, 'store_label' => $s->StoreCode, 'gross_weight' => null])
+            ->map(fn (Store $s) => [
+                'store_code' => $s->StoreCode,
+                'store_label' => $s->StoreCode,
+                'purity_lines' => static::defaultPurityRows(),
+            ])
             ->all();
     }
 
-    /** Satu baris tetap HQ sahaja - struktur sama dgn defaultBranchRows(), bukan medan skalar. */
+    /** Stock at HQ - HQ SATU lokasi sahaja (tiada dimensi cawangan), jadi cukup pecahan
+     * ketulenan terus (struktur SAMA dgn defaultUsedGoldHqRows(), bukan nested spt branch). */
     public static function defaultStockHqRows(): array
     {
-        return [['store_code' => 'HQ', 'store_label' => 'HQ', 'gross_weight' => null]];
+        return static::defaultPurityRows();
+    }
+
+    /** Set baris ketulenan asas kosong - dikongsi Used Gold at HQ, Stock at Branch (per
+     * cawangan) & Stock at HQ. */
+    protected static function defaultPurityRows(): array
+    {
+        return static::gradedPurities()
+            ->map(fn (PhysicalGoldPurity $p) => ['purity_code' => $p->code, 'gross_weight' => null, 'remarks' => null])
+            ->all();
     }
 
     /** 8 gred ketulenan ASAS (bukan 930/varian) - set tetap pra-isi Used Gold at HQ & GDN Pending. */
@@ -75,6 +91,30 @@ class PhysicalGoldReportLineMapper
             ->get();
     }
 
+    /**
+     * Jumlah Berat (g) & Berat Tulen (g) bagi SATU set baris ketulenan (footer repeater Used
+     * Gold at HQ/Stock at HQ/GDN Pending/nested purity_lines Stock at Branch) - dikira terus
+     * drpd state borang LIVE (bukan DB), formula sama dgn preview pure_weight setiap baris
+     * (gross_weight x purityFactorFor(purity_code)), supaya jumlah SENTIASA padan jumlah baris
+     * individu yg dipaparkan, walaupun blm disimpan.
+     *
+     * @param  ?array<int, array{purity_code?: ?string, gross_weight?: mixed}>  $rows
+     * @return array{gross: float, pure: float}
+     */
+    public static function sumPurityRows(?array $rows): array
+    {
+        $gross = 0.0;
+        $pure = 0.0;
+
+        foreach ($rows ?? [] as $row) {
+            $rowGross = (float) ($row['gross_weight'] ?? 0);
+            $gross += $rowGross;
+            $pure += $rowGross * static::purityFactorFor($row['purity_code'] ?? null);
+        }
+
+        return ['gross' => round($gross, 2), 'pure' => round($pure, 2)];
+    }
+
     /** Memoized per request - dipanggil berulang kali oleh preview live() setiap taip/render baris. */
     public static function purityFactorFor(?string $code): float
     {
@@ -97,6 +137,33 @@ class PhysicalGoldReportLineMapper
             ->get();
     }
 
+    /**
+     * Stok fizikal SEMASA (jemisys_inventory_mirror, onHand()) pecah ikut cawangan + ketulenan -
+     * sumber "Tarik Data Inventori" (Stock at Branch/HQ). ClassCode dipadankan terus kpd kod
+     * ketulenan GRED ASAS (gradedPurities) - item bukan emas (cth. "PERAK 925"/"960 Silver",
+     * disahkan wujud sebenar dlm data Tinker sesi ni) jatuh keluar SENDIRI drpd padanan (BUKAN
+     * turut dikira sbg 0 - baris tsb terus tiada dlm hasil, byStore()->get($purity) natural
+     * pulang null utk kombinasi store+purity yg tiada). GoldWeight (bukan QtyOnHand) sbg
+     * "Berat (g)" - QtyOnHand cuma 0/1 (satu keping).
+     *
+     * @return Collection<string, Collection<string, float>> StoreCode (trim) => [purity_code => jumlah GoldWeight]
+     */
+    public static function inventoryStockByStoreAndPurity(): Collection
+    {
+        $validCodes = static::gradedPurities()->pluck('code')->all();
+
+        return InventoryPiece::query()
+            ->onHand()
+            ->selectRaw('StoreCode, ClassCode, SUM(GoldWeight) as total_weight')
+            ->groupBy('StoreCode', 'ClassCode')
+            ->get()
+            ->filter(fn ($row) => in_array(trim((string) $row->ClassCode), $validCodes, true))
+            ->groupBy(fn ($row) => trim((string) $row->StoreCode))
+            ->map(fn (Collection $rows) => $rows
+                ->groupBy(fn ($row) => trim((string) $row->ClassCode))
+                ->map(fn (Collection $group) => (float) $group->sum('total_weight')));
+    }
+
     /** Susun semula state borang drpd baris sedia ada (utk EditRecord::mutateFormDataBeforeFill()). */
     public static function formStateFromReport(PhysicalGoldReport $report): array
     {
@@ -105,7 +172,7 @@ class PhysicalGoldReportLineMapper
         $usedGold = $lines->where('category.code', 'USED_GOLD_HQ')->values();
         $gdn = $lines->where('category.code', 'GDN_PENDING')->values();
         $branch = $lines->where('category.code', 'STOCK_BRANCH')->values();
-        $hq = $lines->where('category.code', 'STOCK_HQ')->first();
+        $hq = $lines->where('category.code', 'STOCK_HQ')->values();
         $newStock = $lines->where('category.code', 'NEW_STOCK_SUPPLIER')->values();
         $outstanding = $lines->where('category.code', 'SUPPLIER_OUTSTANDING')->values();
 
@@ -131,12 +198,24 @@ class PhysicalGoldReportLineMapper
             ]),
 
             'stock_branch_lines' => static::branches()->map(function (Store $s) use ($branch) {
-                $line = $branch->firstWhere('store_code', $s->StoreCode);
+                $linesForStore = $branch->where('store_code', $s->StoreCode)->values();
 
-                return ['store_code' => $s->StoreCode, 'store_label' => $s->StoreCode, 'gross_weight' => $line?->gross_weight];
+                return [
+                    'store_code' => $s->StoreCode,
+                    'store_label' => $s->StoreCode,
+                    'purity_lines' => static::mergeGradedRows($linesForStore, fn ($line) => [
+                        'purity_code' => $line->purity?->code,
+                        'gross_weight' => $line->gross_weight,
+                        'remarks' => $line->remarks,
+                    ], fn ($purity) => ['purity_code' => $purity->code, 'gross_weight' => null, 'remarks' => null]),
+                ];
             })->values()->all(),
 
-            'stock_hq_lines' => [['store_code' => 'HQ', 'store_label' => 'HQ', 'gross_weight' => $hq?->gross_weight]],
+            'stock_hq_lines' => static::mergeGradedRows($hq, fn ($line) => [
+                'purity_code' => $line->purity?->code,
+                'gross_weight' => $line->gross_weight,
+                'remarks' => $line->remarks,
+            ], fn ($purity) => ['purity_code' => $purity->code, 'gross_weight' => null, 'remarks' => null]),
 
             'new_stock_lines' => $newStock->map(fn ($line) => [
                 'vendor_code' => $line->vendor_code,
@@ -222,19 +301,26 @@ class PhysicalGoldReportLineMapper
             ]);
         }
 
-        foreach ($data['stock_branch_lines'] ?? [] as $row) {
-            if (blank($row['gross_weight'] ?? null)) {
-                continue;
-            }
+        // Pecahan ketulenan per cawangan (nested "purity_lines") - BUKAN lagi satu baris
+        // "blended" per cawangan, atas permintaan eksplisit (rujuk dokblok defaultBranchRows()).
+        foreach ($data['stock_branch_lines'] ?? [] as $branchRow) {
+            foreach ($branchRow['purity_lines'] ?? [] as $row) {
+                if (blank($row['gross_weight'] ?? null)) {
+                    continue;
+                }
 
-            $report->lines()->create([
-                'physical_gold_category_id' => $categoryIds['STOCK_BRANCH'] ?? null,
-                'physical_gold_purity_id' => $blendedPurityId,
-                'store_code' => $row['store_code'] ?? null,
-                'gross_weight' => $row['gross_weight'],
-            ]);
+                $report->lines()->create([
+                    'physical_gold_category_id' => $categoryIds['STOCK_BRANCH'] ?? null,
+                    'physical_gold_purity_id' => $purityIds[$row['purity_code']] ?? null,
+                    'store_code' => $branchRow['store_code'] ?? null,
+                    'gross_weight' => $row['gross_weight'],
+                    'remarks' => $row['remarks'] ?? null,
+                ]);
+            }
         }
 
+        // Stock at HQ - pecahan ketulenan terus (tiada dimensi cawangan, rujuk dokblok
+        // defaultStockHqRows()), struktur SAMA dgn Used Gold at HQ di atas.
         foreach ($data['stock_hq_lines'] ?? [] as $row) {
             if (blank($row['gross_weight'] ?? null)) {
                 continue;
@@ -242,9 +328,10 @@ class PhysicalGoldReportLineMapper
 
             $report->lines()->create([
                 'physical_gold_category_id' => $categoryIds['STOCK_HQ'] ?? null,
-                'physical_gold_purity_id' => $blendedPurityId,
+                'physical_gold_purity_id' => $purityIds[$row['purity_code']] ?? null,
                 'store_code' => 'HQ',
                 'gross_weight' => $row['gross_weight'],
+                'remarks' => $row['remarks'] ?? null,
             ]);
         }
 

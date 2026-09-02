@@ -18,7 +18,23 @@ class UsedGoldBalanceProvider
     protected const ENDPOINT = 'https://merchant9.kedaiemas.my/internal/ApiUsedGoldBalance.php';
 
     /** 916_gross & 916_batu SENGAJA tak masuk - 916_net dah wakili karat 916 (gross - batu). */
-    protected const KARATS_FOR_TOTAL = ['9999', '999', '950', '925', '916_net', '800', '750', '585', '375'];
+    protected const KARATS_FOR_TOTAL = ['9999', '999', '950', '916_net', '800', '750', '585', '375'];
+
+    /**
+     * Kod karat API luar => kod ketulenan m9os (App\Models\PhysicalGoldPurity) - "800" API lama
+     * ialah "835" m9os, SEKADAR label berbeza antara dua sistem, BUKAN karat berbeza (disahkan
+     * pengguna). "916_net" (bukan 916_gross/916_batu) utk "916" - rujuk nota KARATS_FOR_TOTAL.
+     */
+    protected const KARAT_TO_PURITY_CODE = [
+        '9999' => '9999',
+        '999' => '999',
+        '950' => '950',
+        '916_net' => '916',
+        '800' => '835',
+        '750' => '750',
+        '585' => '585',
+        '375' => '375',
+    ];
 
     /**
      * Null bermaksud endpoint luaran tak dpt dicapai/gagal - BUKAN sifar (jgn papar RM0/0g palsu).
@@ -30,17 +46,43 @@ class UsedGoldBalanceProvider
      */
     public static function totalClosing(?string $month = null): ?float
     {
-        $month ??= now()->format('Y-m');
+        $closing = static::cachedClosing($month ??= now()->format('Y-m'));
 
-        return Cache::remember("used_gold_balance_total_closing:{$month}", now()->addMinutes(15), function () use ($month) {
-            $closing = static::fetchClosing($month);
+        if ($closing === null) {
+            return null;
+        }
 
-            if ($closing === null) {
-                return null;
-            }
+        return round(collect(self::KARATS_FOR_TOTAL)->sum(fn ($karat) => (float) ($closing[$karat] ?? 0)), 3);
+    }
 
-            return round(collect(self::KARATS_FOR_TOTAL)->sum(fn ($karat) => (float) ($closing[$karat] ?? 0)), 3);
-        });
+    /**
+     * Pecahan baki closing ikut kod ketulenan m9os (utk "Tarik Data Used Gold" - Used Gold at HQ)
+     * - rujuk KARAT_TO_PURITY_CODE utk padanan kod. Null bermaksud endpoint luar gagal (SAMA
+     * makna spt totalClosing() - BUKAN sifar).
+     *
+     * @return array<string, float>|null kod ketulenan m9os => baki closing (g)
+     */
+    public static function closingByPurity(?string $month = null): ?array
+    {
+        $closing = static::cachedClosing($month ??= now()->format('Y-m'));
+
+        if ($closing === null) {
+            return null;
+        }
+
+        $result = [];
+
+        foreach (self::KARAT_TO_PURITY_CODE as $karat => $purityCode) {
+            $result[$purityCode] = (float) ($closing[$karat] ?? 0);
+        }
+
+        return $result;
+    }
+
+    /** @return array<string, float>|null */
+    protected static function cachedClosing(string $month): ?array
+    {
+        return Cache::remember("used_gold_balance_closing:{$month}", now()->addMinutes(15), fn () => static::fetchClosing($month));
     }
 
     /** @return array<string, float>|null */

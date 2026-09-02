@@ -33,17 +33,17 @@ class PhysicalGoldBalanceSummary extends StatsOverviewWidget
         $isPending = $s['status'] === PhysicalGoldReconciliationCalculator::STATUS_PENDING;
 
         return [
-            Stat::make('Physical Net Pure Gold', number_format($s['physical_net_pure_gold'], 4).' g'),
+            Stat::make('Physical Net Pure Gold', number_format($s['physical_net_pure_gold'], 2).' g'),
 
-            Stat::make('Book Net Weight', $isPending ? 'Book Balance Pending' : number_format($s['book_net_weight'], 4).' g')
+            Stat::make('Book Net Weight', $isPending ? 'Book Balance Pending' : number_format($s['book_net_weight'], 2).' g')
                 ->description('Sumber: DailyAssetPosition.net_weight')
                 ->color($isPending ? 'gray' : 'success'),
 
-            Stat::make('Book Closing Stock', $isPending ? 'Book Balance Pending' : number_format($s['book_closing_stock'], 4).' g')
+            Stat::make('Book Closing Stock', $isPending ? 'Book Balance Pending' : number_format($s['book_closing_stock'], 2).' g')
                 ->description('Rujukan tambahan (sebelum pelarasan supplier)')
                 ->color('gray'),
 
-            Stat::make('Gold Variance', $isPending ? 'Belum tersedia' : number_format($s['variance'], 4).' g')
+            Stat::make('Gold Variance', $isPending ? 'Belum tersedia' : number_format($s['variance'], 2).' g')
                 ->description($isPending ? '-' : ($s['variance'] > 0 ? 'Lebihan fizikal' : ($s['variance'] < 0 ? 'Kekurangan fizikal' : 'Sepadan')))
                 ->color(match (true) {
                     $isPending => 'gray',
@@ -60,7 +60,7 @@ class PhysicalGoldBalanceSummary extends StatsOverviewWidget
                     default => 'success',
                 }),
 
-            Stat::make('Daily Physical Movement', $s['day_on_day_movement'] === null ? 'Tiada data sebelum ini' : number_format($s['day_on_day_movement'], 4).' g')
+            Stat::make('Daily Physical Movement', $s['day_on_day_movement'] === null ? 'Tiada data sebelum ini' : number_format($s['day_on_day_movement'], 2).' g')
                 ->description('Berbanding laporan Approved sebelumnya'),
         ];
     }
