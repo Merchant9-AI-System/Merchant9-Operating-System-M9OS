@@ -37,9 +37,32 @@ class PhysicalGoldReportCalculator
         return round($net, 2);
     }
 
+    /**
+     * Kategori mod "payable_receivable" (Outstanding Gold Due to Suppliers) TIDAK PERNAH isi
+     * gross_weight/pure_weight generik (baris tsb simpan payable_gross_weight/
+     * receivable_gross_weight sebaliknya, rujuk PhysicalGoldReportLineMapper::
+     * syncLinesFromFormState()) - sum(gross_weight) x kategori tsb akan SENYAP pulangkan 0,
+     * walaupun baris sebenar ADA data (disahkan pengguna - Ringkasan Kategori papar 0.00
+     * sedangkan seksyen Outstanding penuh data). Netkan receivable-payable SAMA formula spt
+     * netPureWeight() (BUKAN check is_deduction - payable_receivable branch tsb turut x check).
+     */
     public static function grossWeightTotal(PhysicalGoldReport $report): float
     {
-        return round((float) $report->lines->sum(fn ($line) => (float) ($line->gross_weight ?? 0)), 2);
+        $total = 0.0;
+
+        foreach ($report->lines as $line) {
+            $category = $line->category;
+
+            if ($category?->value_mode === PhysicalGoldCategory::VALUE_MODE_PAYABLE_RECEIVABLE) {
+                $total += (float) ($line->receivable_gross_weight ?? 0) - (float) ($line->payable_gross_weight ?? 0);
+
+                continue;
+            }
+
+            $total += (float) ($line->gross_weight ?? 0);
+        }
+
+        return round($total, 2);
     }
 
     /** @return Collection<int, array{category: PhysicalGoldCategory, gross_weight: float, pure_weight: float}> */
@@ -47,11 +70,23 @@ class PhysicalGoldReportCalculator
     {
         return $report->lines
             ->groupBy('physical_gold_category_id')
-            ->map(fn ($lines) => [
-                'category' => $lines->first()->category,
-                'gross_weight' => round((float) $lines->sum(fn ($l) => (float) ($l->gross_weight ?? 0)), 2),
-                'pure_weight' => round((float) $lines->sum(fn ($l) => (float) ($l->pure_weight ?? 0)), 2),
-            ])
+            ->map(function ($lines) {
+                $category = $lines->first()->category;
+
+                if ($category?->value_mode === PhysicalGoldCategory::VALUE_MODE_PAYABLE_RECEIVABLE) {
+                    return [
+                        'category' => $category,
+                        'gross_weight' => round((float) $lines->sum(fn ($l) => (float) ($l->receivable_gross_weight ?? 0) - (float) ($l->payable_gross_weight ?? 0)), 2),
+                        'pure_weight' => round((float) $lines->sum(fn ($l) => (float) ($l->receivable_pure_weight ?? 0) - (float) ($l->payable_pure_weight ?? 0)), 2),
+                    ];
+                }
+
+                return [
+                    'category' => $category,
+                    'gross_weight' => round((float) $lines->sum(fn ($l) => (float) ($l->gross_weight ?? 0)), 2),
+                    'pure_weight' => round((float) $lines->sum(fn ($l) => (float) ($l->pure_weight ?? 0)), 2),
+                ];
+            })
             ->values();
     }
 
