@@ -46,6 +46,12 @@ class StockRearrangementRecommender
         $rows = InventoryPiece::query()
             ->realVendor()
             ->physicalStore()
+            // HQ (back-office) & SECURITY (vault/holding) dikecualikan - SAMA konvensyen spt
+            // RearrangeCalculator::compute() & PhysicalGoldReportLineMapper::branches() -
+            // bukan cawangan jualan sebenar, jadi tak sesuai jadi donor/receiver rearrange
+            // stok. Disahkan sebelum ni TIADA pengecualian (hanya physicalStore() tapis WEB) -
+            // 179/543 cadangan (33%) melibatkan HQ sbb tu, atas permintaan eksplisit.
+            ->whereNotIn('StoreCode', ['HQ', 'hq', 'SECURITY', 'security'])
             ->selectRaw('InternalCode, StoreCode, SUM(QtyOnHand) as stock, '.
                 'SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as sold')
             ->groupBy('InternalCode', 'StoreCode')

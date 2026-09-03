@@ -9,8 +9,8 @@ use Illuminate\Support\Facades\Cache;
 
 /**
  * CEO Dashboard Phase 1 (A) - Action Centre. Gabung isyarat drpd kalkulator/query sedia ada
- * (RearrangeCalculator, SupplierPerformanceCalculator) + beberapa query baru (imbalance
- * cawangan, ideal weight hilang) jadi satu senarai amaran keutamaan.
+ * (StockRearrangementRecommender, SupplierPerformanceCalculator) + beberapa query baru
+ * (imbalance cawangan, ideal weight hilang) jadi satu senarai amaran keutamaan.
  *
  * SEMUA alert di sini "rule-based suggestion" - threshold (cth. 2x average, 15%, 30%) ialah
  * andaian konservatif permulaan, BUKAN dikalibrasi drpd data sejarah sebenar (tiada snapshot
@@ -102,7 +102,12 @@ class CeoActionCentreCalculator
 
     protected static function rearrangeAlert(): ?array
     {
-        $count = RearrangeCalculator::recommendations()->count();
+        // Guna StockRearrangementRecommender (page "Cadangan Rearrange (Ringkas)") - BUKAN
+        // lagi RearrangeCalculator (page "Rearrange" lama) atas permintaan eksplisit. Rule
+        // lebih ketat (donor >=3, baki >=2 sentiasa tak boleh diusik, cuma 1 unit per design)
+        // drpd RearrangeCalculator (donor >=2, baki >=1, boleh >1 unit per design) - count di
+        // sini SENGAJA lebih rendah/konservatif drpd sebelum ni, bukan bug.
+        $count = StockRearrangementRecommender::recommendations()->count();
 
         if ($count === 0) {
             return null;
@@ -110,10 +115,10 @@ class CeoActionCentreCalculator
 
         return [
             'priority' => $count >= 15 ? self::HIGH : self::MEDIUM,
-            'issue' => "{$count} design ada peluang rearrange antara cawangan (donor lebih, receiver sold out)",
-            'suggested_action' => 'Semak & cipta transfer di page Rearrange.',
+            'issue' => "{$count} design ada stok lebih di satu cawangan, tapi dah sold out di cawangan lain - boleh dipindah (rearrange)",
+            'suggested_action' => 'Semak & cipta transfer di page Cadangan Rearrange (Ringkas).',
             'estimated_impact' => 'Data tidak mencukupi utk anggaran RM',
-            'data_source' => 'RearrangeCalculator (TblInventory per StoreCode)',
+            'data_source' => 'StockRearrangementRecommender (TblInventory per StoreCode)',
             'rule_based' => true,
         ];
     }

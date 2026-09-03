@@ -10,12 +10,15 @@ use App\Support\StockRearrangementRecommender;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Grid;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -73,6 +76,28 @@ class StockRearrangementRecommendation extends Page implements HasTable
                 // sendiri (rujuk Filament\Tables\Concerns\HasRecords::getTableRecords()).
                 $all = StockRearrangementRecommender::recommendations()
                     ->map(fn ($r, $i) => $r + ['InventoryCode' => 'sr_'.$i]);
+
+                // Buang cadangan yg dah ADA transfer AKTIF (bukan Cancelled) utk pasangan
+                // design+from+to SAMA - "Cipta Transfer" sekadar rekod jejak (TIADA kesan ke
+                // stok sebenar, rujuk dokblok StockTransfer), jadi TANPA semakan ni cadangan
+                // yg sama kekal terpapar & cawangan/HQ lain boleh cipta transfer PENDUA utk
+                // isu yg dah pun diproses, sehingga sync JEMiSys seterusnya kemaskini stok
+                // sebenar. mb_strtolower(trim()) SEMUA belah - internal_code/from_branch/
+                // to_branch drpd calculator ni PADDED (rujuk dokblok compute()), StockTransfer
+                // punya lajur pula bergantung permukaan cipta (sesetengah trim, sesetengah
+                // tidak) - normalize kedua-dua belah elak padanan gagal senyap.
+                $activeTransferKeys = StockTransfer::where('status', '!=', StockTransfer::STATUS_CANCELLED)
+                    ->get(['internal_code', 'from_store', 'to_store'])
+                    ->map(fn ($t) => mb_strtolower(trim((string) $t->internal_code)).'|'.
+                        mb_strtolower(trim((string) $t->from_store)).'|'.
+                        mb_strtolower(trim((string) $t->to_store)))
+                    ->flip();
+
+                $all = $all->reject(fn ($r) => $activeTransferKeys->has(
+                    mb_strtolower(trim((string) $r['internal_code'])).'|'.
+                    mb_strtolower(trim((string) $r['from_branch'])).'|'.
+                    mb_strtolower(trim((string) $r['to_branch']))
+                ));
 
                 if ($fromBranch = $filters['from_branch']['value'] ?? null) {
                     $all = $all->where('from_branch', $fromBranch);
@@ -149,7 +174,9 @@ class StockRearrangementRecommendation extends Page implements HasTable
                 TextColumn::make('size')->label('Saiz')->badge()->color('gray'),
                 TextColumn::make('weight')->label('Berat')->numeric(2)->suffix('g')->sortable()->placeholder('-'),
                 TextColumn::make('current_stock')->label('Current Stock')->numeric()->sortable(),
-                TextColumn::make('reason')->label('Reason')->wrap(),
+                TextColumn::make('reason')->label('Reason')->wrap()
+                    ->extraHeaderAttributes(['style' => 'min-width: 24rem'])
+                    ->extraCellAttributes(['style' => 'min-width: 24rem']),
                 TextColumn::make('priority')->label('Priority')
                     ->badge()
                     ->sortable()
@@ -200,33 +227,35 @@ class StockRearrangementRecommendation extends Page implements HasTable
             ], layout: FiltersLayout::AboveContentCollapsible)
             ->filtersFormColumns(4)
             ->recordActions([
-                Action::make('view')
-                    ->label('View')
-                    ->icon(Heroicon::OutlinedEye)
-                    ->color('gray')
-                    ->slideOver()
-                    ->modalHeading(fn ($record) => "Cadangan Pindah: {$record->internal_code}")
-                    ->modalSubmitAction(false)
-                    ->modalCancelActionLabel('Tutup')
-                    ->schema(fn ($record) => [
-                        TextEntry::make('size')
-                            ->label('Saiz')
-                            ->state($record->size),
-                        TextEntry::make('weight')
-                            ->label('Berat')
-                            ->state($record->weight !== null ? number_format((float) $record->weight, 2).'g' : null)
-                            ->placeholder('-'),
-                        TextEntry::make('receiver_label')
-                            ->label('Cawangan Perlu (sold out, pernah jual)')
-                            ->state($record->receiver_label),
-                        TextEntry::make('suggestion')
-                            ->label('Cadangan Pindahan')
-                            ->state($record->suggestion),
-                    ])
-                    ->extraModalFooterActions([
-                        static::createTransferAction(),
-                    ]),
-                static::createTransferAction(),
+                ActionGroup::make([
+                    Action::make('view')
+                        ->label('View')
+                        ->icon(Heroicon::OutlinedEye)
+                        ->color('gray')
+                        ->slideOver()
+                        ->modalHeading(fn ($record) => "Cadangan Pindah: {$record->internal_code}")
+                        ->modalSubmitAction(false)
+                        ->modalCancelActionLabel('Tutup')
+                        ->schema(fn ($record) => [
+                            TextEntry::make('size')
+                                ->label('Saiz')
+                                ->state($record->size),
+                            TextEntry::make('weight')
+                                ->label('Berat')
+                                ->state($record->weight !== null ? number_format((float) $record->weight, 2).'g' : null)
+                                ->placeholder('-'),
+                            TextEntry::make('receiver_label')
+                                ->label('Cawangan Perlu (sold out, pernah jual)')
+                                ->state($record->receiver_label),
+                            TextEntry::make('suggestion')
+                                ->label('Cadangan Pindahan')
+                                ->state($record->suggestion),
+                        ])
+                        ->extraModalFooterActions([
+                            static::createTransferAction(),
+                        ]),
+                    static::createTransferAction(),
+                ]),
             ])
             ->paginated([10, 25, 50, 100])
             ->searchPlaceholder('Cari kod design...');
@@ -239,6 +268,21 @@ class StockRearrangementRecommendation extends Page implements HasTable
             ->icon(Heroicon::OutlinedPlusCircle)
             ->color('success')
             ->schema(fn ($record) => [
+                // Rujukan sahaja (bukan input) - staf perlu tahu design/saiz/berat TEPAT yg
+                // dipindah sebelum sahkan, bukan cuma cawangan+kuantiti (atas permintaan
+                // eksplisit selepas modal ni ditest sebenar).
+                Grid::make(3)
+                    ->schema([
+                        Placeholder::make('design_code_info')
+                            ->label('Design')
+                            ->content($record->internal_code),
+                        Placeholder::make('size_info')
+                            ->label('Saiz')
+                            ->content($record->size),
+                        Placeholder::make('weight_info')
+                            ->label('Berat')
+                            ->content($record->weight !== null ? number_format((float) $record->weight, 2).'g' : '-'),
+                    ]),
                 Select::make('from_store')
                     ->label('Daripada Cawangan')
                     ->options(fn () => [$record->from_branch => $record->from_branch])
