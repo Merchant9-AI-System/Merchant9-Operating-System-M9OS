@@ -54,7 +54,8 @@ class StockRearrangementRecommender
 
         $meta = InventoryPiece::query()
             ->realVendor()
-            ->selectRaw('InternalCode, MAX(Description) as Description, MAX(CategoryCode) as CategoryCode, MAX(VendorCode) as VendorCode')
+            ->selectRaw('InternalCode, MAX(Description) as Description, MAX(CategoryCode) as CategoryCode, MAX(VendorCode) as VendorCode, '.
+                'MAX(JewelSize) as JewelSize, MAX(GoldWeight) as GoldWeight')
             ->groupBy('InternalCode')
             ->toBase()
             ->get()
@@ -100,6 +101,17 @@ class StockRearrangementRecommender
                 'item_desc' => $m->Description ?? '',
                 'category_name' => $categoryNames[$m->CategoryCode ?? ''] ?? ($m->CategoryCode ?? ''),
                 'vendor_name' => $vendorNames[$m->VendorCode ?? ''] ?? ($m->VendorCode ?? ''),
+                // Saiz/Berat REPRESENTATIF design ni (MAX() merentas SEMUA keping, sepadan
+                // pendekatan RestockAnalysisCalculator::computeByCategory()) - keping fizikal
+                // individu boleh beza sikit (berat khususnya), BUKAN jaminan keping tepat yg
+                // akhirnya dipindah. Ditambah atas permintaan eksplisit - leader cawangan
+                // sebelum ni cuma nampak kod design + kuantiti, x tahu saiz/berat sebenar
+                // sebelum "Cipta Transfer".
+                'size' => RestockAnalysisCalculator::sizeLabel($m->JewelSize ?? null),
+                // null (bukan 0) bila belum ditimbang lagi dlm JEMiSys (disahkan sebenar wujud
+                // - ~18% keping onHand) - "0.00g" boleh disalah anggap "berat sifar", bukan
+                // "data tiada".
+                'weight' => ((float) ($m->GoldWeight ?? 0)) > 0 ? (float) $m->GoldWeight : null,
                 'current_stock' => (int) $bestDonor->stock,
                 'reason' => $soldAtReceiver > 0
                     ? "Ada stok di {$bestDonor->StoreCode} ({$bestDonor->stock} unit), sold out di {$bestReceiver->StoreCode} (pernah jual {$soldAtReceiver}x)"

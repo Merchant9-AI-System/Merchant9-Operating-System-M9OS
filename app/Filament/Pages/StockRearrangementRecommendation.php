@@ -11,6 +11,7 @@ use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
@@ -141,6 +142,12 @@ class StockRearrangementRecommendation extends Page implements HasTable
                 TextColumn::make('to_branch')->label('To Branch')->badge()->color('danger'),
                 TextColumn::make('internal_code')->label('Design / SKU')->searchable(isIndividual: true),
                 TextColumn::make('item_desc')->label('Jenis Item')->limit(25)->searchable(isIndividual: true),
+                // Representatif design (MAX() merentas semua keping - rujuk dokblok
+                // StockRearrangementRecommender::compute()), BUKAN jaminan keping tepat yg
+                // akhirnya dipindah - leader sekurang-kurangnya nampak anggaran saiz/berat
+                // sebelum "Cipta Transfer" (sebelum ni tiada langsung).
+                TextColumn::make('size')->label('Saiz')->badge()->color('gray'),
+                TextColumn::make('weight')->label('Berat')->numeric(2)->suffix('g')->sortable()->placeholder('-'),
                 TextColumn::make('current_stock')->label('Current Stock')->numeric()->sortable(),
                 TextColumn::make('reason')->label('Reason')->wrap(),
                 TextColumn::make('priority')->label('Priority')
@@ -202,6 +209,13 @@ class StockRearrangementRecommendation extends Page implements HasTable
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('Tutup')
                     ->schema(fn ($record) => [
+                        TextEntry::make('size')
+                            ->label('Saiz')
+                            ->state($record->size),
+                        TextEntry::make('weight')
+                            ->label('Berat')
+                            ->state($record->weight !== null ? number_format((float) $record->weight, 2).'g' : null)
+                            ->placeholder('-'),
                         TextEntry::make('receiver_label')
                             ->label('Cawangan Perlu (sold out, pernah jual)')
                             ->state($record->receiver_label),
@@ -236,6 +250,7 @@ class StockRearrangementRecommendation extends Page implements HasTable
                     ->default($record->to_branch)
                     ->required(),
                 TextInput::make('qty')->label('Kuantiti')->numeric()->minValue(1)->default(1)->required(),
+                Textarea::make('notes')->label('Catatan')->maxLength(255),
             ])
             ->action(function (array $data, $record) {
                 $t = StockTransfer::create([
@@ -245,6 +260,7 @@ class StockRearrangementRecommendation extends Page implements HasTable
                     'from_store' => $data['from_store'],
                     'to_store' => $data['to_store'],
                     'qty' => $data['qty'],
+                    'notes' => $data['notes'],
                     'requested_by' => Auth::user()->name,
                 ]);
                 Notification::make()->title("Transfer {$t->transfer_number} dicipta")->success()->send();
