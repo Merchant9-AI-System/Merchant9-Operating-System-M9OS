@@ -3,7 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Models\Jemisys\InventoryPiece;
-use App\Support\RearrangeCalculator;
+use App\Support\StockRearrangementRecommender;
 use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
@@ -34,7 +34,7 @@ class ActionAlerts extends StatsOverviewWidget
             }, 800);
         });
 
-        $rearrangeCount = RearrangeCalculator::recommendations()->count();
+        $rearrangeCount = StockRearrangementRecommender::recommendations()->count();
 
         return [
             Stat::make('Best-seller Sold Out', (string) $stockoutCount)
