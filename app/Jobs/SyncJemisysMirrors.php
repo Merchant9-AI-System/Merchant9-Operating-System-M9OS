@@ -48,6 +48,20 @@ use Throwable;
  * findStoresNeedingResync()) DULU, hanya store dgn jurang >2% (ambang sama dgn PENGERASAN di
  * atas - store SIHAT padan 0% dlm ujian sebenar, store PECAH 76-100% pincang, banyak margin)
  * dipadam+disegerak SEMULA. Store yg dah lengkap TIDAK disentuh.
+ *
+ * KETAHANAN BLIP SEMENTARA (disahkan production 2026-09-07 - beberapa kegagalan SQLSTATE
+ * berbeza dlm sejam: IMSSP/HYT00/07009, semua simptom sambungan Tailscale/VPN x stabil, BUKAN
+ * bug kod): syncStoreBatch() kini dipanggil dlm retry(3, ..., 5000ms) drpd syncInventory()/
+ * resumeInventory() - satu blip sementara (mati tengah cursor(), timeout) auto cuba semula
+ * store tu SAHAJA dgn sambungan segar (DB::connection('jemisys')->reconnect()), TANPA perlu
+ * manusia perasan notifikasi & klik butang Resume. getSourceStoreCounts() turut dibungkus sama
+ * (satu titik kegagalan sebelum store-loop pun mula) - TERMASUK semakan kewarasan tambahan:
+ * kalau bilangan store dipulangkan kurang drpd TblStore cermin (bacaan separa SENYAP, tiada
+ * throw - disahkan production: satu larian "resume" log "berjaya" tapi cermin cuma 40,128
+ * baris), throw sengaja supaya retry cuba semula dgn sambungan segar drpd terima bulat-bulat
+ * data yg mungkin x lengkap. Store yg masih gagal lepas 3 percubaan tetap GAGAL SECARA JELAS
+ * (sama spt PENGERASAN di atas) - retry ni HANYA utk blip sekejap, bukan gantikan keperluan
+ * campur tangan manusia bila sambungan betul-betul putus lama.
  */
 class SyncJemisysMirrors implements ShouldQueue
 {
@@ -55,8 +69,15 @@ class SyncJemisysMirrors implements ShouldQueue
 
     public const CACHE_KEY_SYNCING = 'jemisys_mirrors_syncing';
 
-    /** 30 minit - jauh lebih besar drpd retry_after=90s queue connection 'database' lalai. */
-    public $timeout = 1800;
+    /**
+     * 3 jam - bukan sekadar cukup utk larian sihat (~25-30 minit), tapi ruang selamat utk
+     * retry(3, ...) per-store (rujuk KETAHANAN BLIP SEMENTARA di atas) bila BEBERAPA store
+     * masing-masing perlu cuba semula di bawah sambungan yg degraded, TANPA perlu dilaras
+     * semula setiap kali TblInventory membesar (~497K kini, projek boleh capai ~1juta baris).
+     * Timeout ni sekadar sempadan "betul-betul tersekat", bukan mekanisme keselamatan utama -
+     * itu peranan retry+throw+notification+Resume manual (rujuk dokblok kelas).
+     */
+    public $timeout = 10800;
 
     /** Gagal separuh jalan sepatutnya di-trigger semula bersih via butang, bukan auto-retry. */
     public $tries = 1;
@@ -181,7 +202,7 @@ class SyncJemisysMirrors implements ShouldQueue
         $total = 0;
 
         foreach ($storeCounts as $storeCode => $expectedCount) {
-            $total += $this->syncStoreBatch($storeCode, $ctx, $total, $expectedCount);
+            $total += $this->syncStoreBatchWithRetry($storeCode, $ctx, $total, $expectedCount);
         }
 
         return $total;
@@ -206,12 +227,9 @@ class SyncJemisysMirrors implements ShouldQueue
         foreach ($needsResync as $store) {
             Log::info("SyncJemisysMirrors: resume {$store['storeCode']} - sumber={$store['sourceCount']} cermin={$store['mirrorCount']} (jurang {$store['diffPercent']}%), padam & segerak semula...");
 
-            // whereRaw(LOWER(TRIM(...))) - padan padding/case StoreCode antara jadual (rujuk
-            // dokblok kelas & findStoresNeedingResync()), BUKAN ->where('StoreCode', $code)
-            // exact - baris sedia ada utk store ni boleh terpadam separuh drpd punca sync gagal.
-            InventoryMirror::whereRaw('LOWER(TRIM(StoreCode)) = ?', [mb_strtolower(trim($store['storeCode']))])->delete();
-
-            $this->syncStoreBatch($store['storeCode'], $ctx, 0, $store['sourceCount']);
+            // Padam-sedia-utk-segerak-semula kini di dlm syncStoreBatch() sendiri (baris pertama)
+            // - dikongsi dgn setiap percubaan retry() bawah, bukan diulang manual di sini.
+            $this->syncStoreBatchWithRetry($store['storeCode'], $ctx, 0, $store['sourceCount']);
         }
 
         return InventoryMirror::count();
@@ -258,16 +276,37 @@ class SyncJemisysMirrors implements ShouldQueue
      * BY dikongsi oleh syncInventory() (expectedCount semakan kewarasan) & findStoresNeedingResync()
      * (bandingan resume), elak query berulang.
      *
+     * Dibungkus retry(3, ..., 5000ms) + reconnect (rujuk dokblok KETAHANAN BLIP SEMENTARA di
+     * atas kelas) - SATU titik kegagalan sebelum store-loop pun mula. Turut sertakan semakan
+     * kewarasan: kalau bilangan store dipulangkan kurang drpd TblStore cermin (baru disegerak
+     * SEBELUM method ni dipanggil, rujuk handle()) - bacaan GROUP BY mungkin senyap separa
+     * (disahkan production 2026-09-07: satu larian "resume" log "berjaya" tapi cermin cuma
+     * 40,128 baris) - throw sengaja SUPAYA retry() anggap ni gagal & cuba semula dgn sambungan
+     * segar, drpd terima bulat-bulat data yg mungkin x lengkap sbg "kebenaran" utk keputusan
+     * store mana perlu disegerak semula.
+     *
      * @return Collection<string, int> StoreCode (raw) => kiraan baris
      */
     private function getSourceStoreCounts(): Collection
     {
-        return DB::connection('jemisys')->table('TblInventory')
-            ->selectRaw('StoreCode, COUNT(*) as c')
-            ->groupBy('StoreCode')
-            ->get()
-            ->pluck('c', 'StoreCode')
-            ->map(fn ($c) => (int) $c);
+        return retry(3, function () {
+            DB::connection('jemisys')->reconnect();
+
+            $counts = DB::connection('jemisys')->table('TblInventory')
+                ->selectRaw('StoreCode, COUNT(*) as c')
+                ->groupBy('StoreCode')
+                ->get()
+                ->pluck('c', 'StoreCode')
+                ->map(fn ($c) => (int) $c);
+
+            $expectedStoreCount = Store::count();
+
+            if ($counts->count() < $expectedStoreCount) {
+                throw new RuntimeException("getSourceStoreCounts() pulangkan {$counts->count()} store, jangka {$expectedStoreCount} - kemungkinan bacaan separa akibat gangguan sambungan.");
+            }
+
+            return $counts;
+        }, 5000);
     }
 
     /**
@@ -343,6 +382,17 @@ class SyncJemisysMirrors implements ShouldQueue
      */
     private function syncStoreBatch(string $storeCode, array $ctx, int $runningTotal, int $expectedCount): int
     {
+        // Padam baris sedia ada utk store ni DULU (rujuk dokblok KETAHANAN BLIP SEMENTARA di
+        // atas kelas) - no-op pd percubaan pertama mod PENUH (jadual dah truncate()) & pd
+        // percubaan pertama resume (findStoresNeedingResync() dah confirm store ni x lengkap),
+        // tapi WAJIB pd sebarang percubaan retry() KEDUA/KETIGA - tanpa ni, baris yg dah commit
+        // drpd percubaan gagal sebelumnya akan berganda dgn baris baharu percubaan ni.
+        InventoryMirror::whereRaw('LOWER(TRIM(StoreCode)) = ?', [mb_strtolower(trim($storeCode))])->delete();
+
+        // Sambungan 'jemisys' mungkin dah "mati" (handle PDO/ODBC rosak) drpd kegagalan
+        // percubaan sebelumnya - paksa sambungan SEGAR drpd percaya ia sembuh sendiri.
+        DB::connection('jemisys')->reconnect();
+
         $storeTotal = 0;
         $rowsSinceCommit = 0;
 
@@ -418,5 +468,22 @@ class SyncJemisysMirrors implements ShouldQueue
         }
 
         return $storeTotal;
+    }
+
+    /**
+     * Bungkusan retry(3, ..., 5000ms) drpd syncStoreBatch() (rujuk dokblok KETAHANAN BLIP
+     * SEMENTARA di atas kelas) - 5s backoff (bukan konvensyen retry(6, ..., 800) yg dipakai
+     * kalkulator lain dlm app/ utk toleransi lock SQLite tempatan) sbb ni blip rangkaian VPN,
+     * perlukan lebih masa utk pulih, bukan lebih banyak percubaan pantas.
+     */
+    private function syncStoreBatchWithRetry(string $storeCode, array $ctx, int $runningTotal, int $expectedCount): int
+    {
+        return retry(3, function (int $attempt) use ($storeCode, $ctx, $runningTotal, $expectedCount) {
+            if ($attempt > 1) {
+                Log::warning("SyncJemisysMirrors: cubaan #{$attempt} segerak {$storeCode} (percubaan sebelum gagal - cuba semula dgn sambungan segar)...");
+            }
+
+            return $this->syncStoreBatch($storeCode, $ctx, $runningTotal, $expectedCount);
+        }, 5000);
     }
 }
