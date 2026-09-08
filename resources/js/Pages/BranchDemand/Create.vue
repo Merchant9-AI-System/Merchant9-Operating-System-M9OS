@@ -74,11 +74,19 @@ interface AuthUser {
     store_code: string | null;
 }
 
+// Bentuk prop Inertia::scroll() (rujuk BranchDemandEntryController::restockSuggestionsPaginator()
+// & protokol "Infinite Scroll" Inertia) - cuma { data: T[] }, metadata pagination (hasMore/dll)
+// diurus SENDIRI oleh <InfiniteScroll> via scrollProps (bukan sesuatu Vue perlu baca terus).
+interface ScrollProp<T> {
+    data: T[];
+}
+
 const props = defineProps<{
     stores: StoreOption[];
     categories: CategoryOption[];
     initialStoreCode?: string | null;
     authUser?: AuthUser | null;
+    restockSuggestions: ScrollProp<RestockSuggestion>;
 }>();
 
 const page = usePage<{ flash: { success: string | null } }>();
@@ -890,7 +898,7 @@ function submit() {
             <div class="lg:sticky lg:top-8 lg:self-start lg:max-w-[600px] col-span-1 overflow-hidden">
                 <RestockSuggestions :store-code="form.store_code || null" :gold-types="goldTypes"
                     :weight-ranges="weightRanges" :size-ranges="sizeRanges" :category-codes="categoryCodes"
-                    @add="addFromSuggestion" />
+                    :restock-suggestions="restockSuggestions" @add="addFromSuggestion" />
             </div>
         </div>
 

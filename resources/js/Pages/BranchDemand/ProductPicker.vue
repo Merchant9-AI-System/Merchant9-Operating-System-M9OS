@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Globe, ImageUp, Loader2, X } from '@lucide/vue';
+import { Globe, ImageUp, Loader2, Search, X } from '@lucide/vue';
 import { ref, watch } from 'vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -55,6 +55,11 @@ const query = ref(props.modelValue);
 const results = ref<ProductSearchResult[]>([]);
 const open = ref(false);
 const loading = ref(false);
+// "Muat Lagi" (rujuk BranchDemandEntryController::search() dokblok "MUAT LAGI") - hasMore drpd
+// respons server, loadingMore state BERASINGAN drpd `loading` (list SEDIA ADA kekal dipaparkan
+// semasa "Muat Lagi" berjalan, bukan digantikan mesej "Mencari..." spt carian baharu).
+const hasMore = ref(false);
+const loadingMore = ref(false);
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 const webResults = ref<WebSearchResult[]>([]);
@@ -73,6 +78,7 @@ watch(query, (value) => {
 
     if (value.trim().length < 2 || !props.storeCode) {
         results.value = [];
+        hasMore.value = false;
         open.value = false;
 
         return;
@@ -94,16 +100,26 @@ watch(
     { deep: true },
 );
 
-async function fetchResults(value: string) {
+// append=false (carian baharu/pertama, offset=0) GANTI `results`; append=true ("Muat Lagi",
+// offset=results.value.length) TAMBAH kpd `results` sedia ada - rujuk loadMore() bawah.
+async function fetchResults(value: string, append = false) {
     if (!props.storeCode) {
         return;
     }
 
-    loading.value = true;
-    open.value = true;
+    if (append) {
+        loadingMore.value = true;
+    } else {
+        loading.value = true;
+        open.value = true;
+    }
 
     try {
-        const params = new URLSearchParams({ q: value, store_code: props.storeCode });
+        const params = new URLSearchParams({
+            q: value,
+            store_code: props.storeCode,
+            offset: append ? String(results.value.length) : '0',
+        });
         (props.goldTypes ?? []).forEach((v) => params.append('gold_types[]', v));
         (props.weightRanges ?? []).forEach((v) => params.append('weight_ranges[]', v));
         (props.sizeRanges ?? []).forEach((v) => params.append('size_ranges[]', v));
@@ -112,10 +128,24 @@ async function fetchResults(value: string) {
         const response = await fetch(`/branch-demand/search?${params.toString()}`, {
             headers: { Accept: 'application/json' },
         });
-        results.value = response.ok ? await response.json() : [];
+        const data = response.ok ? await response.json() : { results: [], has_more: false };
+        results.value = append ? [...results.value, ...data.results] : data.results;
+        hasMore.value = data.has_more;
     } finally {
-        loading.value = false;
+        if (append) {
+            loadingMore.value = false;
+        } else {
+            loading.value = false;
+        }
     }
+}
+
+function loadMore() {
+    if (loadingMore.value || !hasMore.value) {
+        return;
+    }
+
+    fetchResults(query.value, true);
 }
 
 function select(result: ProductSearchResult) {
@@ -182,9 +212,8 @@ function onBlur() {
                 <X class="size-4" />
                 <span class="sr-only">Buang carian</span>
             </Button>
-    
-            <Button v-if="storeCode && !disabled" type="button"
-                @mousedown.prevent="selectManual">
+
+            <Button v-if="storeCode && !disabled" type="button" @mousedown.prevent="selectManual">
                 <ImageUp class="size-3.5" />
                 Manual Upload?
             </Button>
@@ -207,7 +236,7 @@ function onBlur() {
                 <div class="min-w-0 flex-1">
                     <p class="truncate font-medium">{{ result.internal_code }}</p>
                     <p class="truncate text-muted-foreground">{{ result.description }} &middot; {{ result.category_name
-                    }}</p>
+                        }}</p>
                     <p v-if="result.nickname" class="truncate text-xs italic text-muted-foreground">
                         a.k.a. "{{ result.nickname }}"
                     </p>
@@ -225,9 +254,24 @@ function onBlur() {
                 </span>
             </button>
 
+            <!-- <div class="p-2"> -->
+                <button v-if="hasMore && !loading" type="button" :disabled="loadingMore"
+                    class="flex w-full items-center justify-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-primary hover:bg-accent disabled:opacity-60 cursor-pointer"
+                    @mousedown.prevent="loadMore">
+                    <div v-if="loadingMore">
+                        <Loader2 class="size-3.5 animate-spin" />
+                    </div>
+                    <div v-else>
+                        <Search class="size-3.5" />
+                    </div>
+                    {{ loadingMore ? 'Memuatkan...' : 'Muat Lagi' }}
+                </button>
+            <!-- </div> -->
+
             <div v-if="!loading && query.trim().length >= 2" class="border-t p-2">
                 <Button v-if="!webSearched" type="button" variant="ghost" size="sm"
-                    class="w-full justify-start text-muted-foreground hover:text-blue-700" @mousedown.prevent="searchWebsite">
+                    class="w-full justify-start text-muted-foreground hover:text-blue-700"
+                    @mousedown.prevent="searchWebsite">
                     <Globe class="size-3.5" />
                     Tak jumpa? Cari di laman web merchant9.com
                 </Button>

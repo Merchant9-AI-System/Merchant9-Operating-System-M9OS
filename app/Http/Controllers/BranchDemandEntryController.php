@@ -41,6 +41,9 @@ class BranchDemandEntryController extends Controller
     /** Tempoh sah utk cadangan restock - kunci dihantar drpd dropdown RestockSuggestions.vue. */
     protected const RESTOCK_PERIODS = ['1w', '1m', '3m', '6m', '1y'];
 
+    /** Saiz "halaman" infinite scroll - rujuk restockSuggestionsPaginator() dokblok penuh. */
+    protected const RESTOCK_PAGE_SIZE = 15;
+
     /** Kategori "bar" - dikecualikan drpd cadangan restock bila berat >100g (rujuk restockSuggestions()). */
     protected const BAR_CATEGORY_CODES = ['BAR', 'GB', 'SILBAR'];
 
@@ -94,6 +97,12 @@ class BranchDemandEntryController extends Controller
                 'name' => $authUser->name,
                 'store_code' => filled($authUser->store_code) ? trim($authUser->store_code) : null,
             ] : null,
+            // Inertia::scroll() - infinite scroll (rujuk RestockSuggestions.vue <InfiniteScroll>
+            // & restockSuggestionsPaginator() dokblok penuh bawah) - closure ni dinilai MALAS,
+            // hanya bila prop 'restockSuggestions' benar2 diminta (muatan penuh AWAL ATAU partial
+            // reload router.reload({only:['restockSuggestions']}) lepas cawangan/tempoh/tapisan
+            // ditukar), bukan setiap kali create() dipanggil.
+            'restockSuggestions' => Inertia::scroll(fn () => $this->restockSuggestionsPaginator($request)),
         ]);
     }
 
@@ -258,19 +267,37 @@ class BranchDemandEntryController extends Controller
      *
      * Imej DIBAWA BALIK dlm dropdown (per staf punya keperluan visual) - had keputusan dikecilkan
      * drpd 20 ke 8 utk kekalkan kos ProductImageFetcher (~800ms/kod bila cache sejuk) terkawal.
+     *
+     * MUAT LAGI (rujuk ProductPicker.vue loadMore()) - fetch() manual + $offset, BUKAN
+     * Inertia::scroll() spt restockSuggestionsPaginator(): dropdown ni tercetus setiap ketukan
+     * kekunci (debounced 300ms), carian BAHARU perlu GANTI hasil (offset=0), sementara "Muat
+     * Lagi" perlu TAMBAH kpd hasil sedia ada bagi carian YG SAMA - overhead protokol Inertia
+     * (versioning/page-prop bookkeeping) setiap ketukan tak berbaloi drpd fetch() ringkas.
+     * Bentuk respons kini {results: [...], has_more: bool} (BUKAN array mentah spt asal) -
+     * ProductPicker.vue baca .results & .has_more, bukan response terus sbg array.
      */
     public function search(Request $request)
     {
         $data = $request->validate([
             'q' => ['required', 'string', 'min:2'],
             'store_code' => ['required', 'string'],
-            ...$this->productFilterRules(),
+            // offset - rujuk butang "Muat Lagi" ProductPicker.vue (loadMore()), 0 lalai (carian
+            // baharu/pertama). BUKAN Inertia::scroll() spt restockSuggestions() - dropdown carian
+            // ni tercetus setiap ketukan kekunci (debounced), bukan senarai boleh-skrol, jadi
+            // fetch() ringkas + offset manual cukup, tanpa overhead protokol Inertia per-ketukan.
+            'offset' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $store = $this->resolveStore($data['store_code']);
         $search = trim($data['q']);
         $noDash = str_replace('-', '', $search);
-        $limit = 8;
+        $pageSize = 8;
+        $offset = (int) ($data['offset'] ?? 0);
+        // Bajet SUMBER mentah lebih besar drpd $pageSize - benarkan "Muat Lagi" slice halaman
+        // SETERUSNYA drpd set gabungan/dedupe YANG SAMA (rujuk $internalCodes bawah), bukan
+        // hantar semula query prefix InternalCode/InventoryCode dgn limit lebih tinggi setiap
+        // kali (tak konsisten - urutan/keahlian set boleh berubah antara permintaan).
+        $searchBudget = 40;
 
         $codePrefixes = array_unique(array_filter([$search, $noDash]));
 
@@ -293,7 +320,7 @@ class BranchDemandEntryController extends Controller
             })
             ->tap(fn ($q) => $this->applyProductFilters($q, $data))
             ->distinct()
-            ->limit($limit)
+            ->limit($searchBudget)
             ->pluck('InternalCode')
             ->map(fn ($code) => trim((string) $code));
 
@@ -317,7 +344,7 @@ class BranchDemandEntryController extends Controller
                 })
                 ->tap(fn ($q) => $this->applyProductFilters($q, $data))
                 ->distinct()
-                ->limit($limit)
+                ->limit($searchBudget)
                 ->pluck('InternalCode')
                 ->map(fn ($code) => trim((string) $code));
         }
@@ -374,13 +401,18 @@ class BranchDemandEntryController extends Controller
                 ->map(fn ($code) => trim((string) $code))->unique();
         }
 
-        $internalCodes = $codeMatches->merge($categoryMatches)->merge($descriptionMatches)->merge($nicknameMatches)
+        // TIADA ->take() di sini lagi (dulu terus potong ke $limit) - kekalkan set PENUH gabungan/
+        // dedupe (had drpd $searchBudget setiap sumber di atas) supaya "Muat Lagi" boleh slice()
+        // halaman SETERUSNYA drpd set YANG SAMA konsisten, bukan re-query dgn keahlian berbeza.
+        $allMatches = $codeMatches->merge($categoryMatches)->merge($descriptionMatches)->merge($nicknameMatches)
             ->unique()
-            ->take($limit)
             ->values();
 
+        $hasMore = $allMatches->count() > $offset + $pageSize;
+        $internalCodes = $allMatches->slice($offset, $pageSize)->values();
+
         if ($internalCodes->isEmpty()) {
-            return response()->json([]);
+            return response()->json(['results' => [], 'has_more' => false]);
         }
 
         // Satu query metadata (Description/CategoryCode) + SATU query stok (bukan N query
@@ -402,21 +434,24 @@ class BranchDemandEntryController extends Controller
 
         $categoryNames = Category::pluck('Description', 'CategoryCode');
 
-        return response()->json($internalCodes->map(function ($code) use ($meta, $stockByCode, $categoryNames) {
-            $trimmedCode = trim($code);
-            $row = $meta->get($trimmedCode);
+        return response()->json([
+            'results' => $internalCodes->map(function ($code) use ($meta, $stockByCode, $categoryNames) {
+                $trimmedCode = trim($code);
+                $row = $meta->get($trimmedCode);
 
-            return [
-                'internal_code' => $trimmedCode,
-                'description' => $row?->Description ?? '',
-                'category_name' => $categoryNames[$row?->CategoryCode ?? ''] ?? '',
-                'current_stock' => $stockByCode[$trimmedCode] ?? 0,
-                'size' => filled($row?->JewelSize) ? trim((string) $row->JewelSize) : null,
-                'weight' => $row?->GoldWeight !== null ? (float) $row->GoldWeight : null,
-                'nickname' => $row?->nickname,
-                'image_url' => ProductImageFetcher::firstImageUrlFor($trimmedCode),
-            ];
-        })->values());
+                return [
+                    'internal_code' => $trimmedCode,
+                    'description' => $row?->Description ?? '',
+                    'category_name' => $categoryNames[$row?->CategoryCode ?? ''] ?? '',
+                    'current_stock' => $stockByCode[$trimmedCode] ?? 0,
+                    'size' => filled($row?->JewelSize) ? trim((string) $row->JewelSize) : null,
+                    'weight' => $row?->GoldWeight !== null ? (float) $row->GoldWeight : null,
+                    'nickname' => $row?->nickname,
+                    'image_url' => ProductImageFetcher::firstImageUrlFor($trimmedCode),
+                ];
+            })->values(),
+            'has_more' => $hasMore,
+        ]);
     }
 
     /** Imej SATU design - guna bebas drpd search() (cth. paparan lain yg cuma ada kod, tiada hasil carian). */
@@ -480,18 +515,32 @@ class BranchDemandEntryController extends Controller
      *   design yg tiada mana2 drpd tiga ni tak berguna dipaparkan (staf x dpt nilai visual/fizikal
      *   sblm minta stok).
      *
+     * INFINITE SCROLL (Inertia::scroll(), rujuk create() & RestockSuggestions.vue
+     * <InfiniteScroll>) - GANTIKAN endpoint JSON `restockSuggestions()` asal (had tetap 30,
+     * fetch() mentah). simplePaginate() (bukan paginate()) - query GROUP BY di bawah jadikan
+     * COUNT(*) keseluruhan (diperlukan LengthAwarePaginator penuh) mahal/rumit; infinite scroll
+     * cuma perlukan hasMorePages() (LIMIT pageSize+1), bukan jumlah keseluruhan.
+     *
      * Imej TAK BOLEH disemak terus dlm SQL (scrape luaran merchant9.com via ProductImageFetcher,
-     * rujuk nota performance kelas tsb) - ambil BATCH mentah lebih drpd limit (90 drpd 30 sasaran),
-     * lepas tu iterate SATU-SATU (guna cache 1-hari sedia ada) sehingga cukup 30 ATAU batch habis -
-     * ELAK semak kesemua 90 tanpa henti awal (boleh sampai puluhan saat kalau semua cache sejuk).
+     * rujuk nota performance kelas tsb) - baris TANPA imej digugurkan SELEPAS pagination (bukan
+     * di-null-kan), jadi satu "halaman" scroll kadangkala pulangkan kurang drpd RESTOCK_PAGE_SIZE
+     * item (selamat - InfiniteScroll akan minta halaman seterusnya bila pengguna scroll lagi,
+     * hasMorePages() ditentukan drpd kiraan baris SUMBER, bukan baki lepas tapisan imej).
      */
-    public function restockSuggestions(Request $request)
+    protected function restockSuggestionsPaginator(Request $request)
     {
         $data = $request->validate([
-            'store_code' => ['required', 'string'],
+            'store_code' => ['nullable', 'string'],
             'period' => ['nullable', 'string', 'in:'.implode(',', self::RESTOCK_PERIODS)],
             ...$this->productFilterRules(),
         ]);
+
+        // Belum ada cawangan dipilih (muatan halaman AWAL sblm staf pilih apa2) - paginator
+        // kosong, BUKAN error - RestockSuggestions.vue papar "Pilih cawangan dahulu" drpd
+        // keadaan client (form.store_code), bukan drpd bentuk prop ni.
+        if (empty($data['store_code'])) {
+            return InventoryPiece::query()->whereRaw('1 = 0')->simplePaginate(self::RESTOCK_PAGE_SIZE);
+        }
 
         $store = $this->resolveStore($data['store_code']);
 
@@ -520,46 +569,62 @@ class BranchDemandEntryController extends Controller
 
         $this->applyProductFilters($query, $data);
 
-        $limit = 30;
-        $rawCandidates = $query
+        // Paksa m/s 1 pd lawatan PENUH (X-Inertia-Partial-Data TIADA - bukan router.reload({only:
+        // [...]})) - elak `page` LAPUK dlm query string URL (cth. staf scroll jauh sesi lepas,
+        // page tsb tersegerak ke URL oleh <InfiniteScroll>, kemudian browser di-refresh/dibookmark)
+        // terus dipakai semula pd sesi/tapisan yg BERBEZA. Kalau ADA header tsb & sertakan
+        // 'restockSuggestions', ni SAMA ADA sambungan scroll SAH (page= diminta InfiniteScroll
+        // sendiri) ATAU reset tapisan drpd RestockSuggestions.vue (yg SENTIASA hantar page=1
+        // eksplisit, rujuk dokblok watch() tsb) - dua2 kes selamat pakai resolver lalai (query
+        // 'page'), null di bawah.
+        $page = str_contains((string) $request->header('X-Inertia-Partial-Data'), 'restockSuggestions')
+            ? null
+            : 1;
+
+        $paginator = $query
             ->selectRaw('InternalCode, MAX(Description) as Description, MAX(CategoryCode) as CategoryCode, MAX(JewelSize) as JewelSize, MAX(GoldWeight) as GoldWeight, COUNT(*) as qty_sold')
             ->groupBy('InternalCode')
             ->orderByDesc('qty_sold')
-            ->limit($limit * 3)
-            ->get();
+            // Tie-breaker WAJIB - MySQL TAK jamin susunan stabil antara baris qty_sold SAMA
+            // merentasi query LIMIT/OFFSET BERASINGAN (setiap "halaman" scroll ialah query
+            // baharu) - tanpa ni, InternalCode boleh terulang ATAU terlepas antara halaman.
+            ->orderBy('InternalCode')
+            ->simplePaginate(self::RESTOCK_PAGE_SIZE, ['*'], 'page', $page);
 
         $categoryNames = Category::pluck('Description', 'CategoryCode');
-        $results = collect();
 
-        foreach ($rawCandidates as $row) {
-            if ($results->count() >= $limit) {
-                break;
-            }
+        // setCollection() (bukan through()) - through() cuma MAP setiap baris, x boleh BUANG
+        // baris terus; filter() lepas map() perlukan koleksi diganti balik ke paginator.
+        $paginator->setCollection(
+            $paginator->getCollection()
+                ->map(function ($row) use ($store, $categoryNames) {
+                    $imageUrl = ProductImageFetcher::firstImageUrlFor($row->InternalCode);
 
-            $imageUrl = ProductImageFetcher::firstImageUrlFor($row->InternalCode);
+                    if (! $imageUrl) {
+                        return null;
+                    }
 
-            if (! $imageUrl) {
-                continue;
-            }
+                    $stock = InventoryPiece::where('InternalCode', $row->InternalCode)
+                        ->where('StoreCode', $store->StoreCode)
+                        ->onHand()
+                        ->count();
 
-            $stock = InventoryPiece::where('InternalCode', $row->InternalCode)
-                ->where('StoreCode', $store->StoreCode)
-                ->onHand()
-                ->count();
+                    return [
+                        'internal_code' => trim($row->InternalCode),
+                        'description' => $row->Description,
+                        'category_name' => $categoryNames[$row->CategoryCode ?? ''] ?? '',
+                        'current_stock' => $stock,
+                        'qty_sold' => (int) $row->qty_sold,
+                        'size' => trim((string) $row->JewelSize),
+                        'weight' => (float) $row->GoldWeight,
+                        'image_url' => $imageUrl,
+                    ];
+                })
+                ->filter()
+                ->values()
+        );
 
-            $results->push([
-                'internal_code' => trim($row->InternalCode),
-                'description' => $row->Description,
-                'category_name' => $categoryNames[$row->CategoryCode ?? ''] ?? '',
-                'current_stock' => $stock,
-                'qty_sold' => (int) $row->qty_sold,
-                'size' => trim((string) $row->JewelSize),
-                'weight' => (float) $row->GoldWeight,
-                'image_url' => $imageUrl,
-            ]);
-        }
-
-        return response()->json($results->values());
+        return $paginator;
     }
 
     public function store(Request $request)
