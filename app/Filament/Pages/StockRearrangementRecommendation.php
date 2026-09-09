@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Store;
+use App\Models\StockRearrangementStop;
 use App\Models\StockTransfer;
 use App\Support\ProductImageFetcher;
 use App\Support\StockRearrangementRecommender;
@@ -98,6 +99,18 @@ class StockRearrangementRecommendation extends Page implements HasTable
                     mb_strtolower(trim((string) $r['from_branch'])).'|'.
                     mb_strtolower(trim((string) $r['to_branch']))
                 ));
+
+                // Buang design dgn stop/request AKTIF (Pending ATAU Approved, BUKAN Rejected) -
+                // GLOBAL merentas SEMUA cawangan/pasangan from->to (beza drpd $activeTransferKeys
+                // atas, yg keyed internal_code+from+to) - rujuk StockRearrangementStop::
+                // ACTIVE_STATUSES & butang "Stop Rearrange/Request" (stopRearrangeAction() bawah).
+                // Berkuat kuasa SERTA MERTA lepas cipta (status Pending), TIADA tunggu Lulus.
+                $stoppedCodes = StockRearrangementStop::whereIn('status', StockRearrangementStop::ACTIVE_STATUSES)
+                    ->pluck('internal_code')
+                    ->map(fn ($c) => mb_strtolower(trim((string) $c)))
+                    ->flip();
+
+                $all = $all->reject(fn ($r) => $stoppedCodes->has(mb_strtolower(trim((string) $r['internal_code']))));
 
                 if ($fromBranch = $filters['from_branch']['value'] ?? null) {
                     $all = $all->where('from_branch', $fromBranch);
@@ -253,8 +266,10 @@ class StockRearrangementRecommendation extends Page implements HasTable
                         ])
                         ->extraModalFooterActions([
                             static::createTransferAction(),
+                            static::stopRearrangeAction(),
                         ]),
                     static::createTransferAction(),
+                    static::stopRearrangeAction(),
                 ]),
             ])
             ->paginated([10, 25, 50, 100])
@@ -314,6 +329,48 @@ class StockRearrangementRecommendation extends Page implements HasTable
                     'requested_by' => Auth::user()->name,
                 ]);
                 Notification::make()->title("Transfer {$t->transfer_number} dicipta")->success()->send();
+            });
+    }
+
+    private static function stopRearrangeAction(): Action
+    {
+        return Action::make('stopRearrange')
+            ->label('Stop Rearrange/Request')
+            ->icon(Heroicon::OutlinedNoSymbol)
+            ->color('danger')
+            // 'Create:StockRearrangementStop' - permission STANDARD sedia ada (bukan custom
+            // baharu), sbb tindakan ni cuma StockRearrangementStop::create() - sama corak dgn
+            // createTransferAction() guna semula 'Create:StockTransfer'.
+            ->visible(fn () => (bool) Auth::user()?->can('Create:StockRearrangementStop'))
+            ->modalHeading(fn ($record) => "Stop Rearrange/Request: {$record->internal_code}")
+            ->modalDescription('Design ini akan disorok drpd Cadangan Rearrange SEMUA cawangan serta-merta. Boleh "Tolak" kemudian utk kembalikan design ke senarai.')
+            ->schema(fn ($record) => [
+                Grid::make(3)
+                    ->schema([
+                        Placeholder::make('design_code_info')
+                            ->label('Design')
+                            ->content($record->internal_code),
+                        Placeholder::make('size_info')
+                            ->label('Saiz')
+                            ->content($record->size),
+                        Placeholder::make('weight_info')
+                            ->label('Berat')
+                            ->content($record->weight !== null ? number_format((float) $record->weight, 2).'g' : '-'),
+                    ]),
+                Textarea::make('reason')->label('Sebab / Catatan')->required()->rows(3)->maxLength(1000),
+            ])
+            ->action(function (array $data, $record) {
+                $s = StockRearrangementStop::create([
+                    'internal_code' => $record->internal_code,
+                    'item_desc' => $record->item_desc,
+                    'reason' => $data['reason'],
+                    'requested_by' => Auth::user()->name,
+                ]);
+                Notification::make()
+                    ->title("Stop/Request {$s->internal_code} dicipta")
+                    ->body('Design ni akan disorok drpd cadangan Rearrange (SEMUA cawangan) serta merta, sehingga ditolak (Reject).')
+                    ->success()
+                    ->send();
             });
     }
 }

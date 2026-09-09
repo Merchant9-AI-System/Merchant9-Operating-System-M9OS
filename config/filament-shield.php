@@ -236,6 +236,8 @@ return [
         'Approve:PhysicalGoldReport',
         'Advance:StockTransfer',
         'Cancel:StockTransfer',
+        'Approve:StockRearrangementStop',
+        'Reject:StockRearrangementStop',
     ],
 
     /*
