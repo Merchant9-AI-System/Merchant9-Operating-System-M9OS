@@ -267,6 +267,12 @@ class StockRearrangementRecommendation extends Page implements HasTable
             ->label('Cipta Transfer')
             ->icon(Heroicon::OutlinedPlusCircle)
             ->color('success')
+            // 'Create:StockTransfer' - permission STANDARD sedia ada (bukan custom baharu),
+            // sbb tindakan ni cuma StockTransfer::create() dgn muka lain (rujuk ->action()
+            // bawah) - sama corak dgn ViewBranchDemandRequest guna semula 'Update:
+            // BranchDemandRequest' utk tindakan bukan-CRUD-standard yg pd hakikatnya cuma
+            // "kemaskini rekod". Guna semula elak percambahan permission utk semantik SAMA.
+            ->visible(fn () => (bool) Auth::user()?->can('Create:StockTransfer'))
             ->schema(fn ($record) => [
                 // Rujukan sahaja (bukan input) - staf perlu tahu design/saiz/berat TEPAT yg
                 // dipindah sebelum sahkan, bukan cuma cawangan+kuantiti (atas permintaan
