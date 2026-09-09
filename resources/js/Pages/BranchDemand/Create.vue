@@ -6,13 +6,14 @@ import ImagePreview from '@/components/ImagePreview.vue';
 import { Badge } from '@/components/ui/badge';
 import { ButtonGroup } from '@/components/ui/button-group';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NumberField, NumberFieldContent, NumberFieldDecrement, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field';
 import { SelectNative } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import ActiveFilterBadges from './ActiveFilterBadges.vue';
 import ProductFilters from './ProductFilters.vue';
 import ProductPicker, { type ProductSearchResult, type WebSearchResult } from './ProductPicker.vue';
 import RestockSuggestions, { type RestockSuggestion } from './RestockSuggestions.vue';
@@ -621,18 +622,22 @@ function submit() {
                         <CardTitle class="flex items-center gap-2 text-base">
                             <Search class="size-4" />Cari &amp; Tambah Item
                         </CardTitle>
-                    </CardHeader>
-                    <CardContent class="flex flex-col gap-3">
-                        <div class="space-y-4">
+                        <CardAction>
                             <ProductFilters :categories="categories" v-model:gold-types="goldTypes"
                                 v-model:weight-ranges="weightRanges" v-model:size-ranges="sizeRanges"
                                 v-model:category-codes="categoryCodes" />
-
-                            <ProductPicker v-model="searchQuery" :store-code="form.store_code || null"
-                                :gold-types="goldTypes" :weight-ranges="weightRanges" :size-ranges="sizeRanges"
-                                :category-codes="categoryCodes" @select="onSelect" @select-web="onSelectWeb"
-                                @select-manual="onSelectManual" />
-                        </div>
+                        </CardAction>
+                    </CardHeader>
+                    <CardContent class="flex flex-col gap-3">
+                        <ActiveFilterBadges :categories="categories" v-model:gold-types="goldTypes"
+                            v-model:weight-ranges="weightRanges" v-model:size-ranges="sizeRanges"
+                            v-model:category-codes="categoryCodes" />
+                        <!-- <div class="space-y-4"> -->
+                        <ProductPicker v-model="searchQuery" :store-code="form.store_code || null"
+                            :gold-types="goldTypes" :weight-ranges="weightRanges" :size-ranges="sizeRanges"
+                            :category-codes="categoryCodes" @select="onSelect" @select-web="onSelectWeb"
+                            @select-manual="onSelectManual" />
+                        <!-- </div> -->
 
                         <div v-if="stagedItem"
                             class="flex flex-col gap-3 rounded-md border border-muted-background border-dashed p-3">

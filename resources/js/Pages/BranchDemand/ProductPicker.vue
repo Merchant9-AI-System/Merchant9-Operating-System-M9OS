@@ -262,7 +262,7 @@ function onBlur() {
 
             <!-- class="flex w-full items-center rounded-md justify-center gap-2 px-3 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-info hover:bg-accent disabled:opacity-60 cursor-pointer" -->
             <div v-if="hasMore" class="p-2">
-                <Button v-if="hasMore && !loading" type="button" :disabled="loadingMore" @mousedown.prevent="loadMore" size="sm" variant="ghost" class="w-full text-muted-foreground hover:text-primary">
+                <Button v-if="hasMore && !loading" type="button" :disabled="loadingMore" @mousedown.prevent="loadMore" size="sm" class="w-full text-muted-foreground hover:text-primary">
                     <div v-if="loadingMore">
                         <Loader2 class="size-3.5 animate-spin" />
                     </div>
