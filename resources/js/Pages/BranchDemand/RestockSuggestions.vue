@@ -130,7 +130,7 @@ watch(
                  staf (rujuk perbincangan pengguna: infinite scroll vs butang "Load More" - dua2
                  mekanisme SAMA, cuma pencetus berbeza; InfiniteScroll Inertia sokong kedua2 serentak). -->
             <ScrollArea v-else class="h-[min(500px,calc(100vh-14rem))]">
-                <InfiniteScroll data="restockSuggestions" as="div" class="flex flex-col gap-2 pr-3" :manual-after="2">
+                <InfiniteScroll data="restockSuggestions" as="div" class="flex flex-col gap-2 pr-3" :manual-after="1">
                     <div v-for="item in restockSuggestions.data" :key="item.internal_code"
                         class="flex items-center gap-3 rounded-md border p-2 text-sm">
                         <ImagePreview :src="item.image_url" :alt="item.description" class="size-10" />
@@ -166,16 +166,18 @@ watch(
                     </div>
 
                     <template #next="{ loading: loadingMore, fetch, hasMore }">
-                        <Button v-if="hasMore" size="sm" class="w-full mt-2" :disabled="loadingMore"
-                            @click="fetch">
-                            <div v-if="loadingMore">
-                                <Loader2 class="size-3.5 animate-spin" />
-                            </div>
-                            <div v-else>
-                                <Search class="size-3.5" />
-                            </div>
-                            {{ loadingMore ? 'Memuatkan...' : 'Muat Lagi' }}
-                        </Button>
+                        <div class="mt-2 pr-3">
+                            <Button v-if="hasMore" size="sm" class="w-full" :disabled="loadingMore"
+                                @click="fetch">
+                                <div v-if="loadingMore">
+                                    <Loader2 class="size-3.5 animate-spin" />
+                                </div>
+                                <div v-else>
+                                    <Search class="size-3.5" />
+                                </div>
+                                {{ loadingMore ? 'Memuatkan...' : 'Muat Lagi' }}
+                            </Button>
+                        </div>
                     </template>
                 </InfiniteScroll>
             </ScrollArea>

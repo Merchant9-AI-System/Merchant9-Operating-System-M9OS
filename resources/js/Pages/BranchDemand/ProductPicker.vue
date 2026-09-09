@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Globe, ImageUp, Loader2, Search, X } from '@lucide/vue';
+import { Globe, ImageUp, Loader2, Search, SearchX, X } from '@lucide/vue';
 import { ref, watch } from 'vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -204,14 +204,20 @@ function onBlur() {
 <template>
     <div class="relative">
         <div class="flex items-center gap-2">
-            <Input v-model="query" :disabled="disabled || !storeCode"
-                :placeholder="storeCode ? 'Cari kod design, keterangan atau kategori...' : 'Pilih cawangan dahulu'"
-                class="pr-8" autocomplete="off" @focus="open = results.length > 0" @blur="onBlur" />
-            <Button v-show="query.length > 0 && !loading && !disabled" type="button" variant="ghost" size="icon"
-                class="absolute right-1 top-1 size-7" @click="clear">
-                <X class="size-4" />
-                <span class="sr-only">Buang carian</span>
-            </Button>
+            <!-- relative DISENDIRIKAN kpd Input+X sahaja (bukan kongsi dgn div.relative luar,
+                 yg turut merangkumi butang "Manual Upload?") - tanpa ni, right-1 absolute pd
+                 butang X anchor ke tepi KANAN keseluruhan baris (termasuk Manual Upload),
+                 bertindih terus dgn butang tsb bila query ada teks (disahkan sebenar). -->
+            <div class="relative flex-1">
+                <Input v-model="query" :disabled="disabled || !storeCode"
+                    :placeholder="storeCode ? 'Cari kod design, keterangan atau kategori...' : 'Pilih cawangan dahulu'"
+                    class="pr-8" autocomplete="off" @focus="open = results.length > 0" @blur="onBlur" />
+                <Button v-show="query.length > 0 && !loading && !disabled" type="button" variant="ghost" size="icon"
+                    class="absolute right-1 top-1 size-7" @click="clear">
+                    <X class="size-4" />
+                    <span class="sr-only">Buang carian</span>
+                </Button>
+            </div>
 
             <Button v-if="storeCode && !disabled" type="button" @mousedown.prevent="selectManual">
                 <ImageUp class="size-3.5" />
@@ -224,8 +230,8 @@ function onBlur() {
             <p v-if="loading" class="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
                 <Loader2 class="size-3.5 animate-spin" /> Mencari...
             </p>
-            <p v-else-if="results.length === 0" class="px-3 py-2 text-sm text-muted-foreground">
-                Tiada hasil dijumpai.
+            <p v-else-if="results.length === 0" class="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+                <SearchX class="size-3.5" /> Tiada hasil dijumpai.
             </p>
             <button v-for="result in results" :key="result.internal_code" type="button"
                 class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-accent"
@@ -254,10 +260,9 @@ function onBlur() {
                 </span>
             </button>
 
-            <!-- <div class="p-2"> -->
-                <button v-if="hasMore && !loading" type="button" :disabled="loadingMore"
-                    class="flex w-full items-center justify-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-primary hover:bg-accent disabled:opacity-60 cursor-pointer"
-                    @mousedown.prevent="loadMore">
+            <!-- class="flex w-full items-center rounded-md justify-center gap-2 px-3 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-info hover:bg-accent disabled:opacity-60 cursor-pointer" -->
+            <div v-if="hasMore" class="p-2">
+                <Button v-if="hasMore && !loading" type="button" :disabled="loadingMore" @mousedown.prevent="loadMore" size="sm" variant="ghost" class="w-full text-muted-foreground hover:text-primary">
                     <div v-if="loadingMore">
                         <Loader2 class="size-3.5 animate-spin" />
                     </div>
@@ -265,8 +270,8 @@ function onBlur() {
                         <Search class="size-3.5" />
                     </div>
                     {{ loadingMore ? 'Memuatkan...' : 'Muat Lagi' }}
-                </button>
-            <!-- </div> -->
+                </Button>
+            </div>
 
             <div v-if="!loading && query.trim().length >= 2" class="border-t p-2">
                 <Button v-if="!webSearched" type="button" variant="ghost" size="sm"
@@ -282,7 +287,10 @@ function onBlur() {
 
                 <template v-else>
                     <div v-if="webResults.length === 0" class="flex flex-col gap-1.5 px-1 py-1">
-                        <p class="text-sm text-muted-foreground">Tiada hasil di laman web juga.</p>
+                        <SearchX class="size-3.5" />
+                        <p class="text-sm text-muted-foreground">
+                            Tiada hasil di laman web juga.
+                        </p>
                         <Button type="button" variant="secondary" size="sm" class="w-full justify-start"
                             @mousedown.prevent="selectManual">
                             <ImageUp class="size-3.5" /> Muat naik gambar sendiri
