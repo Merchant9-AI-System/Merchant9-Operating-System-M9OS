@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NumberField, NumberFieldContent, NumberFieldDecrement, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { SelectNative } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import ActiveFilterBadges from './ActiveFilterBadges.vue';
@@ -36,6 +37,10 @@ interface LineItem {
     // Toggle staf cawangan - menentukan fulfillment_status AWAL line di server (rujuk
     // BranchDemandRequestLine::FULFILLMENT_STOK_KRITIKAL), bukan lajur berasingan.
     is_critical: boolean;
+    // Bila line ni DITAMBAH ke senarai (client-side, ISO string) - line BAHARU blm wujud di DB
+    // (rujuk dokblok interface), jadi TIADA created_at sebenar drpd server lagi spt ExistingLine
+    // - ditetapkan sendiri di sini semata2 utk paparan "Senarai Item" (rujuk formatCreatedAt()).
+    created_at: string;
 }
 
 // Item SEDIA ADA drpd rekod BranchDemandRequest TERKINI cawangan (satu SAHAJA per cawangan,
@@ -50,10 +55,12 @@ interface ExistingLine {
     qty_requested: number;
     size: string | null;
     weight: string | null;
+    remark: string | null;
     category_name: string | null;
     line_status: string;
     fulfillment_status: string;
     fulfillment_label: string;
+    created_at: string;
 }
 
 interface StoreOption {
@@ -240,6 +247,46 @@ const confirmSubmitLabel = computed(() => (hasExistingRequest.value ? 'Simpan & 
 const FULFILLMENT_TERMINAL = ['dah_delivery', 'rearrange', 'item_not_available'];
 const isTerminal = (status: string) => FULFILLMENT_TERMINAL.includes(status);
 
+// Semak pendua drpd permintaan SEDIA ADA cawangan (existingLines, BUKAN form.lines - batch
+// staging semasa dah ada gabung senyap sendiri drpd internal_code, rujuk addStagedToList()/
+// addFromSuggestion() bawah) - dipanggil drpd carian & Cadangan Restock SEBELUM item ditambah
+// (rujuk keperluan pengguna: amaran+sahkan, bukan block terus/senyap). HANYA padan line yg
+// BUKAN terminal (rujuk isTerminal() atas) - line yg dah selesai (dah_delivery/rearrange/
+// item_not_available) memang sepatutnya boleh diminta semula tanpa amaran (sama spt
+// requestAgain() sedia ada, TIADA amaran di situ pun).
+//
+// Padanan UTAMA ikut kod design (internal_code) - paling boleh dipercayai. Line 'web'/'upload'
+// (rujuk LineItem dokblok) TIADA internal_code boleh dipercayai, jadi fallback ke keterangan
+// (item_desc, tertrim+huruf kecil) bila SATU² pihak (line sedia ada ATAU item baharu) tiada kod.
+function findActiveExistingMatch(internalCode: string | null, description: string): ExistingLine | undefined {
+    const trimmedDesc = description.trim().toLowerCase();
+
+    return existingLines.value.find((line) => {
+        if (isTerminal(line.fulfillment_status)) {
+            return false;
+        }
+
+        if (internalCode && line.internal_code) {
+            return line.internal_code === internalCode;
+        }
+
+        return trimmedDesc.length > 0 && (line.item_desc ?? '').trim().toLowerCase() === trimmedDesc;
+    });
+}
+
+// Amaran+sahkan (rujuk findActiveExistingMatch() dokblok atas) - `proceed` simpan tindakan
+// SEBENAR (push/gabung ke form.lines) yg ditangguh sehingga staf sahkan dlm dialog.
+const duplicateWarning = ref<{ existing: ExistingLine; proceed: () => void } | null>(null);
+
+function confirmDuplicateProceed() {
+    duplicateWarning.value?.proceed();
+    duplicateWarning.value = null;
+}
+
+function cancelDuplicateWarning() {
+    duplicateWarning.value = null;
+}
+
 // Warna badge progress - sama corak/warna dgn RequestList.vue (dibuang) & BranchDemandRequestLine::FULFILLMENT_COLORS.
 function fulfillmentBadgeClass(status: string) {
     return {
@@ -254,6 +301,18 @@ function fulfillmentBadgeClass(status: string) {
         order: 'bg-warning/15 text-warning-foreground',
         item_not_available: 'bg-destructive/15 text-destructive',
     }[status] ?? 'bg-muted text-muted-foreground';
+}
+
+// Format "Senarai Item" (line.created_at/ExistingLine.created_at) - cth. "Rabu, 09/09/2026".
+// Nama hari Bahasa Malaysia (padan bahasa UI keseluruhan borang ni), DD/MM/YYYY.
+const MALAY_DAYS = ['Ahad', 'Isnin', 'Selasa', 'Rabu', 'Khamis', 'Jumaat', 'Sabtu'];
+
+function formatCreatedAt(iso: string): string {
+    const d = new Date(iso);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+
+    return `${MALAY_DAYS[d.getDay()]}, ${dd}/${mm}/${d.getFullYear()}`;
 }
 
 // Klik "+" pd item sedia ada yg dah TAMAT (dimmed) - minta semula, terus tambah 1 unit sbg
@@ -281,6 +340,7 @@ function requestAgain(line: ExistingLine) {
         category_name: line.category_name,
         source_type: line.source_type,
         is_critical: false,
+        created_at: new Date().toISOString(),
     });
 }
 
@@ -297,6 +357,7 @@ function onSelect(result: ProductSearchResult) {
         category_name: result.category_name || null,
         source_type: 'catalog',
         is_critical: false,
+        created_at: new Date().toISOString(),
     };
 }
 
@@ -313,6 +374,7 @@ function onSelectWeb(result: WebSearchResult) {
         category_name: result.category_label,
         source_type: 'web',
         is_critical: false,
+        created_at: new Date().toISOString(),
     };
 }
 
@@ -332,6 +394,7 @@ function onSelectManual(descriptionHint: string) {
         category_name: null,
         source_type: 'upload',
         is_critical: false,
+        created_at: new Date().toISOString(),
     };
 }
 
@@ -351,6 +414,22 @@ const canAddStaged = computed(() => {
 
 function addStagedToList() {
     if (!stagedItem.value || !canAddStaged.value) {
+        return;
+    }
+
+    const match = findActiveExistingMatch(stagedItem.value.internal_code, stagedItem.value.item_desc);
+
+    if (match) {
+        duplicateWarning.value = { existing: match, proceed: commitStagedToList };
+
+        return;
+    }
+
+    commitStagedToList();
+}
+
+function commitStagedToList() {
+    if (!stagedItem.value) {
         return;
     }
 
@@ -481,6 +560,18 @@ async function onLineImagePick(event: Event, index: number) {
 // Cadangan restock (klik "+") - tambah TERUS ke senarai (bukan ke staging Seksyen 1) - kalau
 // design tu dah ada dlm senarai, tambah kuantiti sahaja drpd baris berganda.
 function addFromSuggestion(item: RestockSuggestion) {
+    const match = findActiveExistingMatch(item.internal_code, item.description);
+
+    if (match) {
+        duplicateWarning.value = { existing: match, proceed: () => commitFromSuggestion(item) };
+
+        return;
+    }
+
+    commitFromSuggestion(item);
+}
+
+function commitFromSuggestion(item: RestockSuggestion) {
     const existing = form.lines.find((l) => l.internal_code === item.internal_code);
 
     if (existing) {
@@ -501,6 +592,7 @@ function addFromSuggestion(item: RestockSuggestion) {
         category_name: item.category_name || null,
         source_type: 'catalog',
         is_critical: false,
+        created_at: new Date().toISOString(),
     });
 }
 
@@ -568,9 +660,9 @@ function submit() {
     <div class="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-8">
         <div class="flex items-start justify-between gap-3">
             <div>
-                <h1 class="text-xl font-semibold tracking-tight">Permintaan Stok Cawangan</h1>
+                <h1 class="text-xl font-semibold tracking-tight">Permintaan Stok Cawangan Kepada HQ</h1>
                 <p class="text-sm text-muted-foreground">
-                    Pilih cawangan anda, kemudian cari item yang diperlukan.
+                    Cari item yang diperlukan untuk permintaan stok.
                 </p>
             </div>
         </div>
@@ -650,7 +742,7 @@ function submit() {
                                             <span v-if="stagedItem.internal_code">{{ stagedItem.internal_code }}
                                                 -</span>
                                             <span v-if="stagedItem.source_type !== 'upload'">{{ stagedItem.item_desc
-                                            }}</span>
+                                                }}</span>
                                             <Badge v-if="stagedItem.source_type === 'web'" variant="outline"
                                                 class="text-xs">
                                                 Laman Web
@@ -668,7 +760,7 @@ function submit() {
                                             class="text-xs text-muted-foreground">
                                             Stok semasa cawangan anda: <span class="font-medium">{{
                                                 stagedItem.current_stock
-                                            }} unit</span>
+                                                }} unit</span>
                                         </p>
                                         <p v-else class="text-xs text-muted-foreground">
                                             Kod design blm disahkan - HQ akan padankan ke stok sebenar semasa semakan.
@@ -746,139 +838,168 @@ function submit() {
                             {{ form.errors.lines }}
                         </p>
 
-                        <p v-if="existingLines.length > 0 && form.lines.length > 0"
-                            class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            Item Baharu
-                        </p>
-                        <div v-for="(line, index) in form.lines" :key="index"
-                            class="flex flex-col gap-3 bg-muted rounded-xl border p-3">
-                            <div class="flex items-center gap-3">
-                                <ImagePreview :src="line.image_url" :alt="line.item_desc" class="size-11 rounded-lg" />
-                                <div class="min-w-0 flex-1">
-                                    <p class="flex flex-wrap items-center gap-1.5 truncate font-medium">
-                                        <span v-if="line.internal_code">{{ line.internal_code }} -</span>
-                                        {{ line.item_desc }}
-                                        <Badge v-if="line.source_type === 'web'" variant="outline"
-                                            class="text-xs bg-white">
-                                            Laman Web
-                                        </Badge>
-                                        <Badge v-if="line.source_type === 'upload'" variant="outline"
-                                            class="text-xs bg-white">
-                                            Gambar Sendiri
-                                        </Badge>
-                                        <Badge v-if="line.is_critical" variant="destructive" class="gap-1 text-xs">
-                                            <AlertTriangle class="size-3" /> Kritikal
-                                        </Badge>
-                                    </p>
-                                    <p v-if="line.size || line.weight" class="truncate text-xs text-muted-foreground">
-                                        <span v-if="line.size">Saiz {{ line.size }}</span>
-                                        <span v-if="line.size && line.weight"> &middot; </span>
-                                        <span v-if="line.weight">{{ line.weight }}g</span>
-                                    </p>
-                                    <p v-if="line.remark" class="truncate text-sm text-muted-foreground">{{ line.remark
-                                    }}
-                                    </p>
-                                </div>
-                                <NumberField v-model="line.qty_requested" :min="1" class="w-28 shrink-0 bg-white">
-                                    <NumberFieldContent>
-                                        <NumberFieldDecrement />
-                                        <NumberFieldInput class="h-8" />
-                                        <NumberFieldIncrement />
-                                    </NumberFieldContent>
-                                </NumberField>
-                                <div class="flex flex-col items-start gap-8">
-                                    <ButtonGroup>
-                                        <Button type="button" variant="outline" size="sm" @click="toggleEdit(index)">
-                                            <Pencil class="size-3.5" />
-                                            <span class="sr-only">Sunting item</span>
-                                        </Button>
-                                        <Button type="button" variant="destructive" size="sm"
-                                            @click="removeLine(index)">
-                                            <Trash2 class="size-3" />
-                                            <span class="sr-only">Buang</span>
-                                        </Button>
-                                    </ButtonGroup>
-                                </div>
-                            </div>
-
-                            <div v-if="editingIndex === index"
-                                class="grid gap-3 border-t px-3 py-3 rounded-md sm:grid-cols-2 bg-white">
-                                <div class="sm:col-span-2">
-                                    <Label class="mb-1.5 block">Keterangan</Label>
-                                    <Input v-model="line.item_desc" />
-                                </div>
-                                <div>
-                                    <Label class="mb-1.5 block">Saiz</Label>
-                                    <Input v-model="line.size" placeholder="cth. 17.5" />
-                                </div>
-                                <div>
-                                    <Label class="mb-1.5 block">Berat (g)</Label>
-                                    <Input v-model="line.weight" placeholder="cth. 2.50" />
-                                </div>
-                                <div class="sm:col-span-2">
-                                    <Label class="mb-1.5 block">Remark (pilihan)</Label>
-                                    <Input v-model="line.remark" placeholder="cth. warna, saiz khas..." />
-                                </div>
-                                <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
-                                    <Button type="button" :variant="line.is_critical ? 'destructive' : 'outline'"
-                                        size="sm" @click="line.is_critical = !line.is_critical">
-                                        <AlertTriangle class="size-3.5" />
-                                        {{ line.is_critical ? 'Kritikal' : 'Tanda Kritikal' }}
-                                    </Button>
-                                    <Button type="button" variant="outline" size="sm"
-                                        v-if="line.source_type === 'upload'" :disabled="uploadingLineImage"
-                                        @click="lineFileInput?.click()">
-                                        <Loader2 v-if="uploadingLineImage" class="size-3.5 animate-spin" />
-                                        <Upload v-else class="size-3.5" />
-                                        Ganti Gambar
-                                    </Button>
-                                    <input ref="lineFileInput" type="file" accept="image/png,image/jpeg,image/webp"
-                                        class="hidden" @change="onLineImagePick($event, index)">
-                                </div>
-                                <p v-if="lineImageError" class="text-xs text-destructive sm:col-span-2">{{
-                                    lineImageError }}</p>
-                            </div>
-                        </div>
-
-                        <p v-if="existingLines.length > 0 && form.lines.length > 0"
-                            class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            Item Sedia Ada{{ existingRequestNumber ? ` (${existingRequestNumber})` : '' }}
-                        </p>
-                        <div v-for="line in existingLines" :key="`existing-${line.id}`"
-                            class="flex items-center gap-3 rounded-xl border border-dashed border-muted-background p-3"
-                            :class="isTerminal(line.fulfillment_status) ? 'opacity-50' : 'bg-muted/50'">
-                            <ImagePreview :src="line.image_url" :alt="line.item_desc" class="size-11 rounded-lg" />
-                            <div class="min-w-0 flex-1">
-                                <p class="flex flex-wrap items-center gap-1.5 truncate font-medium">
-                                    <span v-if="line.internal_code">{{ line.internal_code }} -</span>
-                                    {{ line.item_desc }}
-                                    <Badge v-if="line.source_type === 'web'" variant="outline" class="text-xs bg-white">
-                                        Laman Web
-                                    </Badge>
-                                    <Badge v-if="line.source_type === 'upload'" variant="outline"
-                                        class="text-xs bg-white">
-                                        Gambar Sendiri
-                                    </Badge>
+                        <!-- Tinggi terhad, dikunci relatif viewport (min(...), sama corak dgn
+                             RestockSuggestions.vue) supaya senarai TIDAK PERNAH lebih tinggi drpd
+                             skrin yg boleh nampak - skrol DALAM panel sahaja bila item banyak. -->
+                        <ScrollArea v-if="form.lines.length > 0 || existingLines.length > 0"
+                            class="h-[min(500px,calc(100vh-14rem))]">
+                            <div class="flex flex-col gap-1 pr-3">
+                                <p v-if="existingLines.length > 0 && form.lines.length > 0"
+                                    class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                    Item Baharu
                                 </p>
-                                <p class="truncate text-xs font-medium text-muted-foreground">
-                                    {{ isTerminal(line.fulfillment_status) ? 'Selesai' : `Diminta:
-                                    ${line.qty_requested}` }}
-                                    &middot;
-                                    <span
-                                        :class="`rounded-full px-1.5 py-0.5 font-medium ${fulfillmentBadgeClass(line.fulfillment_status)}`">
+                                <div v-for="(line, index) in form.lines" :key="index"
+                                    class="flex flex-col gap-3 bg-muted rounded-xl border p-3 mt-2">
+                                    <div class="flex items-center gap-3">
+                                        <ImagePreview :src="line.image_url" :alt="line.item_desc"
+                                            class="size-11 rounded-lg" />
+                                        <div class="min-w-0 flex-1">
+                                            <p class="flex flex-wrap items-center gap-1.5 truncate font-medium">
+                                                <span v-if="line.internal_code">{{ line.internal_code }} -</span>
+                                                {{ line.item_desc }}
+                                                <Badge v-if="line.source_type === 'web'" variant="outline"
+                                                    class="text-xs bg-white">
+                                                    Laman Web
+                                                </Badge>
+                                                <Badge v-if="line.source_type === 'upload'" variant="outline"
+                                                    class="text-xs bg-white">
+                                                    Gambar Sendiri
+                                                </Badge>
+                                                <Badge v-if="line.is_critical" variant="destructive"
+                                                    class="gap-1 text-xs">
+                                                    <AlertTriangle class="size-3" /> Kritikal
+                                                </Badge>
+                                            </p>
+                                            <p v-if="line.size || line.weight"
+                                                class="truncate text-xs text-muted-foreground">
+                                                <span v-if="line.size">Saiz {{ line.size }}</span>
+                                                <span v-if="line.size && line.weight"> &middot; </span>
+                                                <span v-if="line.weight">{{ line.weight }}g</span>
+                                            </p>
+                                            <p v-if="line.remark" class="truncate text-sm text-muted-foreground">{{
+                                                line.remark
+                                                }}
+                                            </p>
+                                            <p class="text-xs text-muted-foreground">{{ formatCreatedAt(line.created_at)
+                                                }}</p>
+                                        </div>
+                                        <NumberField v-model="line.qty_requested" :min="1"
+                                            class="w-28 shrink-0 bg-white">
+                                            <NumberFieldContent>
+                                                <NumberFieldDecrement />
+                                                <NumberFieldInput class="h-8" />
+                                                <NumberFieldIncrement />
+                                            </NumberFieldContent>
+                                        </NumberField>
+                                        <div class="flex flex-col items-start gap-8">
+                                            <ButtonGroup>
+                                                <Button type="button" variant="outline" size="sm"
+                                                    @click="toggleEdit(index)">
+                                                    <Pencil class="size-3.5" />
+                                                    <span class="sr-only">Sunting item</span>
+                                                </Button>
+                                                <Button type="button" variant="destructive" size="sm"
+                                                    @click="removeLine(index)">
+                                                    <Trash2 class="size-3" />
+                                                    <span class="sr-only">Buang</span>
+                                                </Button>
+                                            </ButtonGroup>
+                                        </div>
+                                    </div>
+
+                                    <div v-if="editingIndex === index"
+                                        class="grid gap-3 border-t px-3 py-3 rounded-md sm:grid-cols-2 bg-white">
+                                        <div class="sm:col-span-2">
+                                            <Label class="mb-1.5 block">Keterangan</Label>
+                                            <Input v-model="line.item_desc" />
+                                        </div>
+                                        <div>
+                                            <Label class="mb-1.5 block">Saiz</Label>
+                                            <Input v-model="line.size" placeholder="cth. 17.5" />
+                                        </div>
+                                        <div>
+                                            <Label class="mb-1.5 block">Berat (g)</Label>
+                                            <Input v-model="line.weight" placeholder="cth. 2.50" />
+                                        </div>
+                                        <div class="sm:col-span-2">
+                                            <Label class="mb-1.5 block">Remark (pilihan)</Label>
+                                            <Input v-model="line.remark" placeholder="cth. warna, saiz khas..." />
+                                        </div>
+                                        <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
+                                            <Button type="button"
+                                                :variant="line.is_critical ? 'destructive' : 'outline'" size="sm"
+                                                @click="line.is_critical = !line.is_critical">
+                                                <AlertTriangle class="size-3.5" />
+                                                {{ line.is_critical ? 'Kritikal' : 'Tanda Kritikal' }}
+                                            </Button>
+                                            <Button type="button" variant="outline" size="sm"
+                                                v-if="line.source_type === 'upload'" :disabled="uploadingLineImage"
+                                                @click="lineFileInput?.click()">
+                                                <Loader2 v-if="uploadingLineImage" class="size-3.5 animate-spin" />
+                                                <Upload v-else class="size-3.5" />
+                                                Ganti Gambar
+                                            </Button>
+                                            <input ref="lineFileInput" type="file"
+                                                accept="image/png,image/jpeg,image/webp" class="hidden"
+                                                @change="onLineImagePick($event, index)">
+                                        </div>
+                                        <p v-if="lineImageError" class="text-xs text-destructive sm:col-span-2">{{
+                                            lineImageError }}</p>
+                                    </div>
+                                </div>
+
+                                <p v-if="existingLines.length > 0 && form.lines.length > 0"
+                                    class="text-xs font-medium uppercase tracking-wide text-muted-foreground mt-2">
+                                    Item Sedia Ada{{ existingRequestNumber ? ` (${existingRequestNumber})` : '' }}
+                                </p>
+                                <div v-for="line in existingLines" :key="`existing-${line.id}`"
+                                    class="flex items-center gap-4 rounded-xl border border-dashed border-muted-background p-3 mt-2"
+                                    :class="isTerminal(line.fulfillment_status) ? 'opacity-50' : 'bg-muted/50'">
+                                    <ImagePreview :src="line.image_url" :alt="line.item_desc"
+                                        class="size-11 rounded-lg" />
+                                    <div class="min-w-0 flex-1">
+                                        <p class="flex flex-wrap items-center gap-1.5 truncate font-medium">
+                                            <span v-if="line.internal_code">{{ line.internal_code }} -</span>
+                                            {{ line.item_desc }}
+                                            <Badge v-if="line.source_type === 'web'" variant="outline"
+                                                class="text-xs bg-white">
+                                                Laman Web
+                                            </Badge>
+                                            <Badge v-if="line.source_type === 'upload'" variant="outline"
+                                                class="text-xs bg-white">
+                                                Gambar Sendiri
+                                            </Badge>
+                                        </p>
+                                        <p class="truncate text-xs font-medium text-muted-foreground">
+                                            {{ isTerminal(line.fulfillment_status) ? 'Selesai' : `Diminta:
+                                            ${line.qty_requested}` }}
+                                            <span v-if="line.size || line.weight"
+                                                class="truncate text-xs text-muted-foreground">
+                                                &middot;
+                                                <span v-if="line.size">Saiz {{ line.size }}</span>
+                                                <span v-if="line.size && line.weight"> &middot; </span>
+                                                <span v-if="line.weight">Berat {{ line.weight }}g</span>
+                                            </span>
+                                        </p>
+                                        <p v-if="line.remark" class="truncate text-sm text-muted-foreground">{{
+                                            line.remark }}</p>
+                                        <p class="text-xs text-muted-foreground">{{ formatCreatedAt(line.created_at) }}
+                                        </p>
+                                    </div>
+                                    <Badge variant="secondary"
+                                        :class="`text-xs shrink-0 font-medium ${fulfillmentBadgeClass(line.fulfillment_status)}`">
+                                        <!-- {{ isTerminal(line.fulfillment_status) ? 0 : line.qty_requested }} unit -->
                                         {{ line.fulfillment_label }}
-                                    </span>
-                                </p>
+                                    </Badge>
+                                    <Button v-if="isTerminal(line.fulfillment_status)"
+                                        :class="isTerminal(line.fulfillment_status) ? 'text-primary' : ''" type="button"
+                                        variant="outline" size="icon" class="shrink-0" @click="requestAgain(line)">
+                                        <Plus class="size-4" />
+                                        <span class="sr-only">Minta semula</span>
+                                    </Button>
+                                </div>
                             </div>
-                            <span class="shrink-0 font-medium">
-                                {{ isTerminal(line.fulfillment_status) ? 0 : line.qty_requested }} unit
-                            </span>
-                            <Button v-if="isTerminal(line.fulfillment_status)" type="button" variant="outline"
-                                size="icon" class="shrink-0" @click="requestAgain(line)">
-                                <Plus class="size-4" />
-                                <span class="sr-only">Minta semula</span>
-                            </Button>
-                        </div>
+                        </ScrollArea>
                     </CardContent>
                 </Card>
 
@@ -958,6 +1079,31 @@ function submit() {
                     <Button :disabled="form.processing" @click="submit">
                         {{ form.processing ? 'Menghantar...' : confirmSubmitLabel }}
                     </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        <!-- Amaran pendua (rujuk findActiveExistingMatch() dokblok) - tercetus dari carian
+             (addStagedToList) & Cadangan Restock (addFromSuggestion) bila design sepadan dgn
+             line SEDIA ADA cawangan yg masih AKTIF (belum terminal). -->
+        <Dialog :open="duplicateWarning !== null" @update:open="(v) => { if (!v) cancelDuplicateWarning(); }">
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Design Sudah Diminta</DialogTitle>
+                    <DialogDescription v-if="duplicateWarning">
+                        <span class="font-medium text-foreground">
+                            <template v-if="duplicateWarning.existing.internal_code">
+                                {{ duplicateWarning.existing.internal_code }} -
+                            </template>{{ duplicateWarning.existing.item_desc }}
+                        </span>
+                        sudah ada dlm permintaan semasa cawangan ini ({{ duplicateWarning.existing.qty_requested }}
+                        unit, status "{{ duplicateWarning.existing.fulfillment_label }}"). Teruskan tambah lagi?
+                    </DialogDescription>
+                </DialogHeader>
+
+                <DialogFooter>
+                    <Button variant="outline" @click="cancelDuplicateWarning">Batal</Button>
+                    <Button @click="confirmDuplicateProceed">Teruskan</Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

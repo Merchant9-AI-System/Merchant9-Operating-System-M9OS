@@ -131,20 +131,28 @@ class BranchDemandEntryController extends Controller
             // done_at ditanda BO drpd AllBranchDemandLinesTable ("Selesai") - line tsb disorok
             // dari sini (SAMA spt disorok drpd widget ringkasan HQ), berasingan drpd
             // fulfillment_status (progress) yg kekal x berubah - rujuk widget tsb dokblok.
-            'lines' => $branchDemandRequest?->lines()->whereNull('done_at')->get()->map(fn ($l) => [
-                'id' => $l->id,
-                'internal_code' => $l->internal_code,
-                'item_desc' => $l->item_desc,
-                'source_type' => $l->source_type,
-                'image_url' => $l->image_url,
-                'qty_requested' => $l->qty_requested,
-                'size' => $l->size,
-                'weight' => $l->weight,
-                'category_name' => $l->category_name,
-                'line_status' => $l->line_status,
-                'fulfillment_status' => $l->fulfillment_status,
-                'fulfillment_label' => $l->fulfillment_label,
-            ])->values() ?? [],
+            // orderByDesc('created_at') - terbaharu DULU (rujuk keperluan pengguna), bukan lalai
+            // MySQL tanpa ORDER BY (kebetulan urutan id/insertion, TIDAK dijamin). orderByDesc('id')
+            // KEDUA sbg tie-breaker - disahkan production: line dlm hantaran SAMA (cth. beberapa
+            // item ditambah sekali gus) kongsi created_at SAMA ke saat, tanpa ni urutan antara
+            // mereka jatuh balik ke gelagat kebetulan MySQL.
+            'lines' => $branchDemandRequest?->lines()->whereNull('done_at')
+                ->orderByDesc('created_at')->orderByDesc('id')->get()->map(fn ($l) => [
+                    'id' => $l->id,
+                    'internal_code' => $l->internal_code,
+                    'item_desc' => $l->item_desc,
+                    'source_type' => $l->source_type,
+                    'image_url' => $l->image_url,
+                    'qty_requested' => $l->qty_requested,
+                    'size' => $l->size,
+                    'weight' => $l->weight,
+                    'remark' => $l->remark,
+                    'category_name' => $l->category_name,
+                    'line_status' => $l->line_status,
+                    'fulfillment_status' => $l->fulfillment_status,
+                    'fulfillment_label' => $l->fulfillment_label,
+                    'created_at' => $l->created_at?->toIso8601String(),
+                ])->values() ?? [],
         ]);
     }
 
