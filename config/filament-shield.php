@@ -234,6 +234,8 @@ return [
 
     'custom_permissions' => [
         'Approve:PhysicalGoldReport',
+        'Advance:StockTransfer',
+        'Cancel:StockTransfer',
     ],
 
     /*

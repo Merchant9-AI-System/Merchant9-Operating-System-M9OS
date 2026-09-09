@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace App\Policies;
 
-use Illuminate\Foundation\Auth\User as AuthUser;
 use App\Models\StockTransfer;
 use Illuminate\Auth\Access\HandlesAuthorization;
+use Illuminate\Foundation\Auth\User as AuthUser;
 
 class StockTransferPolicy
 {
     use HandlesAuthorization;
-    
+
     public function viewAny(AuthUser $authUser): bool
     {
         return $authUser->can('ViewAny:StockTransfer');
@@ -72,4 +72,13 @@ class StockTransferPolicy
         return $authUser->can('Reorder:StockTransfer');
     }
 
+    public function advance(AuthUser $authUser, StockTransfer $stockTransfer): bool
+    {
+        return $authUser->can('Advance:StockTransfer');
+    }
+
+    public function cancel(AuthUser $authUser, StockTransfer $stockTransfer): bool
+    {
+        return $authUser->can('Cancel:StockTransfer');
+    }
 }

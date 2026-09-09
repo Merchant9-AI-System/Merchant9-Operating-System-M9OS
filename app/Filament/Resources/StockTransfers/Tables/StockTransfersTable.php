@@ -59,9 +59,12 @@ class StockTransfersTable
                     ->icon('heroicon-o-arrow-right-circle')
                     ->color('primary')
                     ->requiresConfirmation()
+                    // Status DAN kebenaran (rujuk StockTransferPolicy::advance(), permission
+                    // 'Advance:StockTransfer' - corak sama dgn 'Approve:PhysicalGoldReport') -
+                    // dua2 syarat perlu benar, bukan status sahaja spt sebelum ni.
                     ->visible(fn (StockTransfer $record) => in_array($record->status, [
                         StockTransfer::STATUS_REQUESTED, StockTransfer::STATUS_IN_TRANSIT,
-                    ], true))
+                    ], true) && (bool) Auth::user()?->can('advance', $record))
                     ->action(function (StockTransfer $record) {
                         $record->advance(Auth::user()->name);
                         Notification::make()->title("Transfer {$record->transfer_number} -> {$record->fresh()->status}")->success()->send();
@@ -72,8 +75,11 @@ class StockTransfersTable
                     ->icon('heroicon-o-x-circle')
                     ->color('danger')
                     ->requiresConfirmation()
+                    // Status DAN kebenaran (rujuk StockTransferPolicy::cancel(), permission
+                    // 'Cancel:StockTransfer') - sama corak dgn 'advance' di atas.
                     ->visible(fn (StockTransfer $record) => $record->status !== StockTransfer::STATUS_RECEIVED
-                        && $record->status !== StockTransfer::STATUS_CANCELLED)
+                        && $record->status !== StockTransfer::STATUS_CANCELLED
+                        && (bool) Auth::user()?->can('cancel', $record))
                     ->action(function (StockTransfer $record) {
                         $record->cancel();
                         Notification::make()->title("Transfer {$record->transfer_number} dibatalkan")->danger()->send();
