@@ -2,6 +2,8 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Widgets\ActiveStockRearrangementStopsTable;
+use App\Filament\Widgets\ActiveStockTransfersTable;
 use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Store;
 use App\Models\StockRearrangementStop;
@@ -30,6 +32,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Component;
 
 /**
  * CEO Dashboard Phase 1 (E) - versi RINGKAS drpd cadangan rearrange, berasingan drpd page
@@ -66,6 +69,14 @@ class StockRearrangementRecommendation extends Page implements HasTable
     {
         return 'Rule ringkas: design ada stok di Cawangan A, sold out di Cawangan B -> cadang pindah A ke B. '.
             'Boleh cipta transfer terus drpd sini (View utk butiran, atau Cipta Transfer terus).';
+    }
+
+    protected function getFooterWidgets(): array
+    {
+        return [
+            ActiveStockTransfersTable::class,
+            ActiveStockRearrangementStopsTable::class,
+        ];
     }
 
     public function table(Table $table): Table
@@ -317,7 +328,7 @@ class StockRearrangementRecommendation extends Page implements HasTable
                 TextInput::make('qty')->label('Kuantiti')->numeric()->minValue(1)->default(1)->required(),
                 Textarea::make('notes')->label('Catatan')->maxLength(255),
             ])
-            ->action(function (array $data, $record) {
+            ->action(function (array $data, $record, Component $livewire) {
                 $t = StockTransfer::create([
                     'internal_code' => $record->internal_code,
                     'item_desc' => $record->item_desc,
@@ -329,6 +340,11 @@ class StockRearrangementRecommendation extends Page implements HasTable
                     'requested_by' => Auth::user()->name,
                 ]);
                 Notification::make()->title("Transfer {$t->transfer_number} dicipta")->success()->send();
+                // Refresh footer widget "Item Yang Dah Ada Stock Transfer"/"...Stop Rearrange"
+                // SERTA-MERTA - widget tu Livewire component BERASINGAN drpd page ni, jadi
+                // render semula page TAK auto refresh dia, perlu event terus (rujuk listener
+                // #[On(...)] kat ActiveStockTransfersTable/ActiveStockRearrangementStopsTable).
+                $livewire->dispatch('rearrangement-lists-updated');
             });
     }
 
@@ -359,7 +375,7 @@ class StockRearrangementRecommendation extends Page implements HasTable
                     ]),
                 Textarea::make('reason')->label('Sebab / Catatan')->required()->rows(3)->maxLength(1000),
             ])
-            ->action(function (array $data, $record) {
+            ->action(function (array $data, $record, Component $livewire) {
                 $s = StockRearrangementStop::create([
                     'internal_code' => $record->internal_code,
                     'item_desc' => $record->item_desc,
@@ -371,6 +387,7 @@ class StockRearrangementRecommendation extends Page implements HasTable
                     ->body('Design ni akan disorok drpd cadangan Rearrange (SEMUA cawangan) serta merta, sehingga ditolak (Reject).')
                     ->success()
                     ->send();
+                $livewire->dispatch('rearrangement-lists-updated');
             });
     }
 }
