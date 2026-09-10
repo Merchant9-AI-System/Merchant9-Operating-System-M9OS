@@ -1,10 +1,20 @@
 <script setup lang="ts">
 import { Globe, ImageUp, Loader2, Search, SearchX, X } from '@lucide/vue';
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import {
+    Command,
+    CommandDialog,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from '@/components/ui/command';
 import { cn } from '@/lib/utils';
+import type { RestockSuggestion } from './RestockSuggestions.vue';
+import Input from '@/components/ui/input/Input.vue';
 
 export interface ProductSearchResult {
     internal_code: string;
@@ -39,6 +49,11 @@ const props = defineProps<{
     weightRanges?: string[];
     sizeRanges?: string[];
     categoryCodes?: string[];
+    // Cadangan Restock (sidebar RestockSuggestions.vue, sumber SAMA) - dipaparkan sbg cadangan
+    // AWAL bila dialog carian baru dibuka/teks dikosongkan (query kosong), supaya staf terus
+    // nampak apa yg PALING perlu direstock tanpa perlu taip dulu. Opsyenal - kalau parent tak
+    // hantar, sekadar tiada cadangan awal (carian remote tetap berfungsi macam biasa).
+    restockSuggestions?: RestockSuggestion[];
 }>();
 
 const emit = defineEmits<{
@@ -50,6 +65,25 @@ const emit = defineEmits<{
     // (jika ada) sbg cadangan keterangan awal, supaya apa yg staf dah taip tak hilang sia-sia.
     (e: 'selectManual', descriptionHint: string): void;
 }>();
+
+// 6 item PALING perlu direstock (stok 0) drpd Cadangan Restock - cadangan awal bila carian
+// kosong (rujuk template, gated `query.trim().length === 0`).
+const defaultSuggestions = computed(() => (props.restockSuggestions ?? [])
+    .filter((r) => r.current_stock === 0)
+    .slice(0, 6));
+
+function selectSuggestion(item: RestockSuggestion): void {
+    select({
+        internal_code: item.internal_code,
+        description: item.description,
+        category_name: item.category_name,
+        current_stock: item.current_stock,
+        size: item.size,
+        weight: item.weight,
+        nickname: null,
+        image_url: item.image_url,
+    });
+}
 
 const query = ref(props.modelValue);
 const results = ref<ProductSearchResult[]>([]);
@@ -79,7 +113,6 @@ watch(query, (value) => {
     if (value.trim().length < 2 || !props.storeCode) {
         results.value = [];
         hasMore.value = false;
-        open.value = false;
 
         return;
     }
@@ -111,7 +144,6 @@ async function fetchResults(value: string, append = false) {
         loadingMore.value = true;
     } else {
         loading.value = true;
-        open.value = true;
     }
 
     try {
@@ -190,29 +222,18 @@ function clear() {
     results.value = [];
     webResults.value = [];
     webSearched.value = false;
-    open.value = false;
-}
-
-function onBlur() {
-    // Delay sikit supaya klik pd hasil (mousedown -> click) sempat jalan sblm senarai ditutup.
-    setTimeout(() => {
-        open.value = false;
-    }, 150);
 }
 </script>
 
 <template>
-    <div class="relative">
-        <div class="flex items-center gap-2">
-            <!-- relative DISENDIRIKAN kpd Input+X sahaja (bukan kongsi dgn div.relative luar,
-                 yg turut merangkumi butang "Manual Upload?") - tanpa ni, right-1 absolute pd
-                 butang X anchor ke tepi KANAN keseluruhan baris (termasuk Manual Upload),
-                 bertindih terus dgn butang tsb bila query ada teks (disahkan sebenar). -->
+    <div class="flex flex-col gap-2">
+        <div class="flex items-start gap-2">
+
             <div class="relative flex-1">
-                <Input v-model="query" :disabled="disabled || !storeCode"
-                    :placeholder="storeCode ? 'Cari kod design, keterangan atau kategori...' : 'Pilih cawangan dahulu'"
-                    class="pr-8" autocomplete="off" @focus="open = results.length > 0" @blur="onBlur" />
-                <Button v-show="query.length > 0 && !loading && !disabled" type="button" variant="ghost" size="icon"
+                <Search class="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                <Input :model-value="query" placeholder="Cari kod design, keterangan atau kategori..."
+                    autocomplete="off" :disabled="disabled || !storeCode" @click="open = true" class="pl-10 pr-8" />
+                <Button v-show="query.length > 0 && !loading" type="button" variant="ghost" size="icon"
                     class="absolute right-1 top-1 size-7" @click="clear">
                     <X class="size-4" />
                     <span class="sr-only">Buang carian</span>
@@ -225,95 +246,143 @@ function onBlur() {
             </Button>
         </div>
 
-        <div v-if="open"
-            class="absolute z-10 mt-1 max-h-64 w-full overflow-auto rounded-md border bg-popover shadow-md">
-            <p v-if="loading" class="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
-                <Loader2 class="size-3.5 animate-spin" /> Mencari...
-            </p>
-            <p v-else-if="results.length === 0" class="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
-                <SearchX class="size-3.5" /> Tiada hasil dijumpai.
-            </p>
-            <button v-for="result in results" :key="result.internal_code" type="button"
-                class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-accent"
-                @mousedown.prevent="select(result)">
-                <img v-if="result.image_url" :src="result.image_url" class="size-10 shrink-0 rounded object-cover"
-                    alt="" loading="lazy">
-                <div v-else class="size-10 shrink-0 rounded bg-muted" />
-                <div class="min-w-0 flex-1">
-                    <p class="truncate font-medium">{{ result.internal_code }}</p>
-                    <p class="truncate text-muted-foreground">{{ result.description }} &middot; {{ result.category_name
-                        }}</p>
-                    <p v-if="result.nickname" class="truncate text-xs italic text-muted-foreground">
-                        a.k.a. "{{ result.nickname }}"
-                    </p>
-                    <p v-if="result.size || result.weight" class="truncate text-xs text-muted-foreground">
-                        <span v-if="result.size">Saiz {{ result.size }}</span>
-                        <span v-if="result.size && result.weight"> &middot; </span>
-                        <span v-if="result.weight">{{ result.weight }}g</span>
-                    </p>
-                </div>
-                <span :class="cn(
-                    'shrink-0 text-xs font-medium',
-                    result.current_stock === 0 ? 'text-destructive' : 'text-success',
-                )">
-                    {{ result.current_stock }} unit
-                </span>
-            </button>
-
-            <!-- class="flex w-full items-center rounded-md justify-center gap-2 px-3 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-info hover:bg-accent disabled:opacity-60 cursor-pointer" -->
-            <div v-if="hasMore" class="p-2">
-                <Button v-if="hasMore && !loading" type="button" :disabled="loadingMore" @mousedown.prevent="loadMore" size="sm" class="w-full text-muted-foreground hover:text-primary">
-                    <div v-if="loadingMore">
-                        <Loader2 class="size-3.5 animate-spin" />
-                    </div>
-                    <div v-else>
-                        <Search class="size-3.5" />
-                    </div>
-                    {{ loadingMore ? 'Memuatkan...' : 'Muat Lagi' }}
+        <!-- :should-filter="false" - carian ni REMOTE/server (padanan across internal_code/
+             description/kategori/nickname), BUKAN literal substring teks yg dipaparkan - filter
+             tempatan Command (contains() drpd useFilter) akan sorok hasil server yg SAH secara
+             senyap kalau dibiar aktif (rujuk Command.vue). -->
+        <CommandDialog :should-filter="false" v-model:open="open" title="Cari & Tambah Item"
+            description="Taip kod design, keterangan atau kategori utk cari item">
+            <div class="relative">
+                <CommandInput v-model="query" placeholder="Cari kod design, keterangan atau kategori..." class="pr-8"
+                    autocomplete="off" />
+                <Button v-show="query.length > 0 && !loading" type="button" variant="ghost" size="icon"
+                    class="absolute right-1 top-1 size-7" @click="clear">
+                    <X class="size-4" />
+                    <span class="sr-only">Buang carian</span>
                 </Button>
             </div>
 
-            <div v-if="!loading && query.trim().length >= 2" class="border-t p-2">
-                <Button v-if="!webSearched" type="button" variant="ghost" size="sm"
-                    class="w-full justify-start text-muted-foreground hover:text-blue-700"
-                    @mousedown.prevent="searchWebsite">
-                    <Globe class="size-3.5" />
-                    Tak jumpa? Cari di laman web merchant9.com
-                </Button>
+            <CommandList>
+                <!-- Cadangan awal (query KOSONG - baru buka dialog / teks dikosongkan) - 6 item
+                         paling perlu direstock (stok 0) drpd Cadangan Restock, supaya staf terus
+                         nampak cadangan tanpa perlu taip dulu. -->
+                <CommandGroup v-if="query.trim().length === 0 && defaultSuggestions.length > 0"
+                    heading="Cadangan Restock (Stok Habis)">
+                    <CommandItem v-for="item in defaultSuggestions" :key="item.internal_code"
+                        :value="item.internal_code" class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm"
+                        @select="selectSuggestion(item)">
+                        <img v-if="item.image_url" :src="item.image_url" class="size-10 shrink-0 rounded object-cover"
+                            alt="" loading="lazy">
+                        <div v-else class="size-10 shrink-0 rounded bg-muted" />
+                        <div class="min-w-0 flex-1">
+                            <p class="truncate font-medium">{{ item.internal_code }}</p>
+                            <p class="truncate text-xs text-muted-foreground">{{ item.description }} &middot; {{
+                                item.category_name }}</p>
+                            <p v-if="item.size || item.weight" class="truncate text-xs text-muted-foreground">
+                                <span v-if="item.size">Saiz {{ item.size }}</span>
+                                <span v-if="item.size && item.weight"> &middot; </span>
+                                <span v-if="item.weight">{{ item.weight }}g</span>
+                            </p>
+                        </div>
+                        <span class="shrink-0 text-xs font-medium text-destructive">{{ item.current_stock }} unit</span>
+                    </CommandItem>
+                </CommandGroup>
 
-                <p v-else-if="webLoading" class="flex items-center gap-2 px-1 py-1 text-sm text-muted-foreground">
-                    <Loader2 class="size-3.5 animate-spin" /> Mencari di laman web...
+                <p v-if="loading" class="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+                    <Loader2 class="size-3.5 animate-spin" /> Mencari...
                 </p>
-
-                <template v-else>
-                    <div v-if="webResults.length === 0" class="flex flex-col gap-1.5 px-1 py-1">
-                        <SearchX class="size-3.5" />
-                        <p class="text-sm text-muted-foreground">
-                            Tiada hasil di laman web juga.
-                        </p>
-                        <Button type="button" variant="secondary" size="sm" class="w-full justify-start"
-                            @mousedown.prevent="selectManual">
-                            <ImageUp class="size-3.5" /> Muat naik gambar sendiri
-                        </Button>
-                    </div>
-                    <button v-for="(result, i) in webResults" :key="i" type="button"
-                        class="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
-                        @mousedown.prevent="selectWeb(result)">
+                <CommandEmpty v-if="!loading" class="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+                    <SearchX class="size-3.5" /> Tiada hasil dijumpai.
+                </CommandEmpty>
+                <!-- CommandGroup WAJIB - CommandItem panggil useCommandGroup() dalaman (context
+                         inject, bukan sekadar heading visual), throw error senyap kalau tiada
+                         pembalut CommandGroup (disahkan sebenar - "Injection ... not found"). -->
+                <CommandGroup>
+                    <CommandItem v-for="result in results" :key="result.internal_code" :value="result.internal_code"
+                        class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm" @select="select(result)">
                         <img v-if="result.image_url" :src="result.image_url"
                             class="size-10 shrink-0 rounded object-cover" alt="" loading="lazy">
                         <div v-else class="size-10 shrink-0 rounded bg-muted" />
                         <div class="min-w-0 flex-1">
-                            <p class="truncate font-medium">{{ result.name }}</p>
-                            <p v-if="result.category_label" class="truncate text-muted-foreground">
-                                {{ result.category_label }}
+                            <p class="truncate font-medium">{{ result.internal_code }}</p>
+                            <p class="truncate text-xs text-muted-foreground">{{ result.description }} &middot; {{
+                                result.category_name
+                                }}</p>
+                            <p v-if="result.nickname" class="truncate text-xs italic text-muted-foreground">
+                                a.k.a. "{{ result.nickname }}"
+                            </p>
+                            <p v-if="result.size || result.weight" class="truncate text-xs text-muted-foreground">
+                                <span v-if="result.size">Saiz {{ result.size }}</span>
+                                <span v-if="result.size && result.weight"> &middot; </span>
+                                <span v-if="result.weight">{{ result.weight }}g</span>
                             </p>
                         </div>
-                        <Badge variant="outline" class="shrink-0 gap-1 text-xs">
-                            <Globe class="size-3" /> Laman Web
-                        </Badge>
-                    </button>
-                </template>
-            </div>
-        </div>
+                        <span :class="cn(
+                            'shrink-0 text-xs font-medium',
+                            result.current_stock === 0 ? 'text-destructive' : 'text-success',
+                        )">
+                            {{ result.current_stock }} unit
+                        </span>
+                    </CommandItem>
+                </CommandGroup>
+
+                <div v-if="hasMore" class="p-2">
+                    <Button v-if="hasMore && !loading" type="button" :disabled="loadingMore"
+                        @mousedown.prevent="loadMore" size="sm" class="w-full">
+                        <div v-if="loadingMore">
+                            <Loader2 class="size-3.5 animate-spin" />
+                        </div>
+                        <div v-else>
+                            <Search class="size-3.5" />
+                        </div>
+                        {{ loadingMore ? 'Memuatkan...' : 'Muat Lagi' }}
+                    </Button>
+                </div>
+
+                <div v-if="!loading && query.trim().length >= 2" class="border-t p-2">
+                    <Button v-if="!webSearched" type="button" variant="ghost" size="sm"
+                        class="w-full justify-start text-muted-foreground hover:text-blue-700"
+                        @mousedown.prevent="searchWebsite">
+                        <Globe class="size-3.5" />
+                        Tak jumpa? Cari di laman web merchant9.com
+                    </Button>
+
+                    <p v-else-if="webLoading" class="flex items-center gap-2 px-1 py-1 text-sm text-muted-foreground">
+                        <Loader2 class="size-3.5 animate-spin" /> Mencari di laman web...
+                    </p>
+
+                    <template v-else>
+                        <div v-if="webResults.length === 0" class="flex flex-col gap-1.5 px-1 py-1">
+                            <SearchX class="size-3.5" />
+                            <p class="text-sm text-muted-foreground">
+                                Tiada hasil di laman web juga.
+                            </p>
+                            <Button type="button" variant="secondary" size="sm" class="w-full justify-start"
+                                @mousedown.prevent="selectManual">
+                                <ImageUp class="size-3.5" /> Muat naik gambar sendiri
+                            </Button>
+                        </div>
+                        <CommandGroup>
+                            <CommandItem v-for="(result, i) in webResults" :key="i" :value="`web-${i}-${result.name}`"
+                                class="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left text-sm"
+                                @select="selectWeb(result)">
+                                <img v-if="result.image_url" :src="result.image_url"
+                                    class="size-10 shrink-0 rounded object-cover" alt="" loading="lazy">
+                                <div v-else class="size-10 shrink-0 rounded bg-muted" />
+                                <div class="min-w-0 flex-1">
+                                    <p class="truncate font-medium">{{ result.name }}</p>
+                                    <p v-if="result.category_label" class="truncate text-muted-foreground">
+                                        {{ result.category_label }}
+                                    </p>
+                                </div>
+                                <Badge variant="outline" class="shrink-0 gap-1 text-xs">
+                                    <Globe class="size-3" /> Laman Web
+                                </Badge>
+                            </CommandItem>
+                        </CommandGroup>
+                    </template>
+                </div>
+            </CommandList>
+        </CommandDialog>
     </div>
 </template>

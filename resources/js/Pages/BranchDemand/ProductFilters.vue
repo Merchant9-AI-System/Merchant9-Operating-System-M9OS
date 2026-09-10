@@ -31,14 +31,7 @@ function toggle(list: string[], value: string): string[] {
     <Popover v-model:open="open">
         <PopoverTrigger as-child>
             <Button type="button" variant="outline" size="icon">
-                <!-- <div class="flex items-start gap-2"> -->
-                    <Filter class="size-3.5" :class="open ? 'fill-muted-foreground' : ''" />
-                    <!-- Filter{{ activeFilterCount > 0 ? ` (${activeFilterCount})` : '' }} -->
-                <!-- </div> -->
-                <!-- <div class="flex items-center gap-1">
-                    <ChevronDown class="size-4 text-muted-foreground transition-transform"
-                        :class="open ? 'rotate-180' : ''" />
-                </div> -->
+                <Filter class="size-3.5" :class="open ? 'fill-muted-foreground' : ''" />
             </Button>
         </PopoverTrigger>
 

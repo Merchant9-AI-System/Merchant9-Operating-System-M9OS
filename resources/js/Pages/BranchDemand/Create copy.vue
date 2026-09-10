@@ -16,9 +16,8 @@ import { SelectNative } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import ActiveFilterBadges from './ActiveFilterBadges.vue';
 import ProductFilters from './ProductFilters.vue';
-// import ProductPickerOld, { type ProductSearchResult, type WebSearchResult } from './ProductPickerOld.vue';
+import ProductPicker, { type ProductSearchResult, type WebSearchResult } from './ProductPickerOld.vue';
 import RestockSuggestions, { type RestockSuggestion } from './RestockSuggestions.vue';
-import ProductPicker, { type ProductSearchResult, type WebSearchResult } from './ProductPicker.vue';
 
 interface LineItem {
     internal_code: string | null;
@@ -658,7 +657,7 @@ function submit() {
 
     <Head title="Form Permintaan Stok" />
 
-    <div class="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-8">
+    <div class="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-8">
         <div class="flex items-start justify-between gap-3">
             <div>
                 <h1 class="text-xl font-semibold tracking-tight">Permintaan Stok Cawangan Kepada HQ</h1>
@@ -710,30 +709,27 @@ function submit() {
                 </Card>
 
                 <!-- Seksyen 1: Cari & Tambah Item -->
-                <Card class="py-4">
-                    <CardContent class="flex flex-col gap-3">
-
-                        <div class="flex items-center justify-between gap-3">
-                            <span class="flex items-center gap-2 text-sm font-bold">
-                                <Search class="size-4" />
-                                Cari &amp; Tambah Item
-                            </span>
+                <Card>
+                    <CardHeader>
+                        <CardTitle class="flex items-center gap-2 text-base">
+                            <Search class="size-4" />Cari &amp; Tambah Item
+                        </CardTitle>
+                        <CardAction>
                             <ProductFilters :categories="categories" v-model:gold-types="goldTypes"
                                 v-model:weight-ranges="weightRanges" v-model:size-ranges="sizeRanges"
                                 v-model:category-codes="categoryCodes" />
-                        </div>
-
+                        </CardAction>
+                    </CardHeader>
+                    <CardContent class="flex flex-col gap-3">
                         <ActiveFilterBadges :categories="categories" v-model:gold-types="goldTypes"
                             v-model:weight-ranges="weightRanges" v-model:size-ranges="sizeRanges"
                             v-model:category-codes="categoryCodes" />
-
-                        <!-- Old ProductPicker -->
-                        <!-- <ProductPickerOld v-model="searchQuery" :store-code="form.store_code || null"
-                            :gold-types="goldTypes" :weight-ranges="weightRanges" :size-ranges="sizeRanges" /> -->
+                        <!-- <div class="space-y-4"> -->
                         <ProductPicker v-model="searchQuery" :store-code="form.store_code || null"
                             :gold-types="goldTypes" :weight-ranges="weightRanges" :size-ranges="sizeRanges"
                             :category-codes="categoryCodes" :restock-suggestions="restockSuggestions.data"
                             @select="onSelect" @select-web="onSelectWeb" @select-manual="onSelectManual" />
+                        <!-- </div> -->
 
                         <div v-if="stagedItem"
                             class="flex flex-col gap-3 rounded-md border border-muted-background border-dashed p-3">
@@ -1013,12 +1009,13 @@ function submit() {
                 </Card>
 
                 <!-- Nota -->
-                <Card class="py-4">
-                    <CardContent class="flex flex-col gap-3">
-                        <div class="flex items-center gap-2 text-sm font-bold">
-                            <Paperclip class="size-4" />
-                            Nota
-                        </div>
+                <Card>
+                    <CardHeader>
+                        <CardTitle class="flex items-center gap-2 text-base">
+                            <Paperclip class="size-4" />Nota
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
                         <Textarea v-model="form.notes" placeholder="Nota tambahan (pilihan)" :rows="2" />
                     </CardContent>
                     <CardFooter class="justify-end">
