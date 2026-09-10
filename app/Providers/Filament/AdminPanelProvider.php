@@ -6,6 +6,8 @@ use AlizHarb\ActivityLog\ActivityLogPlugin;
 use App\Filament\Pages\Auth\EditProfile;
 use App\Filament\Pages\Auth\Login;
 use App\Filament\Widgets\ActionAlerts;
+use App\Filament\Widgets\ActiveStockRearrangementStopsTable;
+use App\Filament\Widgets\ActiveStockTransfersTable;
 use App\Filament\Widgets\BookVsPhysicalGoldChart;
 use App\Filament\Widgets\BranchHealthTable;
 use App\Filament\Widgets\CapitalAgingChart;
@@ -81,7 +83,7 @@ class AdminPanelProvider extends PanelProvider
                     ->url('/jobsheet-lookup', shouldOpenInNewTab: true)
                     ->icon(Heroicon::OutlinedMagnifyingGlassCircle)
                     ->group('Inventory Health')
-                    ->visible(fn () => Auth::user()->hasRole(['manager', 'ceo', 'super_admin']))
+                    ->visible(fn() => Auth::user()->hasRole(['manager', 'ceo', 'super_admin']))
                     ->sort(-1),
             ])
             // ->font('Roboto Mono')
@@ -120,6 +122,13 @@ class AdminPanelProvider extends PanelProvider
                 GoldVsIdealByBranch::class,
                 BranchHealthTable::class,
                 StockVsOptimumChart::class,
+                // Sama widget yg muncul di footer StockRearrangementRecommendation (rujuk
+                // getFooterWidgets() page tsb) - tiada HasWidgetShield/canView, jadi kekal
+                // nampak utk SEMUA role (termasuk leader cawangan yg lain-lain widget CEO
+                // bawah ni tersorok/permission-gated). columnSpan=1 (bukan 'full') - duduk
+                // bersebelahan dlm grid 2 lajur lalai Dashboard.
+                ActiveStockTransfersTable::class,
+                ActiveStockRearrangementStopsTable::class,
                 // Daily Asset Position (accountant-keyed reconciliation layer) - boleh dimatikan
                 // via .env CEO_DAILY_ASSET_POSITION_ENABLED=false (config/dashboard.php).
                 DailyAssetPositionSummary::class,

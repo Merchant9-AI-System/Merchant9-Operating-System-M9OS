@@ -12,7 +12,9 @@ class ActiveStockRearrangementStopsTable extends TableWidget
 {
     protected static ?string $heading = 'Item Yang Dah Ada Stop Rearrange/Request';
 
-    protected int|string|array $columnSpan = 'full';
+    // Separuh (1 drpd 2 lajur grid lalai Dashboard/footer widget) - bersebelahan dgn
+    // ActiveStockTransfersTable, bukan bertindih penuh.
+    protected int|string|array $columnSpan = 1;
 
     // Fallback - refresh berkala BERSAMA #[On('rearrangement-lists-updated')] bawah, yg
     // refresh SERTA-MERTA lepas "Cipta Transfer"/"Stop Rearrange" (rujuk

@@ -16,7 +16,9 @@ class ActiveStockTransfersTable extends TableWidget
 {
     protected static ?string $heading = 'Item Yang Dah Ada Stock Transfer';
 
-    protected int|string|array $columnSpan = 'full';
+    // Separuh (1 drpd 2 lajur grid lalai Dashboard/footer widget) - bersebelahan dgn
+    // ActiveStockRearrangementStopsTable, bukan bertindih penuh.
+    protected int|string|array $columnSpan = 1;
 
     // Fallback - refresh berkala (cth. staf LAIN create/cancel transfer drpd tab/browser
     // berlainan) BERSAMA #[On('rearrangement-lists-updated')] bawah, yg refresh SERTA-MERTA
