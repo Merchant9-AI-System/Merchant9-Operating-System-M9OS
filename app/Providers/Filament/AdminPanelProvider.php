@@ -78,6 +78,7 @@ class AdminPanelProvider extends PanelProvider
                     ->url('/branch-demand', shouldOpenInNewTab: true)
                     ->icon(Heroicon::OutlinedPencilSquare)
                     ->group('Procurement')
+                    ->visible(fn() => Auth::user()->hasRole(['manager_sale', 'manager', 'leader_branch', 'ceo', 'super_admin']))
                     ->sort(-1),
                 NavigationItem::make('Jobsheet Lookup')
                     ->url('/jobsheet-lookup', shouldOpenInNewTab: true)
