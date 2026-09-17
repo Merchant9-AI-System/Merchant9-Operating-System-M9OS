@@ -17,7 +17,8 @@ class ListExpenseClaims extends ListRecords
             // baharu HANYA dicipta di sana, bukan Filament (TIADA CreateRecord page utk resource ni).
             Action::make('createClaim')
                 ->label('Cipta Klaim')
-                ->url(fn (): string => route('expense-claims.index')),
+                ->url(fn (): string => route('expense-claims.index'))
+                ->openUrlInNewTab(),
         ];
     }
 }
