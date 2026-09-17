@@ -32,5 +32,6 @@ const emits = defineEmits<{
             props.class,
         )"
         @input="emits('update:modelValue', ($event.target as HTMLInputElement).value)"
+        @wheel="type === 'number' && ($event.target as HTMLInputElement).blur()"
     >
 </template>

@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import type { DialogTriggerProps } from "reka-ui"
+import type { Component } from "vue"
 import { DialogTrigger } from "reka-ui"
 
-const props = defineProps<DialogTriggerProps>()
+// Written locally instead of `defineProps<DialogTriggerProps>()` (reka-ui's type, which is just
+// `PrimitiveProps`) - see toggle-group/ToggleGroupItem.vue for why.
+const props = defineProps<{
+  asChild?: boolean
+  as?: string | Component
+}>()
 </script>
 
 <template>

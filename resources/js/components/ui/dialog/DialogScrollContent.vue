@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import type { DialogContentEmits, DialogContentProps } from "reka-ui"
-import type { HTMLAttributes } from "vue"
+import type { Component, HTMLAttributes } from "vue"
 import { X } from "@lucide/vue"
 import { reactiveOmit } from "@vueuse/core"
 import {
@@ -16,8 +15,25 @@ defineOptions({
   inheritAttrs: false,
 })
 
-const props = defineProps<DialogContentProps & { class?: HTMLAttributes["class"] }>()
-const emits = defineEmits<DialogContentEmits>()
+// Written locally instead of `defineProps<DialogContentProps & {...}>()` /
+// `defineEmits<DialogContentEmits>()` (reka-ui's types) - see
+// toggle-group/ToggleGroupItem.vue for why. Event payload types are widened to plain `Event`
+// since they're only forwarded here, never inspected.
+const props = defineProps<{
+  asChild?: boolean
+  as?: string | Component
+  disableOutsidePointerEvents?: boolean
+  forceMount?: boolean
+  class?: HTMLAttributes["class"]
+}>()
+const emits = defineEmits<{
+  escapeKeyDown: [event: KeyboardEvent]
+  pointerDownOutside: [event: Event]
+  focusOutside: [event: Event]
+  interactOutside: [event: Event]
+  openAutoFocus: [event: Event]
+  closeAutoFocus: [event: Event]
+}>()
 
 const delegatedProps = reactiveOmit(props, "class")
 

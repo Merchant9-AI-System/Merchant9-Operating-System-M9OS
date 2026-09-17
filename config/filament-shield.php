@@ -238,6 +238,8 @@ return [
         'Cancel:StockTransfer',
         'Approve:StockRearrangementStop',
         'Reject:StockRearrangementStop',
+        'Approve:ExpenseClaim',
+        'Reject:ExpenseClaim',
     ],
 
     /*

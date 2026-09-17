@@ -32,7 +32,7 @@ class StockRearrangementRecommender
     public static function recommendations(): Collection
     {
         $plain = Cache::rememberForever('stock_rearrangement_recommendations', function () {
-            return retry(6, fn () => static::compute()->toArray(), 800);
+            return retry(6, fn() => static::compute()->toArray(), 800);
         });
 
         return collect($plain);
@@ -52,7 +52,7 @@ class StockRearrangementRecommender
             // stok. Disahkan sebelum ni TIADA pengecualian (hanya physicalStore() tapis WEB) -
             // 179/543 cadangan (33%) melibatkan HQ sbb tu, atas permintaan eksplisit.
             ->whereNotIn('StoreCode', ['HQ', 'hq', 'SECURITY', 'security'])
-            ->selectRaw('InternalCode, StoreCode, SUM(QtyOnHand) as stock, '.
+            ->selectRaw('InternalCode, StoreCode, SUM(QtyOnHand) as stock, ' .
                 'SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as sold')
             ->groupBy('InternalCode', 'StoreCode')
             ->toBase()
@@ -60,12 +60,28 @@ class StockRearrangementRecommender
 
         $meta = InventoryPiece::query()
             ->realVendor()
-            ->selectRaw('InternalCode, MAX(Description) as Description, MAX(CategoryCode) as CategoryCode, MAX(VendorCode) as VendorCode, '.
-                'MAX(JewelSize) as JewelSize, MAX(GoldWeight) as GoldWeight')
+            ->selectRaw('InternalCode, MAX(Description) as Description, MAX(CategoryCode) as CategoryCode, MAX(VendorCode) as VendorCode')
             ->groupBy('InternalCode')
             ->toBase()
             ->get()
             ->keyBy('InternalCode');
+
+        // Saiz/Berat KHUSUS stok ON-HAND di setiap cawangan (bukan MAX() merentas SEMUA keping
+        // sejarah design tanpa kira cawangan/status spt $meta di atas dulu) - disahkan bug:
+        // "Saiz 9.5" pernah terpapar utk donor PERLING walhal PERLING cuma ada saiz 11/13/14.5
+        // dlm stok sekarang, sbb MAX(JewelSize) lama tarik drpd keping YG DAH TERJUAL di
+        // cawangan lain. Key gabungan "InternalCode|StoreCode" - saiz/berat yg papar mesti
+        // padan cawangan DONOR yg dicadang, bukan design secara umum.
+        $stockMeta = InventoryPiece::query()
+            ->realVendor()
+            ->where('QtyOnHand', '>', 0)
+            // ->selectRaw('InternalCode, StoreCode, MAX(JewelSize) as JewelSize, MAX(GoldWeight) as GoldWeight')
+            // ->groupBy('InternalCode', 'StoreCode')
+            ->select('InternalCode', 'StoreCode', 'JewelSize', 'GoldWeight')
+            ->toBase()
+            ->get()
+            ->groupBy(fn ($r) => "{$r->InternalCode}|{$r->StoreCode}");
+            // ->keyBy(fn($r) => "{$r->InternalCode}|{$r->StoreCode}");
 
         $categoryNames = Category::pluck('Description', 'CategoryCode');
         $vendorNames = Vendor::pluck('Description', 'VendorCode');
@@ -77,21 +93,22 @@ class StockRearrangementRecommender
             // dipindah setiap design, jadi cuma SATU pasangan donor->receiver dijana per design
             // (bukan satu baris setiap cawangan sold out) - elak cadang lebih drpd 1 unit yg
             // sebenarnya tersedia drpd donor yg sama.
-            $donors = $sub->filter(fn ($r) => (int) $r->stock >= 3)->sortByDesc('stock')->values();
-            $receivers = $sub->filter(fn ($r) => (int) $r->stock === 0)->sortByDesc('sold')->values();
+            $donors = $sub->filter(fn($r) => (int) $r->stock >= 3)->sortByDesc('stock')->values();
+            $receivers = $sub->filter(fn($r) => (int) $r->stock === 0)->sortByDesc('sold')->values();
 
             if ($donors->isEmpty() || $receivers->isEmpty()) {
                 continue;
             }
 
             $bestDonor = $donors->first();
-            $bestReceiver = $receivers->first(fn ($r) => $r->StoreCode !== $bestDonor->StoreCode);
+            $bestReceiver = $receivers->first(fn($r) => $r->StoreCode !== $bestDonor->StoreCode);
 
             if ($bestReceiver === null) {
                 continue;
             }
 
             $m = $meta->get($code);
+            $donorStockMeta = $stockMeta->get("{$code}|{$bestDonor->StoreCode}")?->first();
 
             $soldAtReceiver = (int) $bestReceiver->sold;
             $priority = match (true) {
@@ -107,17 +124,20 @@ class StockRearrangementRecommender
                 'item_desc' => $m->Description ?? '',
                 'category_name' => $categoryNames[$m->CategoryCode ?? ''] ?? ($m->CategoryCode ?? ''),
                 'vendor_name' => $vendorNames[$m->VendorCode ?? ''] ?? ($m->VendorCode ?? ''),
-                // Saiz/Berat REPRESENTATIF design ni (MAX() merentas SEMUA keping, sepadan
-                // pendekatan RestockAnalysisCalculator::computeByCategory()) - keping fizikal
-                // individu boleh beza sikit (berat khususnya), BUKAN jaminan keping tepat yg
-                // akhirnya dipindah. Ditambah atas permintaan eksplisit - leader cawangan
+                // Saiz/Berat REPRESENTATIF stok ON-HAND di cawangan DONOR ni SAHAJA (rujuk
+                // $stockMeta di atas) - keping fizikal individu boleh beza sikit sesama sendiri
+                // kat donor yg sama (berat khususnya), BUKAN jaminan keping tepat yg akhirnya
+                // dipindah, tapi SEKURANG-KURANGNYA dijamin drpd keping yg btl2 ada di donor ni
+                // sekarang (bukan MAX() merentas seluruh sejarah design tanpa kira cawangan/
+                // status spt sebelum ni - rujuk bug "Saiz 9.5" utk donor yg cuma ada saiz
+                // 11/13/14.5 dlm stok). Ditambah atas permintaan eksplisit - leader cawangan
                 // sebelum ni cuma nampak kod design + kuantiti, x tahu saiz/berat sebenar
                 // sebelum "Cipta Transfer".
-                'size' => RestockAnalysisCalculator::sizeLabel($m->JewelSize ?? null),
+                'size' => RestockAnalysisCalculator::sizeLabel($donorStockMeta->JewelSize ?? null),
                 // null (bukan 0) bila belum ditimbang lagi dlm JEMiSys (disahkan sebenar wujud
                 // - ~18% keping onHand) - "0.00g" boleh disalah anggap "berat sifar", bukan
                 // "data tiada".
-                'weight' => ((float) ($m->GoldWeight ?? 0)) > 0 ? (float) $m->GoldWeight : null,
+                'weight' => ((float) ($donorStockMeta->GoldWeight ?? 0)) > 0 ? (float) $donorStockMeta->GoldWeight : null,
                 'current_stock' => (int) $bestDonor->stock,
                 'reason' => $soldAtReceiver > 0
                     ? "Ada stok di {$bestDonor->StoreCode} ({$bestDonor->stock} unit), sold out di {$bestReceiver->StoreCode} (pernah jual {$soldAtReceiver}x)"
@@ -132,6 +152,6 @@ class StockRearrangementRecommender
 
         $order = [self::HIGH => 0, self::MEDIUM => 1, self::LOW => 2];
 
-        return $recs->sortBy(fn ($r) => $order[$r['priority']])->values();
+        return $recs->sortBy(fn($r) => $order[$r['priority']])->values();
     }
 }

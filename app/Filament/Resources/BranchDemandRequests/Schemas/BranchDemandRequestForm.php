@@ -99,7 +99,7 @@ class BranchDemandRequestForm
                     ->schema([
                         Textarea::make('notes')
                             ->hiddenLabel()
-                            ->placeholder('Nota tambahan (pilihan)')
+                            ->placeholder('Nota tambahan (optional)')
                             ->rows(2)
                             ->columnSpanFull(),
                     ])->columnSpanFull(),

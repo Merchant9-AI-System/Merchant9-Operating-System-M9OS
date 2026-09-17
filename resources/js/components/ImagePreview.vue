@@ -45,7 +45,7 @@ function openPreview() {
     <div v-else :class="cn('shrink-0 rounded bg-muted', props.class)" />
 
     <Dialog v-model:open="open">
-        <DialogContent class="flex max-w-2xl items-center justify-center p-2">
+        <DialogContent class="flex mx-auto max-w-xl items-center justify-center p-2">
             <img
                 :src="src ?? ''"
                 :alt="alt ?? ''"

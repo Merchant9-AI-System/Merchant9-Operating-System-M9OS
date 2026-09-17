@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\BranchDemandEntryController;
+use App\Http\Controllers\ExpenseClaimController;
 use App\Http\Controllers\JobsheetLookupController;
+use App\Http\Controllers\ProductImagesController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -26,6 +28,22 @@ Route::middleware('auth')->group(function () {
     // Carian item ikut JobSheetNo (jemisys_inventory_mirror) - staf log masuk sahaja (rujuk
     // JobsheetLookupController dokblok), BERBEZA drpd Branch Demand di atas.
     Route::get('/jobsheet-lookup', [JobsheetLookupController::class, 'index'])->name('jobsheet-lookup.index');
+
+    // Senarai PENUH imej produk (bukan 1 thumbnail sahaja) bagi satu InternalCode - dibuka drpd
+    // lajur imej ImageColumn di Filament (rujuk ProductImagesController dokblok).
+    Route::get('/product-images/{internalCode}', [ProductImagesController::class, 'show'])->name('product-images.show');
+
+    // Expense Claims - staf FINANCE urus claim BAGI PIHAK claimant (rujuk ExpenseClaimController
+    // dokblok), diskop role('finance') - BUKAN lagi ownership Auth::id() (claimant != pencipta).
+    Route::get('/claims', [ExpenseClaimController::class, 'index'])->name('expense-claims.index');
+    Route::post('/claims', [ExpenseClaimController::class, 'store'])->name('expense-claims.store');
+    Route::get('/claims/{claim}', [ExpenseClaimController::class, 'edit'])->name('expense-claims.edit');
+    Route::put('/claims/{claim}/details', [ExpenseClaimController::class, 'updateDetails'])->name('expense-claims.update-details');
+    Route::post('/claims/{claim}/lines', [ExpenseClaimController::class, 'storeLine'])->name('expense-claims.lines.store');
+    Route::put('/claims/lines/{line}', [ExpenseClaimController::class, 'updateLine'])->name('expense-claims.lines.update');
+    Route::delete('/claims/lines/{line}', [ExpenseClaimController::class, 'destroyLine'])->name('expense-claims.lines.destroy');
+    Route::post('/claims/upload-receipt', [ExpenseClaimController::class, 'uploadReceipt'])->middleware('throttle:20,1')->name('expense-claims.upload-receipt');
+    Route::post('/claims/{claim}/submit', [ExpenseClaimController::class, 'submit'])->name('expense-claims.submit');
 });
 
 // DEV SAHAJA - pratonton visual resources/views/mcp/authorize.blade.php (skrin kelulusan

@@ -786,7 +786,7 @@ function submit() {
                                     <Input v-model="stagedItem.qty_requested" type="number" min="1" />
                                 </div>
                                 <div>
-                                    <Label class="mb-1.5 block">Remark (pilihan)</Label>
+                                    <Label class="mb-1.5 block">Remark (optional)</Label>
                                     <Input v-model="stagedItem.remark" placeholder="cth. warna, saiz khas..." />
                                 </div>
                                 <div>
@@ -928,7 +928,7 @@ function submit() {
                                                 <Input v-model="line.weight" placeholder="cth. 2.50" />
                                             </div>
                                             <div class="sm:col-span-2">
-                                                <Label class="mb-1.5 block">Remark (pilihan)</Label>
+                                                <Label class="mb-1.5 block">Remark (optional)</Label>
                                                 <Input v-model="line.remark" placeholder="cth. warna, saiz khas..." />
                                             </div>
                                             <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
@@ -1019,7 +1019,7 @@ function submit() {
                             <Paperclip class="size-4" />
                             Nota
                         </div>
-                        <Textarea v-model="form.notes" placeholder="Nota tambahan (pilihan)" :rows="2" />
+                        <Textarea v-model="form.notes" placeholder="Nota tambahan (optional)" :rows="2" />
                     </CardContent>
                     <CardFooter class="justify-end">
                         <Button type="submit" :disabled="!canSubmit || form.processing">

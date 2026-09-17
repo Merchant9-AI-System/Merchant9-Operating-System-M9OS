@@ -1,0 +1,52 @@
+<script setup lang="ts">
+import type { HTMLAttributes } from "vue"
+import { reactiveOmit } from "@vueuse/core"
+import { TagsInputRoot, useForwardPropsEmits } from "reka-ui"
+import { cn } from "@/lib/utils"
+
+// Inline literal (bukan `TagsInputRootProps & {...}` drpd reka-ui) - rujuk Command.vue utk
+// sebab. T=string sahaja (bukan generic AcceptableInputValue) - kategori claim expense SENTIASA
+// teks (rujuk ExpenseClaimLine::DEFAULT_CATEGORIES).
+const props = defineProps<{
+  asChild?: boolean
+  as?: string
+  class?: HTMLAttributes["class"]
+  modelValue?: string[] | null
+  defaultValue?: string[]
+  addOnPaste?: boolean
+  addOnTab?: boolean
+  addOnBlur?: boolean
+  duplicate?: boolean
+  disabled?: boolean
+  delimiter?: string | RegExp
+  dir?: "ltr" | "rtl"
+  max?: number
+  id?: string
+  convertValue?: (value: string) => string
+  displayValue?: (value: string) => string
+  name?: string
+  required?: boolean
+}>()
+const emits = defineEmits<{
+  "update:modelValue": [payload: string[]]
+  invalid: [payload: string]
+  addTag: [payload: string]
+  removeTag: [payload: string]
+}>()
+
+const delegatedProps = reactiveOmit(props, "class")
+
+const forwarded = useForwardPropsEmits(delegatedProps, emits)
+</script>
+
+<template>
+  <TagsInputRoot
+    v-slot="slotProps" v-bind="forwarded" :class="cn(
+      'flex flex-wrap gap-2 items-center rounded-md border border-input bg-background px-2 py-1 text-sm shadow-xs transition-[color,box-shadow] outline-none',
+      'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-3',
+      'aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive',
+      props.class)"
+  >
+    <slot v-bind="slotProps" />
+  </TagsInputRoot>
+</template>

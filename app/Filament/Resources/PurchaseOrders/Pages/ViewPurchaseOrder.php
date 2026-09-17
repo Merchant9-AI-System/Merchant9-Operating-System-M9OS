@@ -47,7 +47,7 @@ class ViewPurchaseOrder extends ViewRecord
                                         ->columnSpanFull(),
                                 ]))->all()
                             ),
-                        TextInput::make('grn_notes')->label('Nota (pilihan)'),
+                        TextInput::make('grn_notes')->label('Nota (optional)'),
                     ];
                 })
                 ->action(function (array $data, PurchaseOrder $record) {

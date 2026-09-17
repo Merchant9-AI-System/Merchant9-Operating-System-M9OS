@@ -4,6 +4,7 @@ import { reactiveOmit } from "@vueuse/core"
 import { cn } from "@/lib/utils"
 import { Separator } from '@/components/ui/separator'
 
+// Inline literal (bukan `SeparatorProps & {...}` drpd reka-ui) - rujuk Command.vue utk sebab.
 const props = withDefaults(defineProps<{
   as?: string
   asChild?: boolean

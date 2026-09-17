@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 
+@import 'vue-sonner/style.css';
 @import '@fontsource/instrument-sans/400.css';
 @import '@fontsource/instrument-sans/500.css';
 @import '@fontsource/instrument-sans/600.css';
@@ -94,6 +95,15 @@
 
     --animate-fade-in: fade-in 150ms ease-out;
     --animate-fade-out: fade-out 150ms ease-in;
+
+    --animate-slide-in-right: slide-in-right 500ms ease-in-out;
+    --animate-slide-out-right: slide-out-right 300ms ease-in-out;
+    --animate-slide-in-left: slide-in-left 500ms ease-in-out;
+    --animate-slide-out-left: slide-out-left 300ms ease-in-out;
+    --animate-slide-in-top: slide-in-top 500ms ease-in-out;
+    --animate-slide-out-top: slide-out-top 300ms ease-in-out;
+    --animate-slide-in-bottom: slide-in-bottom 500ms ease-in-out;
+    --animate-slide-out-bottom: slide-out-bottom 300ms ease-in-out;
 }
 
 /* Fade in/out utk Dialog (overlay + content) ikut data-state reka-ui - guna @keyframes betul
@@ -116,6 +126,41 @@
     to {
         opacity: 0;
     }
+}
+
+/* Slide in/out utk Sheet ikut sisi (side) - keyframe sama sebab, bukan `transition-*`, Presence
+   reka-ui hanya dengar animationend/animationcancel (rujuk nota fade-in/fade-out di atas). */
+@keyframes slide-in-right {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}
+@keyframes slide-out-right {
+    from { transform: translateX(0); }
+    to { transform: translateX(100%); }
+}
+@keyframes slide-in-left {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+}
+@keyframes slide-out-left {
+    from { transform: translateX(0); }
+    to { transform: translateX(-100%); }
+}
+@keyframes slide-in-top {
+    from { transform: translateY(-100%); }
+    to { transform: translateY(0); }
+}
+@keyframes slide-out-top {
+    from { transform: translateY(0); }
+    to { transform: translateY(-100%); }
+}
+@keyframes slide-in-bottom {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+}
+@keyframes slide-out-bottom {
+    from { transform: translateY(0); }
+    to { transform: translateY(100%); }
 }
 
 @layer base {

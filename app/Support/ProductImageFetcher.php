@@ -60,6 +60,18 @@ class ProductImageFetcher
     }
 
     /**
+     * 3 imej pertama sahaja (lalai) - cth. utk preview/carousel yg perlukan lebih drpd 1 gambar
+     * tapi tak perlu SEMUA (rujuk firstImageUrlFor() utk kes 1 gambar). Guna imageUrlsFor() yg
+     * sama (sudah cached) - TIADA scrape tambahan, sekadar potong array sedia ada.
+     *
+     * @return array<int, string>
+     */
+    public static function firstImageUrlsFor(string $internalCode, int $limit = 3): array
+    {
+        return array_slice(static::imageUrlsFor($internalCode), 0, $limit);
+    }
+
+    /**
      * @return array<int, string>
      */
     protected static function fetchImages(string $internalCode): array

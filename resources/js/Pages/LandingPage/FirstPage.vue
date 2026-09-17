@@ -23,11 +23,11 @@ const page = usePage<{ auth: { user: AuthUser | null } }>();
         </div>
 
         <div class="flex flex-col gap-3 sm:flex-row">
-            <Link href="/branch-demand">
+            <!-- <Link href="/branch-demand">
                 <Button size="lg" variant="outline" class="w-full">
                     <ClipboardList class="size-4" /> Permintaan Stok Cawangan
                 </Button>
-            </Link>
+            </Link> -->
 
             <a v-if="page.props.auth.user" href="/admin">
                 <Button size="lg" variant="outline" class="w-full">

@@ -4,12 +4,15 @@ import type { ButtonGroupVariants } from "."
 import { Primitive } from "reka-ui"
 import { cn } from "@/lib/utils"
 
-const props = withDefaults(defineProps<{
-  as?: string
+// Inline literal (bukan `extends PrimitiveProps` drpd reka-ui) - rujuk Command.vue utk sebab.
+interface Props {
   asChild?: boolean
+  as?: string
   class?: HTMLAttributes["class"]
   orientation?: ButtonGroupVariants["orientation"]
-}>(), {
+}
+
+const props = withDefaults(defineProps<Props>(), {
   as: "div",
 })
 </script>
