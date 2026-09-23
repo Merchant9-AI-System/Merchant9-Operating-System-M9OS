@@ -21,9 +21,9 @@ use Inertia\Response;
  * router.get() di Index.vue, preserveState elak flash/reset skrol).
  *
  * `items` DITANGGUH (Inertia::defer()) - carian boleh pulangkan beribu baris (satu job sheet
- * besar boleh cecah 2000+ keping) + JobsheetRestockScorer kira skor per design/kategori, jadi
- * shell halaman (tajuk/borang carian) terus terpapar SEBELUM hasil siap, elak UI nampak
- * "freeze" sekejap - rujuk <Deferred> & <Skeleton> di Index.vue.
+ * besar boleh cecah 2000+ keping) + JobsheetRestockScorer kira cadangan tindakan per
+ * design/cawangan, jadi shell halaman (tajuk/borang carian) terus terpapar SEBELUM hasil siap,
+ * elak UI nampak "freeze" sekejap - rujuk <Deferred> & <Skeleton> di Index.vue.
  */
 class JobsheetLookupController extends Controller
 {
@@ -92,12 +92,11 @@ class JobsheetLookupController extends Controller
     }
 
     /**
-     * Lekat cadangan restock (skor 0-100 + sebab + cawangan disyorkan) setiap baris - rujuk
-     * JobsheetRestockScorer dokblok utk 4 isyarat (Stok Habis/Understock/Design Paling
-     * Laku/Cawangan Jualan Tertinggi). Skor boleh BEZA antara baris SATU design yg sama jika
-     * berlainan cawangan (rujuk isyarat #4), tapi `restock_target_branches` (StoreCode top 3
-     * cawangan plg laku design tsb) SAMA utk semua baris design tsb - jawab "patut hantar ke
-     * mana", bukan skor semata-mata.
+     * Lekat cadangan tindakan (Restock/Rearrange) setiap baris - rujuk JobsheetRestockScorer
+     * dokblok utk 2 peraturan. Action boleh BEZA antara baris SATU design yg sama ikut cawangan
+     * (Rearrange khusus per-cawangan), tapi `restock_target_branches` bawa maksud berbeza ikut
+     * action - cawangan PALING LAKU (RESTOCK, "agih ke mana bila stok baharu sampai") atau
+     * cawangan SUMBER lebihan (REARRANGE, "pindah drpd mana").
      */
     protected function attachRestockSuggestions(Collection $items): Collection
     {
@@ -105,14 +104,14 @@ class JobsheetLookupController extends Controller
 
         return $items->map(function (array $item) use ($scores) {
             $key = "{$item['internal_code']}|{$item['store_code']}";
-            $score = $scores[$key] ?? ['score' => 0, 'verdict' => null, 'verdict_color' => 'gray', 'reasons' => [], 'target_branches' => []];
+            $score = $scores[$key] ?? ['action' => null, 'action_label' => null, 'action_color' => 'gray', 'action_detail' => null, 'target_branches' => []];
 
             return [
                 ...$item,
-                'restock_score' => $score['score'],
-                'restock_verdict' => $score['verdict'],
-                'restock_verdict_color' => $score['verdict_color'],
-                'restock_reasons' => $score['reasons'],
+                'restock_action' => $score['action'],
+                'restock_action_label' => $score['action_label'],
+                'restock_action_color' => $score['action_color'],
+                'restock_action_detail' => $score['action_detail'],
                 'restock_target_branches' => $score['target_branches'],
             ];
         });
