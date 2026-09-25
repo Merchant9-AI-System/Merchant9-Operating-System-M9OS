@@ -37,7 +37,7 @@ class ExpenseClaimController extends Controller
             ->orderByDesc('claim_month')
             ->orderByDesc('created_at')
             ->get()
-            ->map(fn(ExpenseClaim $c) => [
+            ->map(fn (ExpenseClaim $c) => [
                 'id' => $c->id,
                 'claim_number' => $c->claim_number,
                 'claimant_name' => $c->claimant_name,
@@ -49,9 +49,11 @@ class ExpenseClaimController extends Controller
 
         return Inertia::render('ExpenseClaims/Index', [
             'claims' => $claims,
-            // Senarai claimant utk dropdown "Cipta Claim Baharu" - mana-mana user aktif (rujuk
-            // keputusan restructure, bukan diskop kpd role tertentu - fleksibel utk masa depan).
-            'claimants' => User::orderBy('name')->get(['id', 'name'])->values(),
+            // Senarai claimant utk dropdown "Cipta Claim Baharu" - diskop kpd role('ceo') sahaja
+            // (bukan lagi "mana-mana user" spt keputusan restructure asal - modul ni khusus utk
+            // claim CEO). `role()` (scope Spatie) KENA sebelum get() - lepas get() dah jadi
+            // Collection, bukan query builder lagi, scope query dah tak terpakai kat situ.
+            'claimants' => User::role('ceo')->orderBy('name')->get(['id', 'name'])->values(),
             'currentMonth' => now()->startOfMonth()->toDateString(),
         ]);
     }
@@ -254,7 +256,7 @@ class ExpenseClaimController extends Controller
         $isVendorInvoice = (bool) ($data['is_vendor_invoice'] ?? false);
 
         if ($isVendorInvoice) {
-            $data['amount'] = round(collect($data['charges'])->sum(fn(array $c) => (float) $c['amount']), 2);
+            $data['amount'] = round(collect($data['charges'])->sum(fn (array $c) => (float) $c['amount']), 2);
 
             // WHT dikira drpd baris caj description="Amount" SAHAJA (jumlah prinsipal invois
             // sblm cukai/caj lain - rujuk contoh invois Google Ads), BUKAN drpd jumlah
@@ -296,7 +298,7 @@ class ExpenseClaimController extends Controller
             'total_amount' => (float) $claim->total_amount,
             'rejection_reason' => $claim->rejection_reason,
             'notes' => $claim->notes,
-            'lines' => $claim->lines->map(fn(ExpenseClaimLine $l) => [
+            'lines' => $claim->lines->map(fn (ExpenseClaimLine $l) => [
                 'id' => $l->id,
                 'expense_date' => $l->expense_date->toDateString(),
                 'description' => $l->description,
@@ -312,7 +314,7 @@ class ExpenseClaimController extends Controller
                 'is_vendor_invoice' => $l->is_vendor_invoice,
                 'vendor' => $l->vendor,
                 'invoice_number' => $l->invoice_number,
-                'charges' => $l->charges->map(fn(ExpenseClaimLineCharge $c) => [
+                'charges' => $l->charges->map(fn (ExpenseClaimLineCharge $c) => [
                     'id' => $c->id,
                     'description' => $c->description,
                     'amount' => (float) $c->amount,

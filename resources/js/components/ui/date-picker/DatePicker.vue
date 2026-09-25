@@ -4,7 +4,7 @@ import { CalendarDate, DateFormatter, getLocalTimeZone, parseDate } from '@inter
 import { CalendarIcon } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import { Button } from '@/components/ui/button';
-import { Calendar } from '@/components/ui/calendar';
+import { Calendar, MonthPicker } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
@@ -61,18 +61,15 @@ function onSelect(value: DateValue | undefined) {
 <template>
     <Popover v-model:open="open">
         <PopoverTrigger as-child>
-            <Button
-                :id="id"
-                type="button"
-                variant="outline"
-                :class="cn('w-full justify-start text-left font-normal', !dateValue && 'text-muted-foreground', props.class)"
-            >
+            <Button :id="id" type="button" variant="outline"
+                :class="cn('w-full justify-start text-left font-normal', !dateValue && 'text-muted-foreground', props.class)">
                 <CalendarIcon class="mr-2 size-4 shrink-0" />
                 <span class="truncate">{{ label }}</span>
             </Button>
         </PopoverTrigger>
         <PopoverContent class="w-auto p-0">
-            <Calendar :model-value="dateValue" :layout="monthOnly ? 'month-and-year' : undefined" @update:model-value="onSelect" />
+            <MonthPicker v-if="monthOnly" :model-value="dateValue" @update:model-value="onSelect" />
+            <Calendar v-else :model-value="dateValue" @update:model-value="onSelect" />
         </PopoverContent>
     </Popover>
 </template>

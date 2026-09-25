@@ -86,7 +86,7 @@ function createClaim() {
                     </div>
                     <div>
                         <Label for="claim_month">Bulan</Label>
-                        <DatePicker id="claim_month" v-model="createForm.claim_month" month-only />
+                        <DatePicker id="claim_month" v-model="createForm.claim_month" :monthOnly="true" />
                         <p v-if="createForm.errors.claim_month" class="mt-1 text-xs text-destructive">{{ createForm.errors.claim_month }}</p>
                     </div>
                 </div>

@@ -249,12 +249,43 @@ function addCharge() {
 }
 
 function addChargeTax() {
-    lineForm.charges.push({ description: 'Tax', amount: '' });
+    lineForm.charges.push({ description: 'Service Tax', amount: '' });
 }
 
 function removeCharge(index: number) {
     lineForm.charges.splice(index, 1);
 }
+
+// --- Auto-kira caj Tax (8%) drpd baris "Amount" (index 0) - staf isi Amount dulu, lepas tu
+// tambah/taip baris Tax (klik "Tambah Tax" ATAU "Tambah Caj" + taip description "Tax"/"SST"/"8%"
+// sendiri), amount baris tu terus auto = 8% Amount, tanpa staf kena kira sendiri. `lastAutoTax`
+// jejak nilai auto TERAKHIR tiap baris (ikut index) - amount tu cuma di-auto-isi selagi medan
+// KOSONG atau masih sama dgn auto sebelum ni; sebaik staf timpa sendiri dgn nilai lain, auto-kira
+// berhenti utk baris tu (elak timpa semula nilai yg staf dah sengaja betulkan).
+const TAX_CHARGE_PATTERN = /service tax|\bsst\b|\btax\b|8%/i;
+const TAX_RATE = 0.08;
+const lastAutoTax: (string | null)[] = [];
+
+watch(
+    () => lineForm.charges,
+    (charges) => {
+        const amountValue = Number(charges[0]?.amount) || 0;
+        const autoAmount = amountValue > 0 ? (amountValue * TAX_RATE).toFixed(2) : '';
+
+        charges.forEach((charge, index) => {
+            if (index === 0 || !TAX_CHARGE_PATTERN.test(charge.description)) {
+                lastAutoTax[index] = null;
+                return;
+            }
+
+            if (charge.amount === '' || charge.amount === lastAutoTax[index]) {
+                charge.amount = autoAmount;
+                lastAutoTax[index] = autoAmount;
+            }
+        });
+    },
+    { deep: true },
+);
 
 const uploadingReceipt = ref(false);
 const receiptFileName = ref<string | null>(null);

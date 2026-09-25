@@ -47,28 +47,43 @@ const ACTION_BADGE_CLASS: Record<string, string> = {
     gray: 'border-transparent bg-muted text-muted-foreground',
 };
 
-// Label RASMI kod `Status` (TblInventory, varchar(1)) - disahkan terus drpd kod SQL Server
-// JEMiSys sendiri (stored procedure PushSalesToDFSServer ada CASE literal; 'I' disahkan drpd
+// Kod RASMI `Status` (TblInventory, varchar(1)) - disahkan terus drpd kod SQL Server JEMiSys
+// sendiri (stored procedure PushSalesToDFSServer ada CASE literal; 'I' disahkan drpd
 // ReportSplitItemStatus/UpdateRMIssueStatus - "Disassembly from FG"), BUKAN teka drpd corak
-// data. Kod tak disenaraikan (cth. '4') tiada makna diketahui - papar kod mentah sahaja.
-const STATUS_LABELS: Record<string, string> = {
-    0: 'Sold',
-    1: 'Available',
-    2: 'Purchase/Consign Return',
-    3: 'Consign Sales',
-    5: 'Transit',
-    6: 'Stock Out',
-    7: 'Loan Transit',
-    8: 'Loan Return Transit',
-    9: 'Sold',
-    I: 'Disassembly from FG',
+// data. Kod tak disenaraikan (cth. '4') tiada makna diketahui - papar kod mentah sahaja
+// (rujuk statusLabel() fallback). '0' & '9' dua-dua bermaksud "Sold" (sebab berbeza pd
+// JEMiSys), jadi nama enum dibezakan (Sold/SoldClosed) tapi label paparan SAMA.
+enum JemisysInventoryStatus {
+    Sold = '0',
+    Available = '1',
+    PurchaseConsignReturn = '2',
+    ConsignSales = '3',
+    Transit = '5',
+    StockOut = '6',
+    LoanTransit = '7',
+    LoanReturnTransit = '8',
+    SoldClosed = '9',
+    DisassemblyFromFg = 'I',
+}
+
+const STATUS_LABELS: Record<JemisysInventoryStatus, string> = {
+    [JemisysInventoryStatus.Sold]: 'Sold',
+    [JemisysInventoryStatus.Available]: 'Available',
+    [JemisysInventoryStatus.PurchaseConsignReturn]: 'Purchase/Consign Return',
+    [JemisysInventoryStatus.ConsignSales]: 'Consign Sales',
+    [JemisysInventoryStatus.Transit]: 'Transit',
+    [JemisysInventoryStatus.StockOut]: 'Stock Out',
+    [JemisysInventoryStatus.LoanTransit]: 'Loan Transit',
+    [JemisysInventoryStatus.LoanReturnTransit]: 'Loan Return Transit',
+    [JemisysInventoryStatus.SoldClosed]: 'Sold',
+    [JemisysInventoryStatus.DisassemblyFromFg]: 'Disassembly from FG',
 };
 
 function statusLabel(status: string | null): string {
     if (!status) {
         return '-';
     }
-    const trimmed = status.trim();
+    const trimmed = status.trim() as JemisysInventoryStatus;
     return STATUS_LABELS[trimmed] ?? trimmed;
 }
 
