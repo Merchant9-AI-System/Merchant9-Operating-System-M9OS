@@ -22,9 +22,10 @@ use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
- * Diagnostik sambungan 'jemisys' (SQL Server via Tailscale) - jalankan semak berperingkat
- * (network -> driver PHP -> auth -> query sebenar) spt yg dibuat manual sepanjang setup awal,
- * supaya troubleshooting lepas ni tak perlu SSH masuk & jalankan sqlcmd manual setiap kali.
+ * Diagnostik sambungan 'jemisys' & 'finm9' (kedua-dua SQL Server via Tailscale, host sama,
+ * database berlainan) - jalankan semak berperingkat (network -> driver PHP -> auth -> query
+ * sebenar) spt yg dibuat manual sepanjang setup awal, supaya troubleshooting lepas ni tak perlu
+ * SSH masuk & jalankan sqlcmd manual setiap kali.
  */
 class JemisysConnectionStatus extends Page
 {
@@ -57,12 +58,20 @@ class JemisysConnectionStatus extends Page
      */
     private const QUERY_TIMEOUT_SECONDS = 20;
 
-    /** @var array<string, array{label: string, status: string, detail: string, ms: ?float}> */
+    /** Setiap sambungan disemak dgn jadual "sample" berlainan (query metadata katalog sys.partitions,
+     *  bukan COUNT(*) terus - rujuk dokblok checkQuery()) - TblInventory (jemisys) & tblJournalDetail
+     *  (finm9, jadual GL journal terbesar, ~294K baris) sebagai wakil "query sebenar berjaya". */
+    private const CONNECTIONS = [
+        'jemisys' => ['label' => 'JEMiSys', 'sampleTable' => 'TblInventory'],
+        'finm9' => ['label' => 'FINM9', 'sampleTable' => 'tblJournalDetail'],
+    ];
+
+    /** @var array<string, array<string, array{label: string, status: string, detail: string, ms: ?float}>> */
     public array $checks = [];
 
     public function getSubheading(): ?string
     {
-        return __('Diagnostik sambungan "jemisys" (SQL Server via Tailscale) - jalankan semak berperingkat');
+        return __('Diagnostik sambungan "jemisys" & "finm9" (SQL Server via Tailscale) - jalankan semak berperingkat');
     }
 
     /**
@@ -88,7 +97,10 @@ class JemisysConnectionStatus extends Page
     public function getWidgetData(): array
     {
         return [
-            'checks' => $this->checks,
+            // Diratakan 1 aras utk StatusConnectionWidget (perlukan senarai check DATAR utk kira
+            // "berapa gagal" - dia tak peduli sambungan mana, cuma jumlah kesihatan keseluruhan).
+            // $this->checks sendiri KEKAL bersarang ikut sambungan utk paparan Blade (2 seksyen).
+            'checks' => collect($this->checks)->flatten(1)->all(),
             'mirrors' => $this->mirrorStatus['mirrors'],
             'lastSyncedAt' => $this->mirrorStatus['lastSyncedAt'],
         ];
@@ -109,8 +121,8 @@ class JemisysConnectionStatus extends Page
                     ->label('Segerak Data JEMiSys')
                     ->icon(Heroicon::OutlinedArrowPath)
                     ->color('warning')
-                    ->disabled(fn() => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['network']['status'] ?? null) !== 'ok')
-                    ->tooltip(fn() => ($this->checks['network']['status'] ?? null) !== 'ok'
+                    ->disabled(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['jemisys']['network']['status'] ?? null) !== 'ok')
+                    ->tooltip(fn () => ($this->checks['jemisys']['network']['status'] ?? null) !== 'ok'
                         ? 'Sambungan rangkaian ke JEMiSys gagal - semak Tailscale/VPN (laptop sumber perlu ON & disambung) sebelum segerak.'
                         : null)
                     ->requiresConfirmation()
@@ -128,8 +140,8 @@ class JemisysConnectionStatus extends Page
                     ->label('Resume Data Tidak Lengkap')
                     ->icon(Heroicon::OutlinedWrenchScrewdriver)
                     ->color('gray')
-                    ->disabled(fn() => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['network']['status'] ?? null) !== 'ok')
-                    ->tooltip(fn() => ($this->checks['network']['status'] ?? null) !== 'ok'
+                    ->disabled(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING) || ($this->checks['jemisys']['network']['status'] ?? null) !== 'ok')
+                    ->tooltip(fn () => ($this->checks['jemisys']['network']['status'] ?? null) !== 'ok'
                         ? 'Sambungan rangkaian ke JEMiSys gagal - semak Tailscale/VPN (laptop sumber perlu ON & disambung) sebelum segerak.'
                         : null)
                     ->requiresConfirmation()
@@ -142,8 +154,8 @@ class JemisysConnectionStatus extends Page
                     ->label('Segerak Nickname & Imej Merchant9')
                     ->icon(Heroicon::OutlinedPhoto)
                     ->color('warning')
-                    ->disabled(fn() => Cache::has(SyncMerchantNicknamesAndImages::CACHE_KEY_SYNCING) || Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING))
-                    ->tooltip(fn() => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING)
+                    ->disabled(fn () => Cache::has(SyncMerchantNicknamesAndImages::CACHE_KEY_SYNCING) || Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING))
+                    ->tooltip(fn () => Cache::has(SyncJemisysMirrors::CACHE_KEY_SYNCING)
                         ? 'Sync JEMiSys utama sedang berjalan - tunggu selesai dahulu.'
                         : null)
                     ->requiresConfirmation()
@@ -173,8 +185,8 @@ class JemisysConnectionStatus extends Page
             // - lajur ni dibaca via wire:poll.3s (rujuk blade view). MAX(synced_at) disahkan
             // ~9.6s SEBELUM index ditambah (rujuk migration add_synced_at_indexes_...) - kekal
             // dicache sbg pertahanan tambahan (server production sibuk boleh perlahankan lagi).
-            'lastSyncedAt' => Cache::remember('jemisys_last_synced_at', self::CACHE_TTL_SECONDS, fn() => InventoryMirror::max('synced_at')),
-            'mirrors' => Cache::remember('jemisys_mirror_counts', self::CACHE_TTL_SECONDS, fn() => [
+            'lastSyncedAt' => Cache::remember('jemisys_last_synced_at', self::CACHE_TTL_SECONDS, fn () => InventoryMirror::max('synced_at')),
+            'mirrors' => Cache::remember('jemisys_mirror_counts', self::CACHE_TTL_SECONDS, fn () => [
                 'Category' => Category::count(),
                 'Vendor' => Vendor::count(),
                 'Store' => Store::count(),
@@ -194,7 +206,7 @@ class JemisysConnectionStatus extends Page
         // WHERE merchant_synced_at IS NULL) disahkan ~9.3s SETIAP panggilan pd 490K baris -
         // tanpa cache ni, wire:poll.3s jalankan query 9+ saat tu setiap 3 saat selagi page dibuka.
         $counts = Cache::remember('jemisys_nickname_status_counts', self::CACHE_TTL_SECONDS, function () {
-            $baseQuery = fn() => InventoryMirror::query()
+            $baseQuery = fn () => InventoryMirror::query()
                 ->whereNotNull('InternalCode')
                 ->where('InternalCode', '!=', '');
 
@@ -209,7 +221,7 @@ class JemisysConnectionStatus extends Page
             'syncStartedAt' => $startedAt instanceof Carbon ? $startedAt->toIso8601String() : null,
             // MAX(merchant_synced_at) disahkan ~9.9s SEBELUM index ditambah (sama rasional dgn
             // 'lastSyncedAt' di getMirrorStatusProperty() atas).
-            'lastCompletedAt' => Cache::remember('jemisys_merchant_last_completed_at', self::CACHE_TTL_SECONDS, fn() => InventoryMirror::max('merchant_synced_at')),
+            'lastCompletedAt' => Cache::remember('jemisys_merchant_last_completed_at', self::CACHE_TTL_SECONDS, fn () => InventoryMirror::max('merchant_synced_at')),
             'missingCount' => $counts['missingCount'],
             'totalDistinctCount' => $counts['totalDistinctCount'],
         ];
@@ -222,36 +234,47 @@ class JemisysConnectionStatus extends Page
      */
     public function runDiagnostics(): void
     {
-        $this->checks = [];
+        $extensions = $this->checkExtensions();
 
-        $this->checks['config'] = $this->checkConfig();
-        $this->checks['extensions'] = $this->checkExtensions();
-        $this->checks['network'] = $this->checkNetwork();
+        $this->checks = ['shared' => ['extensions' => $extensions]];
+
+        foreach (self::CONNECTIONS as $connection => $meta) {
+            $this->checks[$connection] = $this->runConnectionDiagnostics($connection, $meta['label'], $meta['sampleTable']);
+        }
+
+        Cache::put(self::CACHE_KEY_CHECKS, $this->checks, self::CACHE_TTL_SECONDS);
+    }
+
+    /** @return array<string, array{label: string, status: string, detail: string, ms: ?float}> */
+    protected function runConnectionDiagnostics(string $connection, string $connectionLabel, string $sampleTable): array
+    {
+        $checks = [];
+
+        $checks['config'] = $this->checkConfig($connection);
+        $checks['network'] = $this->checkNetwork($connection, $connectionLabel);
 
         // Kalau rangkaian dah gagal (VPN/Tailscale down), auth/query PASTI gagal jugak -
         // langkau terus drpd cuba sambung sqlsrv sebenar, yg boleh ambil masa lama (walaupun
         // login_timeout dah ditetapkan) berbanding fsockopen 3 saat semakan network di atas.
         // Fallback ni elak page/refresh "hang" beberapa saat setiap kali VPN down.
-        if ($this->checks['network']['status'] !== 'ok') {
-            $skipped = 'Dilangkau - sambungan rangkaian gagal (rujuk semakan "Sambungan Rangkaian" di atas). Semak Tailscale/VPN dahulu.';
+        if ($checks['network']['status'] !== 'ok') {
+            $skipped = "Dilangkau - sambungan rangkaian {$connectionLabel} gagal (rujuk semakan \"Sambungan Rangkaian\" di atas). Semak Tailscale/VPN dahulu.";
 
-            $this->checks['auth'] = ['label' => 'Auth SQL Server', 'status' => 'skip', 'detail' => $skipped, 'ms' => null];
-            $this->checks['query'] = ['label' => 'Query Sebenar (TblInventory)', 'status' => 'skip', 'detail' => $skipped, 'ms' => null];
+            $checks['auth'] = ['label' => 'Auth SQL Server', 'status' => 'skip', 'detail' => $skipped, 'ms' => null];
+            $checks['query'] = ['label' => "Query Sebenar ({$sampleTable})", 'status' => 'skip', 'detail' => $skipped, 'ms' => null];
 
-            Cache::put(self::CACHE_KEY_CHECKS, $this->checks, self::CACHE_TTL_SECONDS);
-
-            return;
+            return $checks;
         }
 
-        $this->checks['auth'] = $this->checkAuth();
-        $this->checks['query'] = $this->checkQuery();
+        $checks['auth'] = $this->checkAuth($connection);
+        $checks['query'] = $this->checkQuery($connection, $sampleTable);
 
-        Cache::put(self::CACHE_KEY_CHECKS, $this->checks, self::CACHE_TTL_SECONDS);
+        return $checks;
     }
 
-    protected function checkConfig(): array
+    protected function checkConfig(string $connection): array
     {
-        $config = config('database.connections.jemisys');
+        $config = config("database.connections.{$connection}");
 
         $detail = sprintf(
             'driver=%s host=%s port=%s database=%s username=%s password=%s',
@@ -268,12 +291,12 @@ class JemisysConnectionStatus extends Page
             'database' => $config['database'] ?? null,
             'username' => $config['username'] ?? null,
             'password' => $config['password'] ?? null,
-        ], fn($v) => blank($v));
+        ], fn ($v) => blank($v));
 
         return [
             'label' => 'Konfigurasi (.env)',
             'status' => $missing === [] ? 'ok' : 'fail',
-            'detail' => $missing === [] ? $detail : $detail . ' - HILANG: ' . implode(', ', array_keys($missing)),
+            'detail' => $missing === [] ? $detail : $detail.' - HILANG: '.implode(', ', array_keys($missing)),
             'ms' => null,
         ];
     }
@@ -284,21 +307,21 @@ class JemisysConnectionStatus extends Page
         $pdoSqlsrv = extension_loaded('pdo_sqlsrv');
 
         return [
-            'label' => 'Extension PHP',
+            'label' => 'Extension PHP (dikongsi kedua-dua sambungan)',
             'status' => ($sqlsrv && $pdoSqlsrv) ? 'ok' : 'fail',
-            'detail' => 'sqlsrv=' . ($sqlsrv ? 'loaded' : 'TAK LOADED') . ', pdo_sqlsrv=' . ($pdoSqlsrv ? 'loaded' : 'TAK LOADED'),
+            'detail' => 'sqlsrv='.($sqlsrv ? 'loaded' : 'TAK LOADED').', pdo_sqlsrv='.($pdoSqlsrv ? 'loaded' : 'TAK LOADED'),
             'ms' => null,
         ];
     }
 
-    protected function checkNetwork(): array
+    protected function checkNetwork(string $connection, string $connectionLabel): array
     {
-        $config = config('database.connections.jemisys');
+        $config = config("database.connections.{$connection}");
         $host = $config['host'] ?? null;
         $port = (int) ($config['port'] ?? 1433);
 
         if (blank($host)) {
-            return ['label' => 'Sambungan Rangkaian (TCP)', 'status' => 'skip', 'detail' => 'JEMISYS_HOST xde dlm .env', 'ms' => null];
+            return ['label' => 'Sambungan Rangkaian (TCP)', 'status' => 'skip', 'detail' => strtoupper($connection).'_HOST xde dlm .env', 'ms' => null];
         }
 
         $start = microtime(true);
@@ -309,7 +332,7 @@ class JemisysConnectionStatus extends Page
             return [
                 'label' => 'Sambungan Rangkaian (TCP)',
                 'status' => 'fail',
-                'detail' => "Tak boleh sambung ke {$host}:{$port} - [{$errno}] {$errstr}. Semak Tailscale (tailscale status) & Windows Firewall port {$port}.",
+                'detail' => "Tak boleh sambung ke {$host}:{$port} ({$connectionLabel}) - [{$errno}] {$errstr}. Semak Tailscale (tailscale status) & Windows Firewall port {$port}.",
                 'ms' => $ms,
             ];
         }
@@ -324,13 +347,13 @@ class JemisysConnectionStatus extends Page
         ];
     }
 
-    protected function checkAuth(): array
+    protected function checkAuth(string $connection): array
     {
         $start = microtime(true);
 
         try {
-            DB::purge('jemisys');
-            $pdo = DB::connection('jemisys')->getPdo();
+            DB::purge($connection);
+            $pdo = DB::connection($connection)->getPdo();
 
             // Rujuk dokblok QUERY_TIMEOUT_SECONDS - PDO_SQLSRV attribute ni terpakai utk
             // SEMUA statement seterusnya atas sambungan (PDO) yg SAMA, jadi checkQuery() lepas
@@ -347,41 +370,40 @@ class JemisysConnectionStatus extends Page
             return [
                 'label' => 'Auth SQL Server',
                 'status' => 'fail',
-                'detail' => 'Login gagal - ' . $e->getMessage(),
+                'detail' => 'Login gagal - '.$e->getMessage(),
                 'ms' => $ms,
             ];
         }
     }
 
-    protected function checkQuery(): array
+    protected function checkQuery(string $connection, string $sampleTable): array
     {
         $start = microtime(true);
 
         try {
             // sys.partitions (metadata SQL Server, BUKAN COUNT(*) terus) - disahkan sebenar
-            // production: COUNT(*) atas TblInventory (~495K baris, TIADA index sesuai - rujuk
-            // dokblok App\Models\Jemisys\InventoryPiece sebab cermin tempatan wujud) buat full
-            // table scan, ambil 25s+ (QUERY_TIMEOUT_SECONDS gagal). Metadata katalog SQL Server
-            // (row_count tersimpan, bukan dikira semula) instant tak kira saiz jadual - index_id
-            // 0 (heap, TIADA clustered index - kes TblInventory) + 1 (clustered, jaga-jaga kalau
-            // berubah kelak) dijumlah supaya betul kedua-dua keadaan.
-            $result = DB::connection('jemisys')->selectOne(
-                'SELECT SUM(p.rows) AS c FROM sys.partitions p ' .
-                    "WHERE p.object_id = OBJECT_ID('TblInventory') AND p.index_id IN (0, 1)"
+            // production: COUNT(*) atas jadual besar (cth. TblInventory ~495K baris, TIADA
+            // index sesuai) buat full table scan, ambil 25s+ (QUERY_TIMEOUT_SECONDS gagal).
+            // Metadata katalog SQL Server (row_count tersimpan, bukan dikira semula) instant
+            // tak kira saiz jadual - index_id 0 (heap, TIADA clustered index) + 1 (clustered,
+            // jaga-jaga kalau berubah kelak) dijumlah supaya betul kedua-dua keadaan.
+            $result = DB::connection($connection)->selectOne(
+                'SELECT SUM(p.rows) AS c FROM sys.partitions p WHERE p.object_id = OBJECT_ID(?) AND p.index_id IN (0, 1)',
+                [$sampleTable]
             );
             $ms = round((microtime(true) - $start) * 1000, 1);
 
             return [
-                'label' => 'Query Sebenar (TblInventory)',
+                'label' => "Query Sebenar ({$sampleTable})",
                 'status' => 'ok',
-                'detail' => number_format($result->c) . ' baris (anggaran metadata, bukan COUNT langsung).',
+                'detail' => number_format($result->c).' baris (anggaran metadata, bukan COUNT langsung).',
                 'ms' => $ms,
             ];
         } catch (Throwable $e) {
             $ms = round((microtime(true) - $start) * 1000, 1);
 
             return [
-                'label' => 'Query Sebenar (TblInventory)',
+                'label' => "Query Sebenar ({$sampleTable})",
                 'status' => 'fail',
                 'detail' => $e->getMessage(),
                 'ms' => $ms,

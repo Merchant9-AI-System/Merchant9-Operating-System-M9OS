@@ -64,6 +64,20 @@ return [
             'login_timeout' => (int) env('JEMISYS_LOGIN_TIMEOUT', 5),
         ],
 
+        // Data kewangan FINM9 - sama server SQL Server dgn 'jemisys', database berlainan.
+        'finm9' => [
+            'driver' => 'sqlsrv',
+            'host' => env('FINM9_HOST'),
+            'port' => env('FINM9_PORT', '1433'),
+            'database' => env('FINM9_DATABASE', 'FINM9'),
+            'username' => env('FINM9_USERNAME'),
+            'password' => env('FINM9_PASSWORD'),
+            'prefix' => '',
+            'encrypt' => env('FINM9_ENCRYPT', true),
+            'trust_server_certificate' => env('FINM9_TRUST_SERVER_CERTIFICATE', true),
+            'login_timeout' => (int) env('FINM9_LOGIN_TIMEOUT', 5),
+        ],
+
         'mysql' => [
             'driver' => 'mysql',
             'url' => env('DB_URL'),

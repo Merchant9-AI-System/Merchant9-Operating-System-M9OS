@@ -53,7 +53,7 @@ Route::middleware('auth')->group(function () {
 //     Route::get('/_dev/oauth-authorize-preview', function () {
 //         return view('mcp.authorize', [
 //             'client' => (object) ['id' => 'preview-client-id', 'name' => 'Claude'],
-//             'user' => (object) ['email' => 'superadmin@m9.com'],
+//             'user' => (object) ['email' => 'superadmin@m9.com', 'username' => 'superadmin'],
 //             'scopes' => [(object) ['description' => 'Use available MCP functionality.']],
 //             'authToken' => 'preview-auth-token',
 //         ]);
