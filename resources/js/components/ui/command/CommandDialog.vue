@@ -28,7 +28,13 @@ const forwarded = useForwardPropsEmits(props, emits)
 
 <template>
   <Dialog v-slot="slotProps" v-bind="forwarded">
-    <DialogContent hide-close overlay-class="backdrop-blur-sm" class="overflow-hidden rounded-xl border p-0 shadow-2xl">
+    <!-- overlay-class TIADA backdrop-blur-sm (dulu ada) - animate opacity atas elemen
+         backdrop-filter:blur() paksa browser re-sample+re-composite SEMUA di belakangnya
+         SETIAP frame transisi buka/tutup, lagi teruk bila kandungan dialog (cadangan restock +
+         imej) turut mounting serentak - nampak/rasa tersekat-sekat (jank) bila dialog dibuka,
+         bukan smooth. Overlay dim biasa (bg-black/50, sama pattern Dialog/AlertDialog/Sheet lain
+         dlm app ni) cukup, tiada blur perlu dianimasi. -->
+    <DialogContent hide-close class="overflow-hidden rounded-xl border p-0 shadow-2xl">
       <DialogHeader class="sr-only">
         <DialogTitle>{{ title }}</DialogTitle>
         <DialogDescription>{{ description }}</DialogDescription>

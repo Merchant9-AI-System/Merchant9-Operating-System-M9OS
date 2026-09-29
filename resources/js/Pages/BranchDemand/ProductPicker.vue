@@ -231,8 +231,14 @@ function clear() {
 
             <div class="relative flex-1">
                 <Search class="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+                <!-- readonly - medan ni SEKADAR pencetus buka CommandDialog (carian sebenar guna
+                     CommandInput dlm dialog), :model-value ni SEHALA (tiada @update:modelValue) -
+                     tanpa readonly, taip pantas sejurus klik (sblm fokus berpindah ke
+                     CommandInput dialog) buat aksara pertama "termakan" (Vue timpa balik ke
+                     `query` setiap render), terasa spt lag/tersekat-sekat. -->
                 <Input :model-value="query" placeholder="Cari kod design, keterangan atau kategori..."
-                    autocomplete="off" :disabled="disabled || !storeCode" @click="open = true" class="pl-10 pr-8" />
+                    autocomplete="off" readonly :disabled="disabled || !storeCode" @click="open = true"
+                    class="pl-10 pr-8" />
                 <Button v-show="query.length > 0 && !loading" type="button" variant="ghost" size="icon"
                     class="absolute right-1 top-1 size-7" @click="clear">
                     <X class="size-4" />
