@@ -4,6 +4,7 @@ namespace App\Filament\Resources\PhysicalGoldReports\Schemas;
 
 use App\Models\Jemisys\Vendor;
 use App\Support\PhysicalGoldReportLineMapper;
+use App\Support\SupplierOutstandingGoldProvider;
 use App\Support\UsedGoldBalanceProvider;
 use App\Support\UsedGoldTransitProvider;
 use Filament\Actions\Action;
@@ -441,6 +442,39 @@ class PhysicalGoldReportForm
                     ->iconColor('primary')
                     ->collapsible()
                     ->schema([
+                        // Tarik drpd laporan PALING BARU (apa2 status) - data ni SENDIRI dah
+                        // tersimpan lokal (physical_gold_report_lines, rujuk App\Support\
+                        // SupplierOutstandingGoldProvider), BUKAN sumber luar/live spt 2 butang
+                        // "Tarik Data" lain kat atas - GANTI SELURUH senarai (bukan timpa baris
+                        // sedia ada ikut kunci tetap, sbb repeater ni bebas/tiada slot ketulenan
+                        // tetap - setiap baris = 1 vendor).
+                        Actions::make([
+                            Action::make('pullFromSupplierOutstanding')
+                                ->label('Tarik Data Laporan Lepas')
+                                ->icon(Heroicon::OutlinedArrowDownTray)
+                                ->color('gray')
+                                ->requiresConfirmation()
+                                ->modalDescription('Ganti SEMUA baris sedia ada di Outstanding Gold Due to Suppliers dgn baki PALING BARU bagi SETIAP vendor (dikumpul merentasi semua laporan lampau, bukan cuma 1 laporan). Baris yg dah ditaip akan HILANG.')
+                                ->action(function (Set $set) {
+                                    $rows = SupplierOutstandingGoldProvider::fromLatest();
+
+                                    if ($rows === null) {
+                                        Notification::make()
+                                            ->title('Tiada laporan sebelum ini utk ditarik.')
+                                            ->warning()
+                                            ->send();
+
+                                        return;
+                                    }
+
+                                    $set('supplier_outstanding_lines', $rows);
+
+                                    Notification::make()
+                                        ->title('Data ditarik drpd laporan lepas - sila semak sebelum simpan.')
+                                        ->success()
+                                        ->send();
+                                }),
+                        ]),
                         Repeater::make('supplier_outstanding_lines')
                             ->label('')
                             ->schema([
