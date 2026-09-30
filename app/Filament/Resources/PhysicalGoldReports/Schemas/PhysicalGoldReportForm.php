@@ -5,6 +5,7 @@ namespace App\Filament\Resources\PhysicalGoldReports\Schemas;
 use App\Models\Jemisys\Vendor;
 use App\Support\PhysicalGoldReportLineMapper;
 use App\Support\UsedGoldBalanceProvider;
+use App\Support\UsedGoldTransitProvider;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
@@ -354,6 +355,47 @@ class PhysicalGoldReportForm
                     ->iconColor('primary')
                     ->collapsible()
                     ->schema([
+                        // Tarik drpd emas trade-in (used gold) yg BELUM diterima/disahkan di HQ
+                        // (live 'jemisys', rujuk App\Support\UsedGoldTransitProvider utk mekanisme
+                        // disahkan) - sama pattern dgn "Tarik Data Used Gold" di atas: HANYA baris
+                        // ASAS (remarks kosong) ditimpa, baris variant (cth. "916 - YS") x disentuh.
+                        Actions::make([
+                            Action::make('pullFromUsedGoldTransit')
+                                ->label('Tarik Data GDN')
+                                ->icon(Heroicon::OutlinedArrowDownTray)
+                                ->color('gray')
+                                ->requiresConfirmation()
+                                ->modalDescription('Ganti nilai Berat (g) baris ASAS sedia ada di GDN Not Yet Received dgn jumlah emas trade-in yg belum diterima/disahkan di HQ (live drpd JEMiSys). Nilai yg dah ditaip akan HILANG (baris variant x disentuh).')
+                                ->action(function (Set $set, Get $get) {
+                                    $pending = UsedGoldTransitProvider::pendingByPurity();
+
+                                    if ($pending === null) {
+                                        Notification::make()
+                                            ->title('Gagal tarik data - sambungan JEMiSys tak dpt dicapai.')
+                                            ->danger()
+                                            ->send();
+
+                                        return;
+                                    }
+
+                                    $rows = collect($get('gdn_pending_lines'))
+                                        ->map(function (array $row) use ($pending) {
+                                            if (blank($row['remarks'] ?? null) && array_key_exists($row['purity_code'], $pending)) {
+                                                $row['gross_weight'] = round($pending[$row['purity_code']], 2);
+                                            }
+
+                                            return $row;
+                                        })
+                                        ->all();
+
+                                    $set('gdn_pending_lines', $rows);
+
+                                    Notification::make()
+                                        ->title('Data GDN ditarik - sila semak sebelum simpan.')
+                                        ->success()
+                                        ->send();
+                                }),
+                        ]),
                         Repeater::make('gdn_pending_lines')
                             ->label('')
                             ->table([
