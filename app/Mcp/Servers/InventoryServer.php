@@ -7,6 +7,7 @@ use App\Mcp\Tools\GetRearrangeRecommendationsTool;
 use App\Mcp\Tools\GetRestockByBucketTool;
 use App\Mcp\Tools\GetRestockSuggestionsTool;
 use App\Mcp\Tools\GetStockoutReorderCandidatesTool;
+use App\Mcp\Tools\GetUsedGoldTransitTool;
 use App\Mcp\Tools\ListRestockCategoriesTool;
 use App\Mcp\Tools\LookupInventoryPiecesTool;
 use Laravel\Mcp\Server;
@@ -35,6 +36,7 @@ class InventoryServer extends Server
         GetStockoutReorderCandidatesTool::class,
         LookupInventoryPiecesTool::class,
         GetOrderRecommendationTool::class,
+        GetUsedGoldTransitTool::class,
     ];
 
     protected array $resources = [

@@ -2,7 +2,9 @@
 
 namespace App\Mcp\Tools;
 
+use App\Enums\JemisysInventoryStatus;
 use App\Models\Jemisys\InventoryPiece;
+use App\Support\TransferDestinationResolver;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
@@ -17,6 +19,14 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
  * App\Filament\Resources\InventoryPieces\InventoryPieceResource (onHand() sahaja, SENGAJA
  * TIADA realVendor() - "Stok Semasa" papar SEMUA stok fizikal termasuk vendor placeholder,
  * bukan skop analitik). Read-only sepenuhnya - resource asal pun tiada create/edit/delete.
+ *
+ * Medan status/transaksi (status_label, transfer_to_store, customer_code, sales_by, dll) -
+ * ditambah supaya agent AI boleh jawab terus "item ni transit ke/available ke/branch mana/
+ * dibeli siapa" drpd SATU panggilan tool, tanpa perlu query DB berasingan. transfer_to_store
+ * SAHAJA panggil TransferDestinationResolver (live query ke jemisys SQL Server, ~50-100ms
+ * bila sambungan panas, ~9s kalau ni panggilan LIVE pertama proses ni - rujuk dokblok kelas
+ * tsb) - HANYA utk piece yg Status memang transit (bukan setiap baris), kekalkan carian
+ * bulk (>1 piece) kekal laju secara keseluruhan.
  *
  * #[Name(...)] WAJIB - rujuk nota sama di ListRestockCategoriesTool.
  */
@@ -59,20 +69,47 @@ class LookupInventoryPiecesTool extends Tool
             ->offset($offset)
             ->limit(self::MAX_RESULTS)
             ->get()
-            ->map(fn (InventoryPiece $piece) => [
-                'internal_code' => trim($piece->InternalCode),
-                'description' => $piece->Description,
-                'category_code' => trim((string) $piece->CategoryCode),
-                'vendor_code' => trim((string) $piece->VendorCode),
-                'store_code' => trim((string) $piece->StoreCode),
-                'class_code' => trim((string) $piece->ClassCode),
-                'jewel_size' => $piece->JewelSize,
-                'gold_weight' => $piece->GoldWeight,
-                'total_cost' => $piece->TotalCost,
-                'qty_on_hand' => $piece->QtyOnHand,
-                'purch_date' => $piece->PurchDate?->toDateString(),
-                'age_days' => $piece->age_days,
-            ])
+            ->map(function (InventoryPiece $piece) {
+                $statusCode = trim((string) $piece->Status);
+                $isTransitLike = in_array($statusCode, [
+                    JemisysInventoryStatus::Transit->value,
+                    JemisysInventoryStatus::LoanTransit->value,
+                    JemisysInventoryStatus::LoanReturnTransit->value,
+                ], true);
+
+                return [
+                    'internal_code' => trim($piece->InternalCode),
+                    'description' => $piece->Description,
+                    'category_code' => trim((string) $piece->CategoryCode),
+                    'vendor_code' => trim((string) $piece->VendorCode),
+                    'store_code' => trim((string) $piece->StoreCode),
+                    'class_code' => trim((string) $piece->ClassCode),
+                    'jewel_size' => $piece->JewelSize,
+                    'gold_weight' => $piece->GoldWeight,
+                    'total_cost' => $piece->TotalCost,
+                    'qty_on_hand' => $piece->QtyOnHand,
+                    'purch_date' => $piece->PurchDate?->toDateString(),
+                    'age_days' => $piece->age_days,
+                    // Status semasa - "transit ke/available ke" (rujuk App\Enums\JemisysInventoryStatus).
+                    'status_code' => $statusCode,
+                    'status_label' => JemisysInventoryStatus::labelFor($statusCode),
+                    // Branch destinasi - HANYA diisi (& hanya live query dipanggil) bila piece ni
+                    // memang transit/loan transit; selainnya null tanpa kos query tambahan.
+                    'transfer_to_store' => $isTransitLike ? TransferDestinationResolver::resolve($piece) : null,
+                    // "Dibeli siapa" - kod customer (kalau jualan retail bertaut member) & staf yg proses.
+                    'customer_code' => filled($piece->CustomerCode) ? trim($piece->CustomerCode) : null,
+                    'sales_by' => filled($piece->SalesBy) ? trim($piece->SalesBy) : null,
+                    'sales_date' => $piece->SalesDate?->toDateString(),
+                    'sales_amount' => $piece->SalesAmount,
+                    'job_sheet_no' => filled($piece->JobSheetNo) ? trim($piece->JobSheetNo) : null,
+                    // Loan (bukan Transit/LoanTransit Status - LLoan/LoanToStore/LoanDate ialah
+                    // lajur BERASINGAN pd TblInventory, tak semestinya piece tu status LoanTransit
+                    // skrg) - "loan kemana" dijawab drpd sini.
+                    'is_loan' => (bool) $piece->Loan,
+                    'loan_to_store' => filled($piece->LoanToStore) ? trim($piece->LoanToStore) : null,
+                    'loan_date' => filled($piece->LoanDate) ? trim((string) $piece->LoanDate) : null,
+                ];
+            })
             ->values()
             ->all();
 
@@ -110,7 +147,12 @@ class LookupInventoryPiecesTool extends Tool
             'total_count' => $schema->integer()->description('Jumlah piece sepadan sebelum dipangkas.')->required(),
             'offset' => $schema->integer()->description('Offset yg dipakai.')->required(),
             'truncated_count' => $schema->integer()->description('Bilangan disorok kerana melebihi had '.self::MAX_RESULTS.' selepas offset.')->required(),
-            'pieces' => $schema->array()->description('Senarai piece stok, susun ikut tarikh beli menurun.')->required(),
+            'pieces' => $schema->array()->description(
+                'Senarai piece stok, susun ikut tarikh beli menurun. Setiap piece termasuk status_label '
+                .'(Available/Transit/Sold/dll), transfer_to_store (destinasi kalau sedang transit), '
+                .'customer_code/sales_by/sales_date (kalau dah dijual), is_loan/loan_to_store/loan_date '
+                .'(kalau sedang dipinjamkan).'
+            )->required(),
         ];
     }
 }

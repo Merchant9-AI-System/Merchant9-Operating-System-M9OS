@@ -28,7 +28,7 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
  * bawa baki "Tool" dlm nama, disahkan sebab sebenar ralat "Tool not found" semasa ujian).
  */
 #[Name('get-restock-suggestions')]
-#[Description('Cadangan restock (design + cawangan mana perlu restock, & kenapa) bagi SATU kod kategori - guna list-restock-categories dulu utk dapatkan kod kategori yg sah.')]
+#[Description('Cadangan restock DAN overstock (design + cawangan mana perlu restock/ada lebihan stok, & kenapa - tapis ikut field verdict) bagi SATU kod kategori - guna list-restock-categories dulu utk dapatkan kod kategori yg sah.')]
 #[IsReadOnly]
 class GetRestockSuggestionsTool extends Tool
 {
@@ -72,6 +72,11 @@ class GetRestockSuggestionsTool extends Tool
             'target_stock' => $row['target_stock'],
             'gap' => $row['gap'],
             'verdict' => $row['verdict'],
+            // pieces_sold/velocity_per_month - dah dikira RestockAnalysisCalculator sedia ada,
+            // sekadar tak terdedah sebelum ni. Perlu jawab "design paling laku utk kategori ni" -
+            // agent boleh susun/banding senarai ni ikut pieces_sold tanpa panggilan tool berasingan.
+            'pieces_sold' => $row['pieces_sold'],
+            'velocity_per_month' => $row['velocity_per_month'],
         ])->values()->all();
 
         return Response::structured([
@@ -108,7 +113,10 @@ class GetRestockSuggestionsTool extends Tool
             'total_count' => $schema->integer()->description('Jumlah baris sepadan sebelum dipangkas.')->required(),
             'offset' => $schema->integer()->description('Offset yg dipakai.')->required(),
             'truncated_count' => $schema->integer()->description('Bilangan baris disorok kerana melebihi had '.self::MAX_RESULTS.' selepas offset.')->required(),
-            'suggestions' => $schema->array()->description('Senarai cadangan restock, susun ikut gap menurun.')->required(),
+            'suggestions' => $schema->array()->description(
+                'Senarai cadangan restock, susun ikut gap menurun. Setiap baris termasuk pieces_sold '
+                .'& velocity_per_month - susun/banding senarai ni utk jawab "design paling laku".'
+            )->required(),
         ];
     }
 }
