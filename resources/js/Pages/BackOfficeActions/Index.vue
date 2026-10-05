@@ -876,7 +876,8 @@ function save(andPrint = false) {
                         Pilih satu design di sebelah kiri untuk lihat cadangan Rearrange / Restock.
                     </p>
 
-                    <div v-else class="flex max-h-[34rem] flex-col gap-4 overflow-auto text-sm">
+                    <ScrollArea v-else class="h-[min(34rem,calc(100vh-18rem))]">
+                    <div class="flex flex-col gap-4 pr-3 text-sm">
                         <div class="flex items-center gap-3">
                             <ImagePreview :src="activeGroup.image_url" :alt="activeGroup.description ?? ''" class="size-14 shrink-0 rounded-md" />
                             <div class="min-w-0">
@@ -1064,6 +1065,7 @@ function save(andPrint = false) {
                             </div>
                         </section>
                     </div>
+                    </ScrollArea>
                 </CardContent>
             </Card>
         </div>
