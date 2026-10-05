@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Deferred, Head, router } from '@inertiajs/vue3';
-import { ChevronDown, Download, FileSpreadsheet, Loader2, Printer, Save, Search, X } from '@lucide/vue';
+import { Check, ChevronDown, Download, FileSpreadsheet, Loader2, Printer, Save, Search, X } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import ImagePreview from '@/components/ImagePreview.vue';
@@ -223,7 +223,7 @@ const previewLoading = ref(false);
 const previews = ref<Record<string, Preview>>({});
 
 // Suntingan Senarai Restock BELUM disimpan - kunci = id item (kuantiti baharu atau dibuang).
-const restockEdits = ref<Record<number, { qty?: number; remove?: boolean }>>({});
+const restockEdits = ref<Record<number, { qty?: number; remove?: boolean; ordered?: boolean }>>({});
 const restockGroup = ref<'category' | 'branch' | 'supplier'>('category');
 const exportOpen = ref(false);
 
@@ -238,12 +238,30 @@ function restockQty(item: RestockItem): number {
 
 function setRestockQty(item: RestockItem, value: string) {
     const qty = Math.max(0, Math.min(100000, Math.floor(Number(value) || 0)));
+    const ordered = restockEdits.value[item.id]?.ordered;
 
-    if (qty === item.qty_to_order) {
+    if (qty === item.qty_to_order && !ordered) {
         delete restockEdits.value[item.id];
     } else {
-        restockEdits.value[item.id] = { qty };
+        restockEdits.value[item.id] = { qty, ordered };
     }
+}
+
+// Tick = tanda Dah Order (dilaksanakan bila Simpan). Tick sekali lagi untuk batal.
+function toggleOrdered(item: RestockItem) {
+    const edit = restockEdits.value[item.id];
+
+    if (edit?.ordered) {
+        if (edit.qty !== undefined && edit.qty !== item.qty_to_order) {
+            restockEdits.value[item.id] = { qty: edit.qty };
+        } else {
+            delete restockEdits.value[item.id];
+        }
+
+        return;
+    }
+
+    restockEdits.value[item.id] = { qty: edit?.qty, ordered: true };
 }
 
 function removeRestockItem(item: RestockItem) {
@@ -331,8 +349,12 @@ function isRemovedRow(item: RestockItem): boolean {
     return !item.pending && !!restockEdits.value[item.id]?.remove;
 }
 
+function isOrderedRow(item: RestockItem): boolean {
+    return !item.pending && !!restockEdits.value[item.id]?.ordered;
+}
+
 function isEditedRow(item: RestockItem): boolean {
-    return !item.pending && !!restockEdits.value[item.id] && !restockEdits.value[item.id].remove;
+    return !item.pending && !!restockEdits.value[item.id] && !restockEdits.value[item.id].remove && !restockEdits.value[item.id].ordered;
 }
 
 // Buang: baris baru -> batalkan status Order (kod yg BO pilih dikekalkan); baris tersimpan -> tanda buang.
@@ -732,7 +754,7 @@ const stagedEntries = computed<LogEntry[]>(() => [
                 design: item.internal_code,
                 store: 'Restock',
                 from: `order ${item.qty_to_order}`,
-                to: edit.remove ? 'Buang dari senarai' : `order ${edit.qty}`,
+                to: edit.remove ? 'Buang dari senarai' : edit.ordered ? `Dah Order ${edit.qty ?? item.qty_to_order} unit` : `order ${edit.qty}`,
             }]
             : [];
     }),
@@ -806,6 +828,7 @@ function save(andPrint = false) {
         id: Number(id),
         qty: e.qty ?? null,
         remove: e.remove ?? false,
+        ordered: e.ordered ?? false,
     }));
 
     const restock_new = pendingRestock.value
@@ -1273,7 +1296,7 @@ function save(andPrint = false) {
                                 </thead>
                                 <tbody>
                                     <tr v-for="item in restockRows" :key="rowKey(item)" class="border-b align-top last:border-0"
-                                        :class="{ 'bg-destructive/5 line-through opacity-60': isRemovedRow(item), 'bg-primary/5': item.pending || isEditedRow(item) }">
+                                        :class="{ 'bg-destructive/5 line-through opacity-60': isRemovedRow(item), 'bg-success/10': isOrderedRow(item), 'bg-primary/5': item.pending || isEditedRow(item) }">
                                         <td class="py-2 pr-3">
                                             <div class="flex items-center gap-3">
                                                 <ImagePreview :src="item.image_url" :alt="item.description ?? ''" class="size-10 shrink-0 rounded-md" />
@@ -1328,13 +1351,23 @@ function save(andPrint = false) {
                                                     :model-value="rowQty(item)" :disabled="isRemovedRow(item)"
                                                     :aria-label="`Kuantiti order ${item.internal_code}`"
                                                     @update:model-value="(v: string | number) => setRowQty(item, String(v))" />
-                                                <Button v-if="!isRemovedRow(item)" type="button" size="icon" variant="ghost"
+                                                <Button v-if="!item.pending && !isRemovedRow(item)" type="button" size="icon"
+                                                    :variant="isOrderedRow(item) ? 'default' : 'ghost'"
+                                                    :class="isOrderedRow(item) ? 'bg-success text-success-foreground hover:bg-success/90' : 'text-success hover:text-success'"
+                                                    :title="isOrderedRow(item) ? 'Batal tanda Dah Order' : 'Tanda Dah Order (selepas order dengan supplier)'"
+                                                    :aria-label="`Tanda ${item.internal_code} Dah Order`" @click="toggleOrdered(item)">
+                                                    <Check class="size-4" />
+                                                </Button>
+                                                <Button v-if="!isRemovedRow(item) && !isOrderedRow(item)" type="button" size="icon" variant="ghost"
                                                     :aria-label="`Buang ${item.internal_code} dari senarai`" @click="removeRow(item)">
                                                     <X class="size-4" />
                                                 </Button>
                                                 <Button v-else type="button" size="sm" variant="ghost" @click="undoRestockEdit(item.id)">Batal</Button>
                                             </div>
-                                            <p class="mt-1 text-xs text-muted-foreground" :title="planHint(item)">
+                                            <p v-if="isOrderedRow(item)" class="mt-1 text-xs font-medium text-success">
+                                                Dah Order &mdash; disimpan bila tekan Simpan
+                                            </p>
+                                            <p v-else class="mt-1 text-xs text-muted-foreground" :title="planHint(item)">
                                                 cadangan {{ item.suggested_qty }}
                                                 <button v-if="rowQty(item) !== item.suggested_qty && !isRemovedRow(item)" type="button"
                                                     class="ml-1 text-primary underline"

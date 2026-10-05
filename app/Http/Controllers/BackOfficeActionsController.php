@@ -100,6 +100,7 @@ class BackOfficeActionsController extends Controller
             'restock_items.*.id' => ['required', 'integer', 'distinct', 'exists:restock_list_items,id'],
             'restock_items.*.qty' => ['nullable', 'integer', 'min:0', 'max:100000'],
             'restock_items.*.remove' => ['nullable', 'boolean'],
+            'restock_items.*.ordered' => ['nullable', 'boolean'],
             'changes.*.line_id' => ['required', 'integer', 'distinct', 'exists:branch_demand_request_lines,id'],
             'changes.*.fulfillment_status' => ['required', 'string', Rule::in(array_keys(BranchDemandRequestLine::FULFILLMENT_LABELS))],
             'changes.*.from_store' => ['nullable', 'string', 'max:20'],
@@ -115,7 +116,7 @@ class BackOfficeActionsController extends Controller
         $restockNew = collect($data['restock_new'] ?? [])->mapWithKeys(fn (array $r) => [trim($r['internal_code']) => (int) $r['qty']]);
         $actor = (string) Auth::user()->name;
 
-        [$updated, $transfers, $restockChanged] = DB::transaction(function () use ($changes, $restockEdits, $restockNew, $advisor, $actor) {
+        [$updated, $transfers, $restockChanged, $ordered] = DB::transaction(function () use ($changes, $restockEdits, $restockNew, $advisor, $actor) {
             $lines = BranchDemandRequestLine::with('request')
                 ->whereIn('id', $changes->keys())
                 ->lockForUpdate()
@@ -182,7 +183,9 @@ class BackOfficeActionsController extends Controller
                     ->update(['qty_to_order' => $qty, 'updated_by' => $actor]);
             }
 
-            // Suntingan kuantiti / buang drpd bahagian Senarai Restock.
+            $ordered = 0;
+
+            // Suntingan kuantiti / buang / tanda Dah Order drpd bahagian Senarai Restock.
             foreach ($restockEdits as $edit) {
                 $item = RestockListItem::find($edit['id']);
 
@@ -197,20 +200,30 @@ class BackOfficeActionsController extends Controller
                     continue;
                 }
 
+                // Leader BO tick = order sudah dibuat dgn supplier: item keluar dr senarai draf & SEMUA
+                // line cawangan yg masih "Order" utk design ni jadi "Dah Order" (cawangan nampak).
+                if (! empty($edit['ordered'])) {
+                    $this->markRestockItemOrdered($item, isset($edit['qty']) ? (int) $edit['qty'] : null, $actor);
+                    $ordered++;
+                    $restockChanged++;
+
+                    continue;
+                }
+
                 if (isset($edit['qty']) && (int) $edit['qty'] !== (int) $item->qty_to_order) {
                     $item->update(['qty_to_order' => (int) $edit['qty'], 'updated_by' => $actor]);
                     $restockChanged++;
                 }
             }
 
-            return [$updated, $transfers, $restockChanged];
+            return [$updated, $transfers, $restockChanged, $ordered];
         });
 
         $message = match (true) {
             $updated === 0 && $restockChanged === 0 => 'Tiada perubahan untuk disimpan.',
             default => implode(' ', array_filter([
                 $updated > 0 ? "{$updated} item dikemaskini".($transfers > 0 ? ", {$transfers} transfer Rearrange dicipta." : '.') : null,
-                $restockChanged > 0 ? "{$restockChanged} item Senarai Restock dikemaskini." : null,
+                $restockChanged > 0 ? "{$restockChanged} item Senarai Restock dikemaskini".($ordered > 0 ? ", {$ordered} ditanda Dah Order." : '.') : null,
             ])),
         };
 
@@ -257,6 +270,28 @@ class BackOfficeActionsController extends Controller
         }
 
         return $changed;
+    }
+
+    /**
+     * Tandakan item Senarai Restock sudah diorder: status item -> ordered, kuantiti akhir disimpan, dan
+     * line cawangan yg masih berstatus Order utk kod tsb -> Dah Order (satu per satu supaya log
+     * aktiviti line direkodkan).
+     */
+    protected function markRestockItemOrdered(RestockListItem $item, ?int $qty, string $actor): void
+    {
+        $item->update([
+            'status' => RestockListItem::STATUS_ORDERED,
+            'qty_to_order' => $qty ?? $item->qty_to_order,
+            'ordered_at' => now(),
+            'updated_by' => $actor,
+        ]);
+
+        BranchDemandRequestLine::query()
+            ->where('internal_code', $item->internal_code)
+            ->where('fulfillment_status', BranchDemandRequestLine::FULFILLMENT_ORDER)
+            ->whereNull('done_at')
+            ->get()
+            ->each(fn (BranchDemandRequestLine $line) => $line->update(['fulfillment_status' => BranchDemandRequestLine::FULFILLMENT_DAH_ORDER]));
     }
 
     /** Eksport Senarai Restock tersimpan ke Excel (.xlsx) - ikut kumpulan: category | branch | supplier. */
