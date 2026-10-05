@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\BackOfficeActionsController;
 use App\Http\Controllers\BranchDemandEntryController;
 use App\Http\Controllers\ExpenseClaimController;
 use App\Http\Controllers\JobsheetLookupController;
@@ -28,6 +29,15 @@ Route::middleware('auth')->group(function () {
     // Carian item ikut JobSheetNo (jemisys_inventory_mirror) - staf log masuk sahaja (rujuk
     // JobsheetLookupController dokblok), BERBEZA drpd Branch Demand di atas.
     Route::get('/jobsheet-lookup', [JobsheetLookupController::class, 'index'])->name('jobsheet-lookup.index');
+
+    // Back Office Actions - leader BO (manager), ceo & super_admin urus fulfillment_status line
+    // permintaan cawangan + cadangan Rearrange/Restock (rujuk BackOfficeActionsController dokblok).
+    Route::get('/back-office-actions', [BackOfficeActionsController::class, 'index'])->name('back-office-actions.index');
+    Route::post('/back-office-actions', [BackOfficeActionsController::class, 'save'])->name('back-office-actions.save');
+    Route::get('/back-office-actions/lines/{line}/candidates', [BackOfficeActionsController::class, 'candidates'])->name('back-office-actions.candidates');
+    Route::get('/back-office-actions/restock/export', [BackOfficeActionsController::class, 'restockExport'])->name('back-office-actions.restock.export');
+    Route::get('/back-office-actions/restock/print', [BackOfficeActionsController::class, 'restockPrint'])->name('back-office-actions.restock.print');
+    Route::get('/back-office-actions/preview', [BackOfficeActionsController::class, 'preview'])->name('back-office-actions.preview');
 
     // Senarai PENUH imej produk (bukan 1 thumbnail sahaja) bagi satu InternalCode - dibuka drpd
     // lajur imej ImageColumn di Filament (rujuk ProductImagesController dokblok).

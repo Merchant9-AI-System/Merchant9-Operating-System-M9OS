@@ -26,6 +26,12 @@ use Illuminate\Support\Collection;
  */
 class BranchDemandAllocationRecommender
 {
+    /** Donor perlu stok >= ni, & baki DONOR_KEEP_STOCK kekal simpanan cawangan donor (dikongsi dgn
+     * BackOfficeActionsAdvisor supaya satu sumber kebenaran utk "boleh rearrange"). */
+    public const DONOR_MIN_STOCK = 3;
+
+    public const DONOR_KEEP_STOCK = 2;
+
     public static function recommendations(): Collection
     {
         $lines = BranchDemandRequestLine::query()
@@ -66,13 +72,13 @@ class BranchDemandAllocationRecommender
                 $donor = ($stockByCode->get($line->internal_code) ?? collect())
                     ->filter(fn ($r) => trim((string) $r->StoreCode) !== $requestingBranch)
                     ->sortByDesc('stock')
-                    ->first(fn ($r) => (int) $r->stock >= 3);
+                    ->first(fn ($r) => (int) $r->stock >= self::DONOR_MIN_STOCK);
 
                 if (! $donor) {
                     return null;
                 }
 
-                $qty = min($line->qty_outstanding, (int) $donor->stock - 2);
+                $qty = min($line->qty_outstanding, (int) $donor->stock - self::DONOR_KEEP_STOCK);
 
                 if ($qty < 1) {
                     return null;

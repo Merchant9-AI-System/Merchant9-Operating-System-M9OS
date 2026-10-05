@@ -23,6 +23,7 @@ use App\Filament\Widgets\InventoryKpiStats;
 use App\Filament\Widgets\PhysicalGoldBalanceSummary;
 use App\Filament\Widgets\StockVsOptimumChart;
 use App\Filament\Widgets\UserWidget;
+use App\Http\Controllers\BackOfficeActionsController;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -78,13 +79,19 @@ class AdminPanelProvider extends PanelProvider
                     ->url('/branch-demand', shouldOpenInNewTab: true)
                     ->icon(Heroicon::OutlinedPencilSquare)
                     ->group('Procurement')
-                    ->visible(fn() => Auth::user()->hasRole(['manager_sale', 'manager', 'leader_branch', 'ceo', 'super_admin']))
+                    ->visible(fn () => Auth::user()->hasRole(['manager_sale', 'manager', 'leader_branch', 'ceo', 'super_admin']))
                     ->sort(-1),
+                NavigationItem::make('Back Office Actions')
+                    ->url('/back-office-actions', shouldOpenInNewTab: true)
+                    ->icon(Heroicon::OutlinedClipboardDocumentCheck)
+                    ->group('Procurement')
+                    ->visible(fn () => Auth::user()->hasRole(BackOfficeActionsController::ROLES))
+                    ->sort(0),
                 NavigationItem::make('Jobsheet Lookup')
                     ->url('/jobsheet-lookup', shouldOpenInNewTab: true)
                     ->icon(Heroicon::OutlinedMagnifyingGlassCircle)
                     ->group('Inventory Health')
-                    ->visible(fn() => Auth::user()->hasRole(['manager', 'ceo', 'super_admin']))
+                    ->visible(fn () => Auth::user()->hasRole(['manager', 'ceo', 'super_admin']))
                     ->sort(-1),
             ])
             // ->font('Roboto Mono')
