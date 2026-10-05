@@ -201,8 +201,12 @@ const savedLog = ref<LogEntry[]>([]);
 const saving = ref(false);
 
 const candidates = ref<Record<string, Candidate[]>>({});
+// Halaman calon seterusnya (butang "Muat Lagi") - kunci = kunci design; term carian yg sama dgn
+// halaman pertama dikekalkan supaya halaman seterusnya konsisten.
+const candidatePage = ref<Record<string, { page: number; hasMore: boolean; query: string }>>({});
 const candidateQuery = ref('');
 const candidateLoading = ref(false);
+const candidateLoadingMore = ref(false);
 const previewLoading = ref(false);
 const previews = ref<Record<string, Preview>>({});
 
@@ -460,17 +464,51 @@ async function getJson<T>(url: string): Promise<T> {
     return res.json();
 }
 
+async function fetchCandidatePage(group: DesignGroup, query: string, page: number) {
+    const qs = new URLSearchParams({ page: String(page) });
+
+    if (query.trim()) {
+        qs.set('q', query.trim());
+    }
+
+    return getJson<{ candidates: Candidate[]; has_more: boolean }>(
+        `/back-office-actions/lines/${group.lines[0].id}/candidates?${qs.toString()}`,
+    );
+}
+
 async function loadCandidates(group: DesignGroup, query = '') {
     candidateLoading.value = true;
 
     try {
-        const qs = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
-        const res = await getJson<{ candidates: Candidate[] }>(`/back-office-actions/lines/${group.lines[0].id}/candidates${qs}`);
+        const res = await fetchCandidatePage(group, query, 1);
         candidates.value[group.key] = res.candidates;
+        candidatePage.value[group.key] = { page: 1, hasMore: res.has_more, query };
     } catch (e) {
         toast.error((e as Error).message);
     } finally {
         candidateLoading.value = false;
+    }
+}
+
+// Butang "Muat Lagi": tambah halaman calon seterusnya ke senarai sedia ada (tak ganti).
+async function loadMoreCandidates(group: DesignGroup) {
+    const state = candidatePage.value[group.key];
+
+    if (!state || candidateLoadingMore.value) {
+        return;
+    }
+
+    candidateLoadingMore.value = true;
+
+    try {
+        const res = await fetchCandidatePage(group, state.query, state.page + 1);
+        const known = new Set((candidates.value[group.key] ?? []).map((c) => c.internal_code));
+        candidates.value[group.key] = [...(candidates.value[group.key] ?? []), ...res.candidates.filter((c) => !known.has(c.internal_code))];
+        candidatePage.value[group.key] = { ...state, page: state.page + 1, hasMore: res.has_more };
+    } catch (e) {
+        toast.error((e as Error).message);
+    } finally {
+        candidateLoadingMore.value = false;
     }
 }
 
@@ -730,6 +768,7 @@ function save(andPrint = false) {
             pendingQty.value = {};
             previews.value = {};
             candidates.value = {};
+            candidatePage.value = {};
             selectedKey.value = null;
 
             if (andPrint) {
@@ -910,7 +949,8 @@ function save(andPrint = false) {
                             <p v-else-if="!(candidates[activeGroup.key]?.length)" class="text-muted-foreground">
                                 Tiada padanan. Cuba carian lain (nama atau kod design).
                             </p>
-                            <ul v-else class="flex flex-col gap-1.5">
+                            <ScrollArea v-else class="h-[min(22rem,50vh)]">
+                            <ul class="flex flex-col gap-1.5 pr-3">
                                 <li v-for="c in candidates[activeGroup.key]" :key="c.internal_code"
                                     class="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5">
                                     <div class="flex min-w-0 items-center gap-2">
@@ -932,6 +972,15 @@ function save(andPrint = false) {
                                     </Button>
                                 </li>
                             </ul>
+                            <div v-if="candidatePage[activeGroup.key]?.hasMore" class="mt-2 pr-3">
+                                <Button type="button" size="sm" class="w-full" :disabled="candidateLoadingMore"
+                                    @click="loadMoreCandidates(activeGroup)">
+                                    <Loader2 v-if="candidateLoadingMore" class="size-3.5 animate-spin" />
+                                    <Search v-else class="size-3.5" />
+                                    {{ candidateLoadingMore ? 'Memuatkan...' : 'Muat Lagi' }}
+                                </Button>
+                            </div>
+                            </ScrollArea>
                         </section>
 
                         <div v-else-if="activePreview" class="flex items-center justify-between gap-2 rounded-md border border-dashed px-3 py-2">

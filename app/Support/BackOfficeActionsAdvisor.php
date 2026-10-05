@@ -8,6 +8,7 @@ use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Store;
 use App\Models\StockTransfer;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -131,14 +132,43 @@ class BackOfficeActionsAdvisor
         $line->update(['internal_code' => $code]);
     }
 
+    /** Bilangan calon minimum (nickname) sebelum Description tak perlu dijadikan sandaran. */
+    public const CANDIDATE_POOL_MIN = 30;
+
     /**
      * Calon kod design utk line tanpa kod: padan nickname (merchant9.com) ATAU Description
      * jemisys_inventory_mirror (FULLTEXT) dgn nama line / carian BO, disusun ikut kemiripan nama.
-     * Kod tepat yg ditaip BO sentiasa di atas.
+     * Dibahagi kepada halaman (butang "Muat Lagi") - kolam calon dicache sebentar supaya halaman
+     * seterusnya tak ulang carian FULLTEXT.
      *
-     * @return array<int, array{internal_code: string, description: ?string, nickname: ?string, category_code: ?string, size: ?string, weight: ?float, image_url: ?string, total_stock: int, match: string, score: int}>
+     * @return array{candidates: array<int, array{internal_code: string, description: ?string, nickname: ?string, category_code: ?string, size: ?string, weight: ?float, image_url: ?string, total_stock: int, match: string, score: int}>, has_more: bool, total: int}
      */
-    public function designCandidates(string $term, int $limit = 10): array
+    public function designCandidates(string $term, int $page = 1, int $perPage = 10): array
+    {
+        $pool = $this->candidatePool($term);
+        $offset = max(0, ($page - 1) * $perPage);
+        $slice = array_slice($pool, $offset, $perPage);
+        $stock = $this->totalStockByCode(array_column($slice, 'internal_code'));
+
+        return [
+            'candidates' => array_map(fn (array $c) => $c + ['total_stock' => $stock[$c['internal_code']] ?? 0], $slice),
+            'has_more' => count($pool) > $offset + $perPage,
+            'total' => count($pool),
+        ];
+    }
+
+    /**
+     * Kolam penuh calon (tanpa stok) disusun ikut kemiripan - dicache 5 minit per istilah carian.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function candidatePool(string $term): array
+    {
+        return Cache::remember('bo_design_candidates:'.md5(mb_strtolower(trim($term))), now()->addMinutes(5), fn () => $this->buildCandidatePool($term));
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    protected function buildCandidatePool(string $term): array
     {
         $words = collect(preg_split('/[^\p{L}0-9]+/u', mb_strtolower($term), -1, PREG_SPLIT_NO_EMPTY))
             ->reject(fn (string $w) => mb_strlen($w) < 3 || preg_match('/\d/', $w) === 1 || in_array($w, ['dimensi', 'cm'], true))
@@ -158,7 +188,7 @@ class BackOfficeActionsAdvisor
         // lalu dedupe per kod di PHP. Description cuma jadi sandaran bila nickname tak cukup padanan
         // (sebelum sync nickname siap / design tiada di storefront).
         foreach (['nickname' => 'nickname', 'description' => 'Description'] as $match => $column) {
-            if ($match === 'description' && $found->count() >= $limit) {
+            if ($match === 'description' && $found->count() >= self::CANDIDATE_POOL_MIN) {
                 break;
             }
 
@@ -191,13 +221,7 @@ class BackOfficeActionsAdvisor
             }
         }
 
-        $top = $found->sortByDesc('score')->take($limit);
-        $stock = $this->totalStockByCode($top->keys()->all());
-
-        return $top->map(fn (array $c) => $c + ['total_stock' => $stock[$c['internal_code']] ?? 0])
-            ->sortBy([['score', 'desc'], ['total_stock', 'desc']])
-            ->values()
-            ->all();
+        return $found->sortByDesc('score')->values()->all();
     }
 
     /** Kemiripan nama 0-100 (similar_text pada huruf/nombor sahaja, tak sensitif huruf besar). */

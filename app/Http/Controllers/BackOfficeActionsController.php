@@ -66,7 +66,9 @@ class BackOfficeActionsController extends Controller
 
         $term = trim((string) $request->query('q', '')) ?: trim((string) $line->item_desc);
 
-        return response()->json(['candidates' => $advisor->designCandidates($term)]);
+        $page = max(1, (int) $request->query('page', 1));
+
+        return response()->json($advisor->designCandidates($term, $page));
     }
 
     /** Pratonton cadangan Rearrange/Restock bila BO pilih satu kod design utk line-line tanpa kod. */
