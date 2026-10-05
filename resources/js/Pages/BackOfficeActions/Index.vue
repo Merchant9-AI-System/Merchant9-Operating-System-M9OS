@@ -6,12 +6,13 @@ import { toast } from 'vue-sonner';
 import ImagePreview from '@/components/ImagePreview.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Separator } from '@/components/ui/separator';
 
 // Satu design = satu baris di senarai & satu tindakan utk SEMUA cawangan yg minta design tsb
 // (rujuk App\Support\BackOfficeActionsAdvisor). Data asas masih per-line (satu line = permintaan
@@ -25,6 +26,7 @@ interface Line {
     id: number;
     design_key: string;
     request_number: string;
+    requested_at: string | null;
     store_code: string;
     internal_code: string | null;
     item_desc: string | null;
@@ -177,10 +179,18 @@ const props = defineProps<{
     fulfillmentOptions: { value: string; label: string }[];
 }>();
 
+// Warna cadangan: Rearrange = biru, Restock = kuning (warning), gabungan = hitam (primary) pada lencana
+// tapi biru pada kotak ringkasan (Rearrange dilakukan dulu).
 const ACTION_BADGE_CLASS: Record<string, string> = {
-    restock: 'border-transparent bg-destructive text-white',
-    rearrange: 'border-transparent bg-warning text-warning-foreground',
+    restock: 'border-transparent bg-warning text-warning-foreground',
+    rearrange: 'border-transparent bg-blue-600 text-white',
     both: 'border-transparent bg-primary text-primary-foreground',
+};
+
+const ACTION_BOX_CLASS: Record<string, string> = {
+    restock: 'border-warning/50 bg-warning/10',
+    rearrange: 'border-blue-500/40 bg-blue-500/10',
+    both: 'border-blue-500/40 bg-blue-500/10',
 };
 
 const ACTION_LABEL: Record<string, string> = {
@@ -195,6 +205,8 @@ const STATUS_RESTOCK_DEFAULT = 'order';
 const search = ref('');
 const branchFilter = ref('');
 const selectedKey = ref<string | null>(null);
+// Override: tindakan di footer cuma utk SATU cawangan (id line) dan bukan semua cawangan design ni.
+const overrideLineId = ref<number | null>(null);
 const period = ref<'7d' | '30d'>('7d');
 const staged = ref<Record<number, Staged>>({});
 const savedLog = ref<LogEntry[]>([]);
@@ -445,6 +457,35 @@ const activeDesign = computed<Design | null>(() => {
     return preview?.design ?? props.board?.designs?.[group.key] ?? null;
 });
 
+// Skop tindakan footer: SEMUA cawangan design ni, atau SATU cawangan bila override dihidupkan.
+const isOverride = computed(() => !!activeGroup.value && overrideLineId.value !== null && activeGroup.value.lines.some((l) => l.id === overrideLineId.value));
+
+const scopeLines = computed<Line[]>(() => {
+    const group = activeGroup.value;
+
+    if (!group) {
+        return [];
+    }
+
+    return isOverride.value ? group.lines.filter((l) => l.id === overrideLineId.value) : group.lines;
+});
+
+const scopeLabel = computed(() => (isOverride.value ? `hanya ${scopeLines.value[0].store_code}` : 'semua cawangan'));
+const scopeRearrange = computed(() => scopeLines.value.reduce((sum, l) => sum + (l.action ? l.rearrange_qty : 0), 0));
+const scopeRestock = computed(() => scopeLines.value.reduce((sum, l) => sum + (l.action ? l.restock_qty : 0), 0));
+const scopeStaged = computed(() => scopeLines.value.filter((l) => staged.value[l.id]).length);
+const scopeStatus = computed(() => {
+    const set = new Set(scopeLines.value.map(effectiveStatus));
+
+    return set.size === 1 ? Array.from(set)[0] : '';
+});
+
+function toggleOverride() {
+    const group = activeGroup.value;
+
+    overrideLineId.value = isOverride.value || !group ? null : group.lines[0].id;
+}
+
 const activePreview = computed(() => (activeGroup.value?.code ? previews.value[activeGroup.value.code] ?? null : null));
 const needsDesignCode = computed(() => !!activeGroup.value && !activeGroup.value.code);
 
@@ -514,6 +555,7 @@ async function loadMoreCandidates(group: DesignGroup) {
 
 // Design tanpa kod dipilih -> cari calon kod design (nickname/Description) berdasarkan nama permintaan.
 watch(selectedKey, () => {
+    overrideLineId.value = null;
     candidateQuery.value = '';
     const group = activeGroup.value;
 
@@ -623,9 +665,9 @@ function stageStatus(line: Line, status: string): boolean {
     return true;
 }
 
-// TINDAKAN GLOBAL: terpakai kpd SEMUA cawangan yg minta design ni.
-function applyToGroup(group: DesignGroup, status: string, only?: (l: Line) => boolean) {
-    const targets = group.lines.filter((l) => !only || only(l));
+// TINDAKAN footer: terpakai kpd SEMUA cawangan design ni, atau SATU cawangan bila override dihidupkan.
+function applyToScope(status: string, only?: (l: Line) => boolean) {
+    const targets = scopeLines.value.filter((l) => !only || only(l));
     const skipped = targets.filter((l) => !stageStatus(l, status));
 
     if (targets.length === 0) {
@@ -635,30 +677,32 @@ function applyToGroup(group: DesignGroup, status: string, only?: (l: Line) => bo
     }
 }
 
-function applyRearrange(group: DesignGroup) {
-    applyToGroup(group, STATUS_REARRANGE, (l) => l.moves.length > 0);
+function applyRearrange() {
+    applyToScope(STATUS_REARRANGE, (l) => l.moves.length > 0);
 }
 
-function applyRestock(group: DesignGroup) {
-    applyToGroup(group, STATUS_RESTOCK_DEFAULT, (l) => l.restock_qty > 0);
+function applyRestock() {
+    applyToScope(STATUS_RESTOCK_DEFAULT, (l) => l.restock_qty > 0);
 
-    if (group.code && group.lines.some((l) => staged.value[l.id]?.status === STATUS_RESTOCK_DEFAULT)) {
-        toast.success(`${group.code} masuk Senarai Restock di bawah. Tekan Simpan untuk menyimpan.`);
+    const code = activeGroup.value?.code;
+
+    if (code && scopeLines.value.some((l) => staged.value[l.id]?.status === STATUS_RESTOCK_DEFAULT)) {
+        toast.success(`${code} masuk Senarai Restock di bawah. Tekan Simpan untuk menyimpan.`);
     }
 }
 
-function applyStatus(group: DesignGroup, status: string) {
+function applyStatus(status: string) {
     if (status === STATUS_REARRANGE) {
-        applyRearrange(group);
+        applyRearrange();
 
         return;
     }
 
-    applyToGroup(group, status);
+    applyToScope(status);
 }
 
-function clearGroupStaged(group: DesignGroup) {
-    group.lines.forEach((l) => delete staged.value[l.id]);
+function clearScopeStaged() {
+    scopeLines.value.forEach((l) => delete staged.value[l.id]);
 }
 
 function clearStaged(id: number) {
@@ -702,6 +746,24 @@ function removeEntry(key: string) {
     }
 
     clearStaged(Number(key));
+}
+
+// Warna lencana kemiripan calon design code: hijau = sangat mirip, kuning = sederhana, merah = lemah.
+function scoreBadgeClass(score: number): string {
+    if (score >= 70) {
+        return 'border-transparent bg-success text-success-foreground';
+    }
+
+    if (score >= 50) {
+        return 'border-transparent bg-warning text-warning-foreground';
+    }
+
+    return 'border-transparent bg-destructive text-white';
+}
+
+// Tarikh permintaan cawangan dihantar, cth. "5 Okt 2026".
+function formatDate(iso: string | null): string {
+    return iso ? new Date(iso).toLocaleDateString('ms-MY', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 }
 
 function periodSold(d: { sold_7d: number; sold_30d: number }): number {
@@ -957,14 +1019,11 @@ function save(andPrint = false) {
                                         <ImagePreview :src="c.image_url" :alt="c.nickname ?? c.description ?? ''" class="size-10 shrink-0 rounded-md" />
                                         <div class="min-w-0">
                                             <p class="font-medium">{{ c.internal_code }}
-                                                <span class="text-xs font-normal text-muted-foreground">{{ c.score }}% mirip</span>
+                                                <Badge v-if="c.score > 0" :class="['ml-1 px-1.5 py-0 text-[9px]', scoreBadgeClass(c.score)]"
+                                                    :title="`${c.score}% mirip dengan nama permintaan`">{{ c.score }}%</Badge>
+                                                <!-- <span class="ml-1 text-xs font-normal text-muted-foreground">{{ c.score }}% mirip</span> -->
                                             </p>
-                                            <p class="truncate text-xs text-muted-foreground">{{ c.nickname ?? c.description }}</p>
-                                            <p class="text-xs text-muted-foreground">
-                                                <template v-if="c.size">Saiz {{ c.size }} &middot; </template>
-                                                <template v-if="c.weight">{{ c.weight }}g &middot; </template>
-                                                stok {{ c.total_stock }}
-                                            </p>
+                                            <p class="truncate text-[9px] text-muted-foreground">{{ c.nickname ?? c.description }}</p>
                                         </div>
                                     </div>
                                     <Button type="button" size="sm" variant="outline" :disabled="previewLoading" @click="chooseCode(activeGroup, c)">
@@ -993,7 +1052,7 @@ function save(andPrint = false) {
                         </div>
 
                         <!-- Ringkasan cadangan: Rearrange / Restock / kedua-duanya -->
-                        <div v-if="activeGroup.action" class="rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+                        <div v-if="activeGroup.action" class="rounded-md border px-3 py-2" :class="ACTION_BOX_CLASS[activeGroup.action]">
                             <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cadangan semua cawangan</p>
                             <p v-if="activeGroup.action === 'both'" class="mt-0.5">
                                 <span class="font-medium">Rearrange {{ activeGroup.rearrange_qty }} unit</span> dari cawangan lain,
@@ -1015,49 +1074,22 @@ function save(andPrint = false) {
                             Tiada tindakan dicadangkan &mdash; semua cawangan sudah diputuskan atau tiada baki.
                         </p>
 
-                        <!-- Tindakan global: terpakai kpd SEMUA cawangan design ini -->
-                        <section class="flex flex-col gap-2 rounded-md border px-3 py-3">
-                            <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                Tindakan (semua cawangan)
-                            </h3>
-                            <div class="flex flex-wrap gap-2">
-                                <Button v-if="activeGroup.rearrange_qty > 0" type="button" size="sm" @click="applyRearrange(activeGroup)">
-                                    Rearrange {{ activeGroup.rearrange_qty }} unit
-                                </Button>
-                                <Button v-if="activeGroup.restock_qty > 0" type="button" size="sm"
-                                    :variant="activeGroup.rearrange_qty > 0 ? 'outline' : 'default'"
-                                    @click="applyRestock(activeGroup)">
-                                    Masuk Restock
-                                </Button>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <NativeSelect :model-value="groupStatus(activeGroup)"
-                                    :aria-label="`Status penuhan semua cawangan ${activeGroup.title}`"
-                                    @update:model-value="(v: unknown) => applyStatus(activeGroup!, String(v))">
-                                    <NativeSelectOption v-if="groupStatus(activeGroup) === ''" value="" disabled>Bercampur</NativeSelectOption>
-                                    <NativeSelectOption v-for="o in fulfillmentOptions" :key="o.value" :value="o.value"
-                                        :disabled="o.value === STATUS_REARRANGE && activeGroup.rearrange_qty === 0 && groupStatus(activeGroup) !== STATUS_REARRANGE">
-                                        {{ o.label }}
-                                    </NativeSelectOption>
-                                </NativeSelect>
-                                <Button v-if="stagedIn(activeGroup)" type="button" size="sm" variant="ghost" @click="clearGroupStaged(activeGroup)">
-                                    Batal
-                                </Button>
-                            </div>
-                            <p class="text-xs text-muted-foreground">
-                                Perubahan disenaraikan di Log dan hanya dikemaskini bila tekan Simpan.
-                            </p>
-                        </section>
-
                         <!-- Permintaan setiap cawangan (digabung - tak perlu klik asing) -->
                         <section class="flex flex-col gap-1.5">
                             <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Permintaan cawangan</h3>
                             <ul class="flex flex-col gap-1.5">
-                                <li v-for="l in activeGroup.lines" :key="l.id" class="rounded-md border px-3 py-2"
-                                    :class="{ 'border-primary': staged[l.id] }">
+                                <li v-for="l in activeGroup.lines" :key="l.id"
+                                    class="rounded-md border px-3 py-2"
+                                    :class="{
+                                        'border-primary': staged[l.id],
+                                        'cursor-pointer hover:bg-muted/40': activeGroup.lines.length > 1,
+                                        'ring-2 ring-primary': isOverride && overrideLineId === l.id,
+                                    }"
+                                    :title="activeGroup.lines.length > 1 ? 'Klik untuk override: tindakan di bawah hanya untuk cawangan ini' : undefined"
+                                    @click="activeGroup.lines.length > 1 && (overrideLineId = l.id)">
                                     <div class="flex flex-wrap items-center gap-2">
                                         <Badge variant="secondary">{{ l.store_code }}</Badge>
-                                        <span class="font-medium">baki {{ l.qty_outstanding }}</span>
+                                        <span class="font-medium">{{ l.qty_outstanding }} unit</span>
                                         <span v-if="l.qty_outstanding !== l.qty_requested" class="text-xs text-muted-foreground">/ {{ l.qty_requested }}</span>
                                         <span v-if="l.is_critical" class="text-xs font-medium text-destructive">Kritikal</span>
                                         <span v-if="l.action"
@@ -1068,6 +1100,7 @@ function save(andPrint = false) {
                                     </div>
                                     <p class="mt-0.5 text-xs text-muted-foreground">
                                         {{ l.request_number }}
+                                        <template v-if="l.requested_at"> &middot; {{ formatDate(l.requested_at) }}</template>
                                         <template v-if="l.size"> &middot; Saiz {{ l.size }}</template>
                                         <template v-if="l.weight"> &middot; {{ l.weight }}g</template>
                                     </p>
@@ -1116,6 +1149,51 @@ function save(andPrint = false) {
                     </div>
                     </ScrollArea>
                 </CardContent>
+                <Separator />
+                <!-- Tindakan: kekal di bawah kad (luar ScrollArea). Skop = semua cawangan, atau satu cawangan bila Override. -->
+                <CardFooter v-if="activeGroup" class="flex-col items-stretch gap-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Tindakan ({{ scopeLabel }})
+                        </h3>
+                        <div class="flex items-center gap-2">
+                            <NativeSelect v-if="isOverride" :model-value="String(overrideLineId)" aria-label="Cawangan untuk override"
+                                @update:model-value="(v: unknown) => (overrideLineId = Number(v))">
+                                <NativeSelectOption v-for="l in activeGroup.lines" :key="l.id" :value="String(l.id)">
+                                    {{ l.store_code }} (baki {{ l.qty_outstanding }})
+                                </NativeSelectOption>
+                            </NativeSelect>
+                            <Button type="button" size="sm" :variant="isOverride ? 'default' : 'outline'"
+                                :disabled="!isOverride && activeGroup.lines.length < 2" @click="toggleOverride">
+                                {{ isOverride ? 'Semua cawangan' : 'Override' }}
+                            </Button>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2">
+                        <Button v-if="scopeRearrange > 0" type="button" size="sm" @click="applyRearrange()">
+                            Rearrange {{ scopeRearrange }} unit
+                        </Button>
+                        <Button v-if="scopeRestock > 0" type="button" size="sm"
+                            :variant="scopeRearrange > 0 ? 'outline' : 'default'" @click="applyRestock()">
+                            Masuk Restock
+                        </Button>
+                        <NativeSelect :model-value="scopeStatus"
+                            :aria-label="`Status penuhan ${scopeLabel} ${activeGroup.title}`"
+                            @update:model-value="(v: unknown) => applyStatus(String(v))">
+                            <NativeSelectOption v-if="scopeStatus === ''" value="" disabled>Bercampur</NativeSelectOption>
+                            <NativeSelectOption v-for="o in fulfillmentOptions" :key="o.value" :value="o.value"
+                                :disabled="o.value === STATUS_REARRANGE && scopeRearrange === 0 && scopeStatus !== STATUS_REARRANGE">
+                                {{ o.label }}
+                            </NativeSelectOption>
+                        </NativeSelect>
+                        <Button v-if="scopeStaged" type="button" size="sm" variant="ghost" @click="clearScopeStaged()">Batal</Button>
+                    </div>
+                    <p class="text-xs text-muted-foreground">
+                        Override: klik satu cawangan di senarai atau tekan <span class="font-medium">Override</span> untuk ubah satu cawangan sahaja.
+                        Perubahan disenaraikan di Log dan hanya dikemaskini bila tekan Simpan.
+                    </p>
+                </CardFooter>
             </Card>
         </div>
 

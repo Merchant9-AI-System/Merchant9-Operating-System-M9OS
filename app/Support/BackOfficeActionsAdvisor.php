@@ -281,6 +281,7 @@ class BackOfficeActionsAdvisor
                 'id' => $line->id,
                 'design_key' => $summary->groupKeyFor($line),
                 'request_number' => $line->request->request_number,
+                'requested_at' => ($line->request->submitted_at ?? $line->request->created_at)?->toIso8601String(),
                 'store_code' => $own,
                 'internal_code' => $code,
                 'item_desc' => $line->item_desc,
