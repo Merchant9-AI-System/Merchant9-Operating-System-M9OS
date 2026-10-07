@@ -4,7 +4,8 @@ import { type HTMLAttributes } from 'vue';
 import { cn } from '@/lib/utils';
 import ScrollBar from './ScrollBar.vue';
 
-const props = defineProps<{ class?: HTMLAttributes['class'] }>();
+// horizontal: hidupkan bar scroll mendatar (lalai mati - kandungan melebihi lebar terpotong).
+const props = defineProps<{ class?: HTMLAttributes['class']; horizontal?: boolean }>();
 </script>
 
 <template>
@@ -16,6 +17,7 @@ const props = defineProps<{ class?: HTMLAttributes['class'] }>();
             <slot />
         </ScrollAreaViewport>
         <ScrollBar />
+        <ScrollBar v-if="horizontal" orientation="horizontal" />
         <ScrollAreaCorner />
     </ScrollAreaRoot>
 </template>

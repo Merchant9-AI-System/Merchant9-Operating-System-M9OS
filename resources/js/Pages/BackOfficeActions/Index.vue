@@ -892,7 +892,7 @@ function save(andPrint = false) {
 
         <div class="grid gap-4 lg:grid-cols-3">
             <!-- ===== Kiri: senarai design ===== -->
-            <Card class="lg:col-span-2">
+            <Card class="min-w-0 lg:col-span-2">
                 <CardHeader class="gap-3">
                     <CardTitle class="text-base">Senarai Permintaan Cawangan</CardTitle>
                     <div class="flex flex-wrap items-center gap-2">
@@ -929,7 +929,7 @@ function save(andPrint = false) {
                                 Tiada baris sepadan dengan carian/tapisan.
                             </p>
 
-                            <ScrollArea v-else class="h-[min(34rem,calc(100vh-18rem))]">
+                            <ScrollArea v-else horizontal class="h-[min(34rem,calc(100vh-18rem))]">
                                 <table class="w-full text-sm">
                                     <thead class="sticky top-0 z-10 bg-card">
                                         <tr class="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
@@ -991,7 +991,7 @@ function save(andPrint = false) {
             </Card>
 
             <!-- ===== Kanan: cadangan terperinci + tindakan ===== -->
-            <Card>
+            <Card class="min-w-0">
                 <CardHeader>
                     <CardTitle class="text-base">Cadangan Terperinci</CardTitle>
                 </CardHeader>
