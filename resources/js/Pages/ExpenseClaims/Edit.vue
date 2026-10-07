@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, Link, router, useForm } from '@inertiajs/vue3';
-import { ArrowLeft, CheckIcon, ChevronDown, FileText, Paperclip, Pencil, Plus, Receipt, Trash2, Upload, X } from '@lucide/vue';
+import { ArrowLeft, CheckIcon, ChevronDown, Paperclip, Pencil, Plus, Receipt, Trash2, X } from '@lucide/vue';
 import { ListboxContent, ListboxFilter, ListboxItem, ListboxItemIndicator, ListboxRoot, useFilter } from 'reka-ui';
 import { computed, ref, watch } from 'vue';
 import {
@@ -14,16 +14,7 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import {
-    Attachment,
-    AttachmentAction,
-    AttachmentActions,
-    AttachmentContent,
-    AttachmentDescription,
-    AttachmentMedia,
-    AttachmentTitle,
-    AttachmentTrigger,
-} from '@/components/ui/attachment';
+import ReceiptUpload from '@/components/ReceiptUpload.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
@@ -287,90 +278,6 @@ watch(
     { deep: true },
 );
 
-const uploadingReceipt = ref(false);
-const receiptFileName = ref<string | null>(null);
-const receiptFileSize = ref<number | null>(null);
-
-async function handleReceiptUpload(event: Event) {
-    const file = (event.target as HTMLInputElement).files?.[0];
-    if (!file) {
-        return;
-    }
-
-    uploadingReceipt.value = true;
-    const formData = new FormData();
-    formData.append('receipt', file);
-
-    try {
-        const response = await fetch('/claims/upload-receipt', {
-            method: 'POST',
-            headers: { 'X-CSRF-TOKEN': (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content ?? '' },
-            body: formData,
-        });
-        const data = await response.json();
-        lineForm.receipt_url = data.receipt_url;
-        receiptFileName.value = file.name;
-        receiptFileSize.value = file.size;
-    } finally {
-        uploadingReceipt.value = false;
-        // Kosongkan value input fail - tanpa ni, pilih fail SAMA (nama+path) 2x berturut tak
-        // trigger event "change" kali kedua (browser anggap value tak berubah).
-        (event.target as HTMLInputElement).value = '';
-    }
-}
-
-function clearReceipt() {
-    lineForm.receipt_url = '';
-    receiptFileName.value = null;
-    receiptFileSize.value = null;
-}
-
-function formatFileSize(bytes: number): string {
-    if (bytes < 1024) {
-        return `${bytes} B`;
-    }
-    if (bytes < 1024 * 1024) {
-        return `${(bytes / 1024).toFixed(1)} KB`;
-    }
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
-
-// Nama fail utk papar - fail baru dimuat naik SESI NI (receiptFileName) ATAU, bila edit line
-// sedia ada, ambil drpd hujung URL storan (tiada nama asal fail disimpan di DB, cuma path).
-const receiptDisplayName = computed<string | null>(() => {
-    if (receiptFileName.value) {
-        return receiptFileName.value;
-    }
-    if (!lineForm.receipt_url) {
-        return null;
-    }
-    try {
-        return decodeURIComponent(new URL(lineForm.receipt_url).pathname.split('/').pop() ?? 'Resit');
-    } catch {
-        return 'Resit';
-    }
-});
-
-const receiptIsImage = computed(() => {
-    const ext = receiptDisplayName.value?.split('.').pop()?.toLowerCase() ?? '';
-    return IMAGE_EXTENSIONS.includes(ext);
-});
-
-const receiptDescription = computed(() => {
-    if (uploadingReceipt.value) {
-        return 'Memuat naik...';
-    }
-    if (receiptFileSize.value) {
-        return formatFileSize(receiptFileSize.value);
-    }
-    if (lineForm.receipt_url) {
-        return 'Resit sedia ada';
-    }
-    return 'JPG, PNG atau PDF, maks 10MB';
-});
-
 // Dialog "Tambah Item" / "Edit Item" (rujuk butang di header Senarai Item & butang pensel setiap
 // baris) - satu dialog dikongsi utk cipta & kemaskini, buka/tutup diuruskan di sini (bukan
 // DialogTrigger) supaya butang2 tu boleh diletak berasingan drpd DialogContent dlm template.
@@ -383,8 +290,6 @@ function resetLineForm() {
     lineForm.clearErrors();
     lineForm.expense_date = new Date().toISOString().slice(0, 10);
     lineForm.charges = [];
-    receiptFileName.value = null;
-    receiptFileSize.value = null;
 }
 
 function openCreateDialog() {
@@ -407,8 +312,6 @@ function openEditDialog(line: ClaimLine) {
     lineForm.invoice_number = line.invoice_number ?? '';
     lineForm.charges = line.charges.map((c) => ({ description: c.description, amount: String(c.amount) }));
     lineForm.wht = line.wht ?? '';
-    receiptFileName.value = null;
-    receiptFileSize.value = null;
     addItemOpen.value = true;
 }
 
@@ -657,38 +560,7 @@ function submitClaim() {
                     </div>
                     <div class="col-span-2">
                         <Label>Resit / Invois (optional)</Label>
-                        <Attachment :state="uploadingReceipt ? 'uploading' : lineForm.receipt_url ? 'done' : 'idle'"
-                            class="w-full">
-                            <AttachmentMedia :variant="receiptIsImage && lineForm.receipt_url ? 'image' : 'icon'">
-                                <Spinner v-if="uploadingReceipt" />
-                                <img v-else-if="receiptIsImage && lineForm.receipt_url" :src="lineForm.receipt_url"
-                                    :alt="receiptDisplayName ?? 'Resit'">
-                                <Upload v-else-if="!lineForm.receipt_url" />
-                                <FileText v-else />
-                            </AttachmentMedia>
-                            <AttachmentContent>
-                                <AttachmentTitle>{{ receiptDisplayName ?? 'Klik utk muat naik resit / invois' }}
-                                </AttachmentTitle>
-                                <AttachmentDescription>{{ receiptDescription }}</AttachmentDescription>
-                            </AttachmentContent>
-                            <AttachmentActions>
-                                <AttachmentAction v-if="lineForm.receipt_url" size="icon"
-                                    aria-label="Lihat resit" >
-                                    <a :href="lineForm.receipt_url" target="_blank">
-                                        <Paperclip />
-                                    </a>
-                                </AttachmentAction>
-                                <AttachmentAction v-if="lineForm.receipt_url && !uploadingReceipt" size="icon"
-                                    aria-label="Buang resit" @click="clearReceipt">
-                                    <X />
-                                </AttachmentAction>
-                            </AttachmentActions>
-                            <AttachmentTrigger v-if="!uploadingReceipt" as="label"
-                                :aria-label="lineForm.receipt_url ? 'Ganti resit / invois' : 'Muat naik resit / invois'">
-                                <input type="file" accept="image/*,application/pdf" class="hidden"
-                                    @change="handleReceiptUpload">
-                            </AttachmentTrigger>
-                        </Attachment>
+                        <ReceiptUpload :key="editingLineId ?? 'baharu'" v-model="lineForm.receipt_url" class="mt-1.5" />
                     </div>
                 </div>
                 <DialogFooter>
