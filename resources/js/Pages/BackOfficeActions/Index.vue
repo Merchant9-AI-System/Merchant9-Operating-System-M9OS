@@ -890,7 +890,9 @@ function save(andPrint = false) {
             </Button>
         </div>
 
-        <div class="grid gap-4 lg:grid-cols-3">
+        <!-- items-start: setiap kad kekal pada tinggi sendiri (senarai kiri tetap tingginya) dan tak diregang
+             mengikut kad Cadangan Terperinci yg tingginya berubah ikut design dipilih. -->
+        <div class="grid gap-4 lg:grid-cols-3 lg:items-start">
             <!-- ===== Kiri: senarai design ===== -->
             <Card class="min-w-0 lg:col-span-2">
                 <CardHeader class="gap-3">
@@ -929,61 +931,62 @@ function save(andPrint = false) {
                                 Tiada baris sepadan dengan carian/tapisan.
                             </p>
 
-                            <ScrollArea v-else horizontal class="h-[min(34rem,calc(100vh-18rem))]">
-                                <table class="w-full text-sm">
-                                    <thead class="sticky top-0 z-10 bg-card">
-                                        <tr class="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                                            <th class="py-2 pr-3 font-medium">Design</th>
-                                            <th class="py-2 pr-3 font-medium">Permintaan</th>
-                                            <th class="py-2 pr-3 font-medium">Cadangan</th>
-                                            <th class="py-2 font-medium">Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr v-for="group in designGroups" :key="group.key"
-                                            class="cursor-pointer border-b last:border-0 hover:bg-muted/40"
-                                            :class="{
-                                                'bg-muted/60': selectedKey === group.key,
-                                                'bg-primary/5': stagedIn(group) > 0 && selectedKey !== group.key,
-                                            }"
-                                            @click="selectedKey = group.key">
-                                            <td class="py-2 pr-3">
-                                                <div class="flex items-center gap-3">
-                                                    <ImagePreview :src="group.image_url" :alt="group.description ?? ''" class="size-10 shrink-0 rounded-md" />
-                                                    <div class="min-w-0">
-                                                        <p class="font-medium">{{ group.title }}</p>
-                                                        <p class="truncate text-xs text-muted-foreground">
-                                                            <template v-if="group.code">{{ group.description ?? '-' }}</template>
-                                                            <template v-if="group.nickname"> &middot; &quot;{{ group.nickname }}&quot;</template>
-                                                        </p>
-                                                        <Badge v-if="group.category_name" variant="outline" class="mt-1">{{ group.category_name }}</Badge>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td class="py-2 pr-3">
-                                                <div class="flex flex-wrap gap-1">
-                                                    <Badge v-for="l in group.lines" :key="l.id" variant="secondary"
-                                                        :class="{ 'ring-1 ring-destructive': l.is_critical }"
-                                                        :title="l.is_critical ? 'Stok kritikal' : undefined">
-                                                        {{ l.store_code }} {{ l.qty_outstanding }}
-                                                    </Badge>
-                                                </div>
-                                                <p class="mt-1 text-xs text-muted-foreground">jumlah {{ group.total_outstanding }} unit</p>
-                                            </td>
-                                            <td class="py-2 pr-3">
-                                                <span v-if="group.action"
-                                                    :class="`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium ${ACTION_BADGE_CLASS[group.action]}`">
-                                                    {{ ACTION_LABEL[group.action] }}
-                                                </span>
-                                                <span v-else class="text-muted-foreground">-</span>
-                                            </td>
-                                            <td class="py-2">
-                                                <p>{{ groupStatus(group) ? labelOf(groupStatus(group)) : 'Bercampur' }}</p>
-                                                <p v-if="stagedIn(group)" class="mt-0.5 text-xs text-primary">Belum disimpan</p>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+                            <!-- Susun atur flex (bukan jadual): lajur Design mengisi ruang baki & dipendekkan (truncate), tiga lajur lain
+                                 lebar tetap supaya Status tak terpotong. [&>div]:!block - elemen dalam ScrollArea (reka-ui)
+                                 asalnya display:table & melebar ikut kandungan, menyebabkan lebihan dipotong. -->
+                            <ScrollArea v-else class="h-[min(34rem,calc(100vh-18rem))] [&_[data-slot=scroll-area-viewport]>div]:!block">
+                                <div class="text-sm">
+                                    <div class="sticky top-0 z-10 flex items-center gap-3 border-b bg-card py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                        <span class="min-w-0 flex-1">Design</span>
+                                        <span class="w-28 shrink-0">Permintaan</span>
+                                        <span class="w-28 shrink-0">Cadangan</span>
+                                        <span class="w-24 shrink-0 pr-3">Status</span>
+                                    </div>
+                                    <div v-for="group in designGroups" :key="group.key" role="button" tabindex="0"
+                                        class="flex cursor-pointer items-center gap-3 border-b py-2 last:border-0 hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                                        :class="{
+                                            'bg-muted/60': selectedKey === group.key,
+                                            'bg-primary/5': stagedIn(group) > 0 && selectedKey !== group.key,
+                                        }"
+                                        @click="selectedKey = group.key"
+                                        @keydown.enter.prevent="selectedKey = group.key"
+                                        @keydown.space.prevent="selectedKey = group.key">
+                                        <div class="flex min-w-0 flex-1 items-center gap-3">
+                                            <ImagePreview :src="group.image_url" :alt="group.description ?? ''" class="size-10 shrink-0 rounded-md" />
+                                            <div class="min-w-0">
+                                                <p class="truncate font-medium">{{ group.title }}</p>
+                                                <p class="truncate text-xs text-muted-foreground">
+                                                    <template v-if="group.code">{{ group.description ?? '-' }}</template>
+                                                    <template v-if="group.nickname"> &middot; &quot;{{ group.nickname }}&quot;</template>
+                                                </p>
+                                                <Badge v-if="group.category_name" variant="outline" class="mt-1 max-w-full">
+                                                    <span class="truncate">{{ group.category_name }}</span>
+                                                </Badge>
+                                            </div>
+                                        </div>
+                                        <div class="w-28 shrink-0">
+                                            <div class="flex flex-wrap gap-1">
+                                                <Badge v-for="l in group.lines" :key="l.id" variant="secondary"
+                                                    :class="{ 'ring-1 ring-destructive': l.is_critical }"
+                                                    :title="l.is_critical ? 'Stok kritikal' : undefined">
+                                                    {{ l.store_code }} {{ l.qty_outstanding }}
+                                                </Badge>
+                                            </div>
+                                            <p class="mt-1 text-xs text-muted-foreground">jumlah {{ group.total_outstanding }} unit</p>
+                                        </div>
+                                        <div class="w-28 shrink-0">
+                                            <span v-if="group.action"
+                                                :class="`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium ${ACTION_BADGE_CLASS[group.action]}`">
+                                                {{ ACTION_LABEL[group.action] }}
+                                            </span>
+                                            <span v-else class="text-muted-foreground">-</span>
+                                        </div>
+                                        <div class="w-24 shrink-0 pr-3">
+                                            <p>{{ groupStatus(group) ? labelOf(groupStatus(group)) : 'Bercampur' }}</p>
+                                            <p v-if="stagedIn(group)" class="mt-0.5 text-xs text-primary">Belum disimpan</p>
+                                        </div>
+                                    </div>
+                                </div>
                             </ScrollArea>
                         </template>
                     </Deferred>
