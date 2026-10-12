@@ -10,8 +10,9 @@ use Spatie\Activitylog\Traits\LogsActivity;
 
 /**
  * Satu design dlm senarai Restock leader BO (rujuk migration create_restock_list_items_table).
- * `qty_to_order` ditetapkan leader BO (lalai = `suggested_qty` paras 3 setiap cawangan, rujuk
- * BackOfficeActionsAdvisor::restockPlan()).
+ * `qty_to_order` ditetapkan leader BO (lalai = `suggested_qty` ikut paras `target_stock` setiap cawangan
+ * + pengecualian `branch_targets`, rujuk BackOfficeActionsAdvisor::restockPlan()). `allocation` = agihan
+ * qty_to_order ke setiap cawangan semasa Simpan (RestockAllocator).
  */
 class RestockListItem extends Model
 {
@@ -27,6 +28,9 @@ class RestockListItem extends Model
     protected $casts = [
         'qty_to_order' => 'integer',
         'suggested_qty' => 'integer',
+        'target_stock' => 'integer',
+        'branch_targets' => 'array',
+        'allocation' => 'array',
         'ordered_at' => 'datetime',
     ];
 

@@ -1,19 +1,34 @@
 {
-    "mcpServers": {
-        "laravel-boost": {
-            "command": "php",
-            "args": [
-                "artisan",
-                "boost:mcp"
-            ]
-        },
-        "inventory": {
-            "command": "php",
-            "args": [
-                "artisan",
-                "mcp:start",
-                "inventory"
-            ]
-        }
+  "mcpServers": {
+    "laravel-boost": {
+      "command": "php",
+      "args": [
+        "artisan",
+        "boost:mcp"
+      ]
+    },
+    "inventory": {
+      "command": "php",
+      "args": [
+        "artisan",
+        "mcp:start",
+        "inventory"
+      ]
+    },
+    "insights": {
+      "command": "php",
+      "args": [
+        "artisan",
+        "mcp:start",
+        "insights"
+      ]
+    },
+    "shadcnVue": {
+      "command": "npx",
+      "args": [
+        "shadcn-vue@latest",
+        "mcp"
+      ]
     }
+  }
 }

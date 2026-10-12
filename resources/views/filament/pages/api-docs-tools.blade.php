@@ -113,6 +113,124 @@
     <x-filament::section>
         <x-slot name="heading">
             <div class="flex items-center gap-2">
+                <x-filament::icon icon="heroicon-o-chart-bar" class="h-5 w-5 text-primary-500" />
+                Business Insights
+                <x-filament::badge color="warning" size="sm">Local sahaja</x-filament::badge>
+            </div>
+        </x-slot>
+        <x-slot name="description">
+            Jualan &amp; margin (JEMiSys), perbelanjaan pembekal (FINM9), ahli, harga emas, dan simpanan insight agen.
+            Senarai di bawah auto-baca drpd <code>InsightsServer.php</code>. Server ni <b>local (stdio) sahaja</b> - tiada URL web
+            atau bearer token, jadi tiada "Try it out"; guna Claude Code / Desktop (daftar dlm <code>.mcp.json</code>) atau
+            <code>php artisan mcp:inspector insights</code>.
+        </x-slot>
+
+        <div class="mb-4 flex flex-wrap gap-2">
+            <x-api-docs.copyable value="php artisan mcp:start insights" />
+            <x-api-docs.copyable value="php artisan mcp:inspector insights" />
+        </div>
+
+        <div class="space-y-3">
+            @foreach($this->getInsightsTools() as $i => $tool)
+                @php
+                    $isOpen = $expandedInsightsTool === $tool['name'];
+                    $properties = (array) ($tool['inputSchema']['properties'] ?? []);
+                @endphp
+
+                <div class="rounded-lg border border-gray-200 dark:border-white/10">
+                    <div class="flex items-center gap-3 p-4">
+                        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-50 text-xs font-semibold text-primary-600 dark:bg-primary-500/10 dark:text-primary-400">
+                            {{ $i + 1 }}
+                        </span>
+                        <div class="min-w-0 flex-1 space-y-1">
+                            <code class="text-sm font-semibold text-primary-600 dark:text-primary-400">{{ $tool['name'] }}</code>
+                            <p class="text-sm text-gray-500 dark:text-gray-400">{{ $tool['description'] }}</p>
+                        </div>
+                        <button
+                            type="button"
+                            wire:click="toggleInsightsTool('{{ $tool['name'] }}')"
+                            class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-white/10 dark:text-gray-200 dark:hover:bg-white/5"
+                        >
+                            {{ $isOpen ? 'Tutup' : 'Parameter' }}
+                        </button>
+                    </div>
+
+                    @if($isOpen)
+                        <div class="space-y-3 border-t border-gray-200 p-4 dark:border-white/10">
+                            @if(count($properties) > 0)
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-left text-sm">
+                                        <thead>
+                                            <tr class="text-xs uppercase tracking-wide text-gray-400">
+                                                <th class="py-1 pr-4 font-medium">Parameter</th>
+                                                <th class="py-1 pr-4 font-medium">Jenis</th>
+                                                <th class="py-1 font-medium">Keterangan</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100 dark:divide-white/5">
+                                            @foreach($properties as $field => $property)
+                                                <tr class="align-top">
+                                                    <td class="py-1.5 pr-4 whitespace-nowrap">
+                                                        <code>{{ $field }}</code>
+                                                        @if(in_array($field, (array) ($tool['inputSchema']['required'] ?? []), true))
+                                                            <span class="text-danger-500">*</span>
+                                                        @endif
+                                                    </td>
+                                                    <td class="py-1.5 pr-4 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ $property['type'] ?? 'string' }}</td>
+                                                    <td class="py-1.5 text-gray-600 dark:text-gray-300">{{ $property['description'] ?? '' }}</td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @else
+                                <p class="text-sm text-gray-400">Tool ni tiada input.</p>
+                            @endif
+                        </div>
+                    @endif
+                </div>
+            @endforeach
+        </div>
+
+        <div class="mt-6 space-y-2">
+            <h4 class="text-sm font-semibold text-gray-950 dark:text-white">Server ikut peranan agen</h4>
+            <p class="text-sm text-gray-500 dark:text-gray-400">
+                Setiap peranan hanya nampak tool yg berkaitan (<code>config/insights_roles.php</code>), dan <code>write-insight</code> /
+                <code>get-previous-insights</code> dikunci kpd peranan itu (CEO sahaja boleh baca insight semua peranan).
+                Server penuh <code>insights</code> di atas tak dikunci - utk admin/pembangun.
+            </p>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead>
+                        <tr class="text-xs uppercase tracking-wide text-gray-400">
+                            <th class="py-1 pr-4 font-medium">Peranan</th>
+                            <th class="py-1 pr-4 font-medium">Perintah</th>
+                            <th class="py-1 font-medium">Tool</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 dark:divide-white/5">
+                        @foreach($this->getInsightsRoleServers() as $server)
+                            <tr class="align-top">
+                                <td class="py-2 pr-4 font-medium whitespace-nowrap text-gray-950 dark:text-white">{{ $server['label'] }}</td>
+                                <td class="py-2 pr-4"><x-api-docs.copyable :value="'php artisan mcp:start '.$server['handle']" /></td>
+                                <td class="py-2">
+                                    <div class="flex flex-wrap gap-1">
+                                        @foreach($server['tools'] as $toolName)
+                                            <x-filament::badge color="gray" size="sm">{{ $toolName }}</x-filament::badge>
+                                        @endforeach
+                                    </div>
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </x-filament::section>
+
+    <x-filament::section>
+        <x-slot name="heading">
+            <div class="flex items-center gap-2">
                 <x-filament::icon icon="heroicon-o-squares-2x2" class="h-5 w-5 text-gray-400" />
                 Admin Panel Resources
                 @if($this->adminMcpIsActive())

@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Pages\Concerns\HasApiDocsStatus;
+use App\Filament\Pages\Concerns\HasInsightsToolsList;
 use App\Filament\Pages\Concerns\HasInventoryToolsList;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
@@ -23,7 +24,7 @@ use Throwable;
  */
 class ApiDocsTools extends Page
 {
-    use HasApiDocsStatus, HasInventoryToolsList, HasPageShield;
+    use HasApiDocsStatus, HasInsightsToolsList, HasInventoryToolsList, HasPageShield;
 
     protected string $view = 'filament.pages.api-docs-tools';
 
@@ -40,6 +41,9 @@ class ApiDocsTools extends Page
     public ?string $bearerToken = null;
 
     public ?string $expandedTool = null;
+
+    /** Tool Insights yg parameternya dibentang (docs sahaja - Insights local, tiada "Try it out"). */
+    public ?string $expandedInsightsTool = null;
 
     /** @var array<string, array<string, mixed>> */
     public array $toolInputs = [];
@@ -74,6 +78,11 @@ class ApiDocsTools extends Page
         $this->toolInputs[$name] = collect($properties)
             ->mapWithKeys(fn (array $property, string $field) => [$field => $property['default'] ?? null])
             ->all();
+    }
+
+    public function toggleInsightsTool(string $name): void
+    {
+        $this->expandedInsightsTool = $this->expandedInsightsTool === $name ? null : $name;
     }
 
     public function sendToolRequest(string $name): void

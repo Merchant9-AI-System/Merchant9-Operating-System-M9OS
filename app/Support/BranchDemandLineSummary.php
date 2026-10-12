@@ -117,9 +117,14 @@ class BranchDemandLineSummary
             ->map(fn ($code) => trim($code))
             ->unique();
 
+        // Satu baris setiap kod (GROUP BY) - tanpa ini setiap piece cermin (~47K baris utk ratusan kod)
+        // dimuatkan sbg model Eloquent. MAX() abaikan piece tanpa nickname.
         return $this->nicknameCache = InventoryMirror::query()
             ->whereIn('InternalCode', $codes)
-            ->get(['InternalCode', 'nickname'])
+            ->toBase()
+            ->selectRaw('InternalCode, MAX(nickname) as nickname')
+            ->groupBy('InternalCode')
+            ->get()
             ->mapWithKeys(fn ($m) => [trim((string) $m->InternalCode) => $m->nickname]);
     }
 

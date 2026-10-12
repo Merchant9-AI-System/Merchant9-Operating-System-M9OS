@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\BranchDemandRequestLine;
 use App\Models\RestockListItem;
 use App\Support\BackOfficeActionsAdvisor;
+use App\Support\RawInertiaProp;
+use App\Support\RestockAllocator;
 use App\Support\RestockListBuilder;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
@@ -46,9 +48,12 @@ class BackOfficeActionsController extends Controller
         return Inertia::render('BackOfficeActions/Index', [
             // DITANGGUH - kira stok/jualan merentas cermin jemisys_inventory_mirror, jadi shell
             // halaman (tajuk, butang) terpapar dulu (rujuk <Deferred> di Index.vue).
-            'board' => Inertia::defer(fn () => $advisor->board()),
+            'board' => Inertia::defer(fn () => new RawInertiaProp($advisor->board()), 'high'),
             // Senarai Restock tersimpan (RestockListItem) - bahagian "Best Supplier to Meet" hanya super_admin.
-            'restock' => Inertia::defer(fn () => $restock->build($canSeeSuppliers)),
+            'restock' => Inertia::defer(function () use ($restock, $canSeeSuppliers) {
+                return $restock->build($canSeeSuppliers);
+            }, 'low'),
+
             'canSeeSuppliers' => $canSeeSuppliers,
             'fulfillmentOptions' => collect(BranchDemandRequestLine::FULFILLMENT_LABELS)
                 ->map(fn (string $label, string $value) => ['value' => $value, 'label' => $label])
@@ -96,9 +101,15 @@ class BackOfficeActionsController extends Controller
             'restock_new' => ['nullable', 'array', 'max:500'],
             'restock_new.*.internal_code' => ['required', 'string', 'max:50'],
             'restock_new.*.qty' => ['required', 'integer', 'min:0', 'max:100000'],
+            'restock_new.*.target_stock' => ['nullable', 'integer', 'min:0', 'max:50'],
+            'restock_new.*.branch_targets' => ['nullable', 'array', 'max:100'],
+            'restock_new.*.branch_targets.*' => ['integer', 'min:0', 'max:50'],
             'restock_items' => ['nullable', 'array', 'max:500'],
             'restock_items.*.id' => ['required', 'integer', 'distinct', 'exists:restock_list_items,id'],
             'restock_items.*.qty' => ['nullable', 'integer', 'min:0', 'max:100000'],
+            'restock_items.*.target_stock' => ['nullable', 'integer', 'min:0', 'max:50'],
+            'restock_items.*.branch_targets' => ['nullable', 'array', 'max:100'],
+            'restock_items.*.branch_targets.*' => ['integer', 'min:0', 'max:50'],
             'restock_items.*.remove' => ['nullable', 'boolean'],
             'restock_items.*.ordered' => ['nullable', 'boolean'],
             'changes.*.line_id' => ['required', 'integer', 'distinct', 'exists:branch_demand_request_lines,id'],
@@ -113,7 +124,7 @@ class BackOfficeActionsController extends Controller
 
         $changes = collect($data['changes'] ?? [])->keyBy('line_id');
         $restockEdits = collect($data['restock_items'] ?? []);
-        $restockNew = collect($data['restock_new'] ?? [])->mapWithKeys(fn (array $r) => [trim($r['internal_code']) => (int) $r['qty']]);
+        $restockNew = collect($data['restock_new'] ?? [])->mapWithKeys(fn (array $r) => [trim($r['internal_code']) => $r]);
         $actor = (string) Auth::user()->name;
 
         [$updated, $transfers, $restockChanged, $ordered] = DB::transaction(function () use ($changes, $restockEdits, $restockNew, $advisor, $actor) {
@@ -173,14 +184,17 @@ class BackOfficeActionsController extends Controller
             // setiap cawangan), dikira SELEPAS semua status line dikemaskini.
             $restockChanged = $this->syncRestockItems($restockLines, $advisor, $actor);
 
-            // Kuantiti yg leader BO tetapkan utk design yg BARU masuk senarai (sebelum Simpan) -
+            // Kuantiti & paras yg leader BO tetapkan utk design yg BARU masuk senarai (sebelum Simpan) -
             // menggantikan cadangan lalai.
-            foreach ($restockNew as $code => $qty) {
-                RestockListItem::query()
+            foreach ($restockNew as $code => $new) {
+                $item = RestockListItem::query()
                     ->where('internal_code', $code)
                     ->where('status', RestockListItem::STATUS_DRAFT)
-                    ->where('qty_to_order', '!=', $qty)
-                    ->update(['qty_to_order' => $qty, 'updated_by' => $actor]);
+                    ->first();
+
+                if ($item) {
+                    $this->applyRestockPlan($item, $advisor, $actor, (int) $new['qty'], $new['target_stock'] ?? null, $new['branch_targets'] ?? null);
+                }
             }
 
             $ordered = 0;
@@ -210,9 +224,17 @@ class BackOfficeActionsController extends Controller
                     continue;
                 }
 
-                if (isset($edit['qty']) && (int) $edit['qty'] !== (int) $item->qty_to_order) {
-                    $item->update(['qty_to_order' => (int) $edit['qty'], 'updated_by' => $actor]);
-                    $restockChanged++;
+                $planEdited = array_key_exists('target_stock', $edit) || array_key_exists('branch_targets', $edit);
+
+                if (isset($edit['qty']) || $planEdited) {
+                    $restockChanged += $this->applyRestockPlan(
+                        $item,
+                        $advisor,
+                        $actor,
+                        isset($edit['qty']) ? (int) $edit['qty'] : null,
+                        $edit['target_stock'] ?? null,
+                        $edit['branch_targets'] ?? null,
+                    ) ? 1 : 0;
                 }
             }
 
@@ -243,11 +265,15 @@ class BackOfficeActionsController extends Controller
         $changed = 0;
 
         foreach (collect($lines)->groupBy(fn (BranchDemandRequestLine $l) => trim((string) $l->internal_code)) as $code => $group) {
-            $suggested = $advisor->suggestedRestockQty((string) $code);
             $item = RestockListItem::query()
                 ->where('internal_code', $code)
                 ->where('status', RestockListItem::STATUS_DRAFT)
                 ->first();
+
+            $target = $item ? (int) $item->target_stock : null;
+            $branchTargets = $item ? (array) ($item->branch_targets ?? []) : [];
+            $plan = $advisor->restockPlanFor((string) $code, $target, $branchTargets);
+            $suggested = $plan['suggested_qty'];
 
             if (! $item) {
                 RestockListItem::create([
@@ -256,12 +282,16 @@ class BackOfficeActionsController extends Controller
                     'category_name' => $group->first()->category_name,
                     'qty_to_order' => $suggested,
                     'suggested_qty' => $suggested,
+                    'allocation' => RestockAllocator::allocate($plan['branches'], $suggested),
                     'created_by' => $actor,
                 ]);
             } else {
+                $qty = (int) $item->qty_to_order === (int) $item->suggested_qty ? $suggested : (int) $item->qty_to_order;
+
                 $item->update([
-                    'qty_to_order' => (int) $item->qty_to_order === (int) $item->suggested_qty ? $suggested : $item->qty_to_order,
+                    'qty_to_order' => $qty,
                     'suggested_qty' => $suggested,
+                    'allocation' => RestockAllocator::allocate($plan['branches'], $qty),
                     'updated_by' => $actor,
                 ]);
             }
@@ -270,6 +300,57 @@ class BackOfficeActionsController extends Controller
         }
 
         return $changed;
+    }
+
+    /**
+     * Simpan kuantiti order + paras (lalai & pengecualian cawangan) satu item Senarai Restock, kira semula
+     * cadangan & agihan setiap cawangan drpd data semasa. Qty tak diberi = kekalkan (atau ikut cadangan baharu
+     * kalau selama ni sama dgn cadangan lama).
+     *
+     * @param  array<string, int>|null  $branchTargets  null = kekalkan
+     * @return bool ada perubahan disimpan
+     */
+    protected function applyRestockPlan(RestockListItem $item, BackOfficeActionsAdvisor $advisor, string $actor, ?int $qty, ?int $target, ?array $branchTargets): bool
+    {
+        $target ??= (int) $item->target_stock;
+        $branchTargets = $this->cleanBranchTargets($branchTargets ?? (array) ($item->branch_targets ?? []), $target, $advisor);
+
+        $plan = $advisor->restockPlanFor((string) $item->internal_code, $target, $branchTargets);
+        $wasAuto = (int) $item->qty_to_order === (int) $item->suggested_qty;
+        $qty ??= $wasAuto ? $plan['suggested_qty'] : (int) $item->qty_to_order;
+
+        $item->fill([
+            'target_stock' => $target,
+            'branch_targets' => $branchTargets === [] ? null : $branchTargets,
+            'suggested_qty' => $plan['suggested_qty'],
+            'qty_to_order' => $qty,
+            'allocation' => RestockAllocator::allocate($plan['branches'], $qty),
+        ]);
+
+        if (! $item->isDirty()) {
+            return false;
+        }
+
+        $item->updated_by = $actor;
+        $item->save();
+
+        return true;
+    }
+
+    /**
+     * Buang kunci bukan cawangan jualan & nilai yg sama dgn paras lalai (bukan pengecualian).
+     *
+     * @param  array<string, mixed>  $branchTargets
+     * @return array<string, int>
+     */
+    protected function cleanBranchTargets(array $branchTargets, int $target, BackOfficeActionsAdvisor $advisor): array
+    {
+        $valid = array_flip($advisor->branchCodes());
+
+        return collect($branchTargets)
+            ->filter(fn ($value, $store) => isset($valid[(string) $store]) && (int) $value !== $target)
+            ->map(fn ($value) => (int) $value)
+            ->all();
     }
 
     /**

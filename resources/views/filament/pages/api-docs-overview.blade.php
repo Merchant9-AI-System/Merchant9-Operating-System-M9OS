@@ -5,11 +5,11 @@
         <p class="text-sm text-gray-500 dark:text-gray-400">
             Model Context Protocol (MCP) ialah protokol standard yg membenarkan agen AI (Claude, dll.) memanggil
             "tool" - fungsi terhad & spesifik - terus atas sistem M9OS, dgn kebenaran ikut sama pengguna yg log
-            masuk. M9OS ada <b>dua</b> server MCP berasingan, tujuan berbeza:
+            masuk. M9OS ada <b>tiga</b> kumpulan MCP berasingan, tujuan berbeza:
         </p>
     </x-filament::section>
 
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-3">
         <div class="flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-6 dark:border-white/10 dark:bg-white/5">
             <div class="flex items-start justify-between gap-3">
                 <div class="flex min-w-0 items-center gap-3">
@@ -39,6 +39,43 @@
                 <li class="flex items-start gap-2">
                     <x-filament::icon icon="heroicon-o-check" class="mt-0.5 h-4 w-4 shrink-0 text-success-500" />
                     <span>Claude.ai (via OAuth) & Claude Code/Desktop/Cursor (via token) boleh sambung</span>
+                </li>
+            </ul>
+        </div>
+
+        <div class="flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-6 dark:border-white/10 dark:bg-white/5">
+            <div class="flex items-start justify-between gap-3">
+                <div class="flex min-w-0 items-center gap-3">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400">
+                        <x-filament::icon icon="heroicon-o-chart-bar" class="h-5 w-5" />
+                    </span>
+                    <div class="min-w-0">
+                        <h3 class="text-base font-semibold text-gray-950 dark:text-white">Business Insights</h3>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Jualan, ahli, harga emas &amp; insight agen</p>
+                    </div>
+                </div>
+                <x-filament::badge color="warning" icon="heroicon-o-computer-desktop" class="shrink-0">Local sahaja</x-filament::badge>
+            </div>
+
+            <x-api-docs.copyable value="php artisan mcp:start insights" />
+
+            <div class="flex flex-wrap gap-1.5">
+                <x-filament::badge color="gray">stdio (tiada token)</x-filament::badge>
+                <x-filament::badge color="gray">baca sahaja + write-insight</x-filament::badge>
+            </div>
+
+            <ul class="space-y-1.5 text-sm text-gray-600 dark:text-gray-300">
+                <li class="flex items-start gap-2">
+                    <x-filament::icon icon="heroicon-o-check" class="mt-0.5 h-4 w-4 shrink-0 text-success-500" />
+                    <span>{{ count($this->getInsightsTools()) }} tool tersedia - rujuk menu "Available Tools" &gt; Business Insights</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <x-filament::icon icon="heroicon-o-check" class="mt-0.5 h-4 w-4 shrink-0 text-success-500" />
+                    <span>{{ count($this->getInsightsRoleServers()) }} server berskop peranan (Procurement, Finance, Marketing, CEO) untuk agen</span>
+                </li>
+                <li class="flex items-start gap-2">
+                    <x-filament::icon icon="heroicon-o-minus" class="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+                    <span>Laluan web belum dibuka (mendedahkan data jualan/kewangan ke luar - perlu keputusan eksplisit)</span>
                 </li>
             </ul>
         </div>

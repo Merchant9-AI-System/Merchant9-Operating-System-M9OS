@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Pages\Concerns\HasApiDocsStatus;
+use App\Filament\Pages\Concerns\HasInsightsToolsList;
 use App\Filament\Pages\Concerns\HasInventoryToolsList;
 use BackedEnum;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
@@ -17,7 +18,7 @@ use Filament\Support\Icons\Heroicon;
  */
 class ApiDocsOverview extends Page
 {
-    use HasApiDocsStatus, HasInventoryToolsList, HasPageShield;
+    use HasApiDocsStatus, HasInsightsToolsList, HasInventoryToolsList, HasPageShield;
 
     protected string $view = 'filament.pages.api-docs-overview';
 

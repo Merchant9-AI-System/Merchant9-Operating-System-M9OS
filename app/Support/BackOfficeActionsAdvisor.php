@@ -531,37 +531,46 @@ class BackOfficeActionsAdvisor
     }
 
     /**
-     * Cadangan kuantiti Restock: paras RESTOCK_TARGET_STOCK (3) setiap cawangan jualan. Keperluan
-     * cawangan = lebih besar antara (paras - stok) dan permintaan cawangan itu. Ditolak lebihan
-     * sedia ada (stok HQ & stok melebihi paras di cawangan yg TAK request) kerana boleh di-Rearrange
-     * dulu. Contoh: 3 cawangan stok 0 + 2 cawangan stok 1 => 3x3 + 2x2 = 13. Leader BO bebas
-     * tukar nombor ini.
+     * Cadangan kuantiti Restock: paras (lalai RESTOCK_TARGET_STOCK = 3, boleh ditetapkan setiap design &
+     * dikecualikan setiap cawangan) setiap cawangan jualan. Keperluan cawangan = lebih besar antara
+     * (paras cawangan - stok) dan permintaan cawangan itu. Ditolak lebihan sedia ada (stok HQ & stok
+     * melebihi paras di cawangan yg TAK request) kerana boleh di-Rearrange dulu. Contoh: 3 cawangan stok 0
+     * + 2 cawangan stok 1 (paras 3) => 3x3 + 2x2 = 13. Leader BO bebas tukar nombor ini.
      *
      * @param  array<string, int>  $stores  store_code => stok bersih (Security tiada)
      * @param  array<int, string>  $branches  semua cawangan jualan
      * @param  array<string, int>  $requested  store_code => unit diminta
-     * @return array{target: int, branches: array<int, array{store_code: string, stock: int, requested: int, need: int}>, surplus: int, need_total: int, suggested_qty: int}
+     * @param  array<string, int>  $branchTargets  store_code => paras khas cawangan itu (pengecualian)
+     * @return array{target: int, branches: array<int, array{store_code: string, stock: int, requested: int, target: int, need: int}>, surplus: int, external_stock: int, need_total: int, suggested_qty: int}
      */
-    public function restockPlan(array $stores, array $branches, array $requested): array
+    public function restockPlan(array $stores, array $branches, array $requested, ?int $target = null, array $branchTargets = []): array
     {
-        $target = self::RESTOCK_TARGET_STOCK;
+        $target ??= self::RESTOCK_TARGET_STOCK;
         $names = collect($branches)->merge(array_keys($requested))->reject(fn (string $b) => $this->isExcludedStore($b))->unique()->sort()->values();
 
-        $rows = $names->map(function (string $store) use ($stores, $requested, $target) {
+        $rows = $names->map(function (string $store) use ($stores, $requested, $target, $branchTargets) {
             $stock = (int) ($stores[$store] ?? 0);
             $asked = (int) ($requested[$store] ?? 0);
+            $storeTarget = (int) ($branchTargets[$store] ?? $target);
 
-            return ['store_code' => $store, 'stock' => $stock, 'requested' => $asked, 'need' => max(max(0, $target - $stock), $asked)];
+            return [
+                'store_code' => $store,
+                'stock' => $stock,
+                'requested' => $asked,
+                'target' => $storeTarget,
+                'need' => max(max(0, $storeTarget - $stock), $asked),
+            ];
         });
 
         $surplus = (int) $rows
             ->filter(fn (array $r) => $r['requested'] === 0)
-            ->sum(fn (array $r) => max(0, $r['stock'] - $target));
+            ->sum(fn (array $r) => max(0, $r['stock'] - $r['target']));
 
         // Stok di luar senarai cawangan jualan (cth. HQ - tiada jualan) sepenuhnya boleh diagih.
-        $surplus += (int) collect($stores)
+        $external = (int) collect($stores)
             ->reject(fn (int $s, string $store) => $names->contains($store))
             ->sum();
+        $surplus += $external;
 
         $needTotal = (int) $rows->sum('need');
 
@@ -569,17 +578,29 @@ class BackOfficeActionsAdvisor
             'target' => $target,
             'branches' => $rows->all(),
             'surplus' => $surplus,
+            'external_stock' => $external,
             'need_total' => $needTotal,
             'suggested_qty' => max(0, $needTotal - $surplus),
         ];
     }
 
-    /** Cadangan kuantiti Restock utk SATU kod (dipakai bila line baharu masuk senarai Restock semasa Simpan). */
-    public function suggestedRestockQty(string $code): int
+    /**
+     * Pelan Restock utk SATU kod dgn data semasa (stok & permintaan line) - dipakai semasa Simpan.
+     *
+     * @param  array<string, int>  $branchTargets
+     * @return array<string, mixed> lihat restockPlan()
+     */
+    public function restockPlanFor(string $code, ?int $target = null, array $branchTargets = []): array
     {
         $lines = $this->loadLines()->filter(fn (BranchDemandRequestLine $l) => $this->codeOf($l) === $code);
 
-        return $this->restockPlan($this->stockByCode([$code])[$code] ?? [], $this->branchCodes(), $this->requestedByStore($lines))['suggested_qty'];
+        return $this->restockPlan($this->stockByCode([$code])[$code] ?? [], $this->branchCodes(), $this->requestedByStore($lines), $target, $branchTargets);
+    }
+
+    /** Cadangan kuantiti Restock utk SATU kod (dipakai bila line baharu masuk senarai Restock semasa Simpan). */
+    public function suggestedRestockQty(string $code, ?int $target = null, array $branchTargets = []): int
+    {
+        return $this->restockPlanFor($code, $target, $branchTargets)['suggested_qty'];
     }
 
     /**

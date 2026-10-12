@@ -142,6 +142,10 @@ class RestockListBuilder
                 ->unique()->sort()->values()
                 ->map(fn (string $s) => ['store_code' => $s, 'stock' => (int) ($stores[$s] ?? 0)]);
 
+            $targetStock = (int) $item->target_stock;
+            $branchTargets = (array) ($item->branch_targets ?? []);
+            $plan = $this->advisor->restockPlan($stores, $branches, $requested, $targetStock, $branchTargets);
+
             return [
                 'id' => $item->id,
                 'internal_code' => $code,
@@ -151,7 +155,10 @@ class RestockListBuilder
                 'category_name' => $item->category_name ?: ($info['category_code'] ?? null),
                 'qty_to_order' => (int) $item->qty_to_order,
                 'suggested_qty' => (int) $item->suggested_qty,
-                'plan' => $this->advisor->restockPlan($stores, $branches, $requested),
+                'target_stock' => $targetStock,
+                'branch_targets' => (object) $branchTargets,
+                'allocation' => $item->allocation ?? RestockAllocator::allocate($plan['branches'], (int) $item->qty_to_order),
+                'plan' => $plan,
                 'requests' => $requests->all(),
                 'requested_total' => (int) $requests->sum('qty'),
                 'stock' => $stockRows->all(),
