@@ -1498,13 +1498,15 @@ function save(andPrint = false) {
              mengikut kad Cadangan Terperinci yg tingginya berubah ikut design dipilih. -->
         <div class="grid gap-4 lg:grid-cols-3 lg:items-start">
             <!-- ===== Kiri: senarai design ===== -->
-            <Card class="min-w-0 lg:col-span-2">
-                <CardHeader class="gap-3">
-                    <CardTitle class="text-base">Senarai Permintaan Cawangan</CardTitle>
+            <!-- <Card class="min-w-0 lg:col-span-2">
+                <CardHeader class="gap-3"> -->
+                    <!-- <CardTitle class="text-base">Senarai Permintaan Cawangan</CardTitle> -->
+                <div class="flex flex-wrap items-center gap-3 min-w-0 lg:col-span-2">
+                    <div class="flex-1 text-base font-semibold gap-1">Senarai Permintaan Cawangan</div>
                     <div class="flex flex-wrap items-center gap-2">
                         <div class="relative min-w-56 flex-1">
                             <Search class="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
-                            <Input v-model="search" class="h-8 pl-8"
+                            <Input v-model="search" class="h-8 pl-8 bg-white"
                                 placeholder="Cari kod design, keterangan, no. permintaan..." />
                         </div>
                         <FacetedFilter v-model="branchFilters" title="Cawangan" :options="branchOptions" />
@@ -1513,7 +1515,7 @@ function save(andPrint = false) {
                         <FacetedFilter v-model="statusFilters" title="Status" :options="statusOptions" />
                         <Button type="button" size="sm" :variant="onlyCritical ? 'default' : 'outline'" class="h-8"
                             @click="onlyCritical = !onlyCritical">
-                            Kritikal sahaja
+                            Critical
                         </Button>
                         <Button v-if="isFiltered" type="button" variant="ghost" size="sm" class="h-8 px-2 lg:px-3"
                             @click="resetFilters">
@@ -1521,19 +1523,55 @@ function save(andPrint = false) {
                             <X class="size-4" />
                         </Button>
                     </div>
-                </CardHeader>
-                <CardContent>
+                <!-- </CardHeader>
+                <CardContent> -->
                     <Deferred data="board">
                         <template #fallback>
-                            <div class="flex flex-col gap-3">
-                                <div v-for="row in 6" :key="row" class="flex items-center gap-3">
-                                    <Skeleton class="size-10 shrink-0 rounded-md" />
-                                    <div class="flex flex-1 flex-col gap-1.5">
-                                        <Skeleton class="h-4 w-40" />
-                                        <Skeleton class="h-3 w-64" />
-                                    </div>
-                                    <Skeleton class="h-8 w-32 shrink-0" />
-                                </div>
+                            <!-- Rangka jadual yg sama dgn jadual sebenar (lebar lajur serupa) supaya tak melompat bila data tiba. -->
+                            <div class="overflow-hidden rounded-md border shadow-sm">
+                                <Table class="table-fixed bg-card">
+                                    <TableHeader>
+                                        <TableRow class="hover:bg-transparent">
+                                            <TableHead class="w-10 pr-0">
+                                                <Skeleton class="size-4 rounded-[4px]" />
+                                            </TableHead>
+                                            <TableHead>Design</TableHead>
+                                            <TableHead class="w-32">Permintaan</TableHead>
+                                            <TableHead class="w-36">Cadangan</TableHead>
+                                            <TableHead class="w-28">Status</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        <TableRow v-for="row in 6" :key="row" class="hover:bg-transparent">
+                                            <TableCell class="w-10 pr-0">
+                                                <Skeleton class="size-4 rounded-[4px]" />
+                                            </TableCell>
+                                            <TableCell>
+                                                <div class="flex min-w-0 items-center gap-3">
+                                                    <Skeleton class="size-10 shrink-0 rounded-md" />
+                                                    <div class="flex min-w-0 flex-1 flex-col gap-1.5">
+                                                        <Skeleton class="h-4 w-32" />
+                                                        <Skeleton class="h-3 w-full max-w-48" />
+                                                        <Skeleton class="h-5 w-20 rounded-full" />
+                                                    </div>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <div class="flex flex-wrap gap-1">
+                                                    <Skeleton class="h-5 w-14 rounded-md" />
+                                                    <Skeleton class="h-5 w-14 rounded-md" />
+                                                </div>
+                                                <Skeleton class="mt-1.5 h-3 w-16" />
+                                            </TableCell>
+                                            <TableCell>
+                                                <Skeleton class="h-5 w-20 rounded-full" />
+                                            </TableCell>
+                                            <TableCell>
+                                                <Skeleton class="h-4 w-16" />
+                                            </TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
                             </div>
                         </template>
 
@@ -1550,7 +1588,7 @@ function save(andPrint = false) {
                                  asalnya display:table & melebar ikut kandungan, menyebabkan lebihan dipotong. -->
                             <ScrollArea v-else
                                 class="h-[min(34rem,calc(100vh-18rem))] rounded-md border shadow-sm [&_[data-slot=scroll-area-viewport]>div]:!block">
-                                <Table class="table-fixed">
+                                <Table class="table-fixed bg-card">
                                     <TableHeader class="sticky top-0 z-10 bg-card">
                                         <TableRow class="hover:bg-transparent">
                                             <TableHead class="w-10 pr-0">
@@ -1639,8 +1677,9 @@ function save(andPrint = false) {
                             </ScrollArea>
                         </template>
                     </Deferred>
-                </CardContent>
-            </Card>
+                </div>
+                <!-- </CardContent>
+            </Card> -->
 
             <!-- ===== Kanan: cadangan terperinci + tindakan ===== -->
             <Card class="min-w-0">
