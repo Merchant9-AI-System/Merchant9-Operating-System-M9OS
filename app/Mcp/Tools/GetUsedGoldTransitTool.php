@@ -2,7 +2,9 @@
 
 namespace App\Mcp\Tools;
 
+use App\Support\SqlServerQueryTimeout;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
@@ -47,18 +49,24 @@ class GetUsedGoldTransitTool extends Tool
         $dateTo = $validated['date_to'] ?? now()->toDateString();
         $storeCode = $validated['store_code'] ?? null;
 
-        $rows = DB::connection('jemisys')->table('TblTradeInDetail as D')
-            ->join('TblTradeIn as H', function ($join) {
-                $join->on('H.RefNo', '=', 'D.RefNo')->on('H.StoreCode', '=', 'D.StoreCode');
-            })
-            ->where('D.Received', 'N')
-            ->where('H.Status', '0')
-            ->whereBetween('H.TransDate', [$dateFrom, $dateTo.' 23:59:59'])
-            ->when($storeCode, fn ($q, $code) => $q->whereRaw('TRIM(D.StoreCode) = ?', [trim($code)]))
-            ->selectRaw('D.StoreCode, COUNT(*) as item_count, SUM(D.GoldWeight) as total_gold_weight')
-            ->groupBy('D.StoreCode')
-            ->orderByDesc('total_gold_weight')
-            ->get();
+        try {
+            $rows = SqlServerQueryTimeout::run('jemisys', fn () => DB::connection('jemisys')->table('TblTradeInDetail as D')
+                ->join('TblTradeIn as H', function ($join) {
+                    $join->on('H.RefNo', '=', 'D.RefNo')->on('H.StoreCode', '=', 'D.StoreCode');
+                })
+                ->where('D.Received', 'N')
+                ->where('H.Status', '0')
+                ->whereBetween('H.TransDate', [$dateFrom, $dateTo.' 23:59:59'])
+                ->when($storeCode, fn ($q, $code) => $q->whereRaw('TRIM(D.StoreCode) = ?', [trim($code)]))
+                ->selectRaw('D.StoreCode, COUNT(*) as item_count, SUM(D.GoldWeight) as total_gold_weight')
+                ->groupBy('D.StoreCode')
+                ->orderByDesc('total_gold_weight')
+                ->get());
+        } catch (QueryException $e) {
+            report($e);
+
+            return Response::error('Pangkalan data tidak bertindak balas atau query melebihi had masa - cuba semula sebentar lagi, atau kecilkan julat tarikh.');
+        }
 
         $byBranch = $rows->map(fn ($r) => [
             'store_code' => trim($r->StoreCode),

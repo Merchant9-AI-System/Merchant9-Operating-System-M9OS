@@ -45,7 +45,7 @@ class GetDormantMembersTool extends Tool
         } catch (QueryException $e) {
             report($e);
 
-            return Response::error('Pangkalan data tidak bertindak balas atau query melebihi had masa - cuba semula sebentar lagi.');
+            return Response::error('Pangkalan data tidak bertindak balas atau query melebihi had masa - cuba semula sebentar lagi, atau kecilkan julat tarikh.');
         }
 
         return Response::structured([

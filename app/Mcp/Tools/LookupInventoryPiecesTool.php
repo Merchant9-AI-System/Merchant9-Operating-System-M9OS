@@ -35,7 +35,7 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[IsReadOnly]
 class LookupInventoryPiecesTool extends Tool
 {
-    public const MAX_RESULTS = 20;
+    public const MAX_RESULTS = 30;
 
     public function handle(Request $request): Response|ResponseFactory
     {
@@ -136,7 +136,7 @@ class LookupInventoryPiecesTool extends Tool
             'class_code' => $schema->string()
                 ->description('Pilihan - purity (cth. "916").'),
             'offset' => $schema->integer()
-                ->description('Pilihan - langkau seberapa banyak baris (halaman seterusnya) - lalai 0. Cth. offset=20 utk baris 21-40.'),
+                ->description('Pilihan - langkau seberapa banyak baris (halaman seterusnya) - lalai 0. Cth. offset=30 utk baris 31-60.'),
         ];
     }
 

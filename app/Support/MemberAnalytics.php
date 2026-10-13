@@ -21,8 +21,6 @@ class MemberAnalytics
 {
     public const MAX_ROWS = 100000;
 
-    public const TIMEOUT_SECONDS = 60;
-
     /** Jalur belanja ahli dlm tempoh (RM) - minimum setiap jalur. */
     public const SPEND_BANDS = [0, 500, 1000, 3000, 7000, 13000];
 
@@ -83,7 +81,7 @@ class MemberAnalytics
                 ->get();
 
             return [$buyers, $newMembers, $points];
-        }, self::TIMEOUT_SECONDS);
+        }, SqlServerQueryTimeout::HEAVY_SECONDS);
 
         $result = self::fromRows(
             $buyers->map(fn ($r) => [

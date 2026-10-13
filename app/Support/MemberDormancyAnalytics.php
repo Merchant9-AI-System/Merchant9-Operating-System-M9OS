@@ -23,8 +23,6 @@ class MemberDormancyAnalytics
 
     public const MAX_ROWS = 150000;
 
-    public const TIMEOUT_SECONDS = 60;
-
     /** Ahli dgn belanja dlm tetingkap >= ini + dormant = sasaran retensi bernilai tinggi (selaras tier hadiah RM7,000). */
     public const HIGH_VALUE_MIN_RM = 7000;
 
@@ -79,7 +77,7 @@ class MemberDormancyAnalytics
                 ->get();
 
             return [$purchasers, $registered];
-        }, self::TIMEOUT_SECONDS);
+        }, SqlServerQueryTimeout::HEAVY_SECONDS);
 
         $result = self::fromRows(
             $purchasers->map(fn ($r) => [

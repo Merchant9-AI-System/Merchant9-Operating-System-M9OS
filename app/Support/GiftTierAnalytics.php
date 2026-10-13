@@ -24,9 +24,6 @@ class GiftTierAnalytics
     /** Had baris (VIPNo x cawangan) - sebulan biasa ~4,000; setahun ~50,000. */
     public const MAX_ROWS = 100000;
 
-    /** Lebih longgar drpd lalai 30s: cache SQL Server yg sejuk (selepas restore harian) pernah ambil ~9s utk satu bulan. */
-    public const TIMEOUT_SECONDS = 60;
-
     private const CONNECTION = 'jemisys';
 
     /**
@@ -49,7 +46,7 @@ class GiftTierAnalytics
             ->selectRaw('SUM(H.NetAmount) AS branch_total')
             ->groupByRaw('RTRIM(H.VIPNo), UPPER(RTRIM(H.StoreCode))')
             ->limit(self::MAX_ROWS)
-            ->get(), self::TIMEOUT_SECONDS);
+            ->get(), SqlServerQueryTimeout::HEAVY_SECONDS);
 
         $result = self::fromRows($rows->map(fn ($r) => [
             'vip_no' => (string) $r->vip_no,

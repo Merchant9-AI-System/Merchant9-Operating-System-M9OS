@@ -29,7 +29,7 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 #[IsReadOnly]
 class GetRestockByBucketTool extends Tool
 {
-    public const MAX_RESULTS = 20;
+    public const MAX_RESULTS = 30;
 
     public function handle(Request $request): Response|ResponseFactory
     {
@@ -117,7 +117,7 @@ class GetRestockByBucketTool extends Tool
                 ->description('Lalai true - sorok baris "Stok Cukup" (verdict OK), pulangkan hanya bucket yg PERLU tindakan.')
                 ->default(true),
             'offset' => $schema->integer()
-                ->description('Pilihan - langkau seberapa banyak baris (halaman seterusnya) - lalai 0. Cth. offset=20 utk baris 21-40.'),
+                ->description('Pilihan - langkau seberapa banyak baris (halaman seterusnya) - lalai 0. Cth. offset=30 utk baris 31-60.'),
         ];
     }
 

@@ -610,6 +610,47 @@ function stockChipClass(item: RestockItem, s: { store_code: string; stock: numbe
 
 const branchPopoverKey = ref<string | null>(null);
 
+// ===== Kumpulan paparan Senarai Restock (sama dgn Export/PDF - rujuk RestockListBuilder::sections()) =====
+interface RestockSection {
+    key: string;
+    title: string;
+    items: RestockItem[];
+}
+
+const NO_REQUEST_SECTION = 'Tiada permintaan cawangan';
+
+const restockSections = computed<RestockSection[]>(() => {
+    const groups = new Map<string, RestockItem[]>();
+    const add = (key: string, item: RestockItem) => groups.set(key, [...(groups.get(key) ?? []), item]);
+
+    for (const item of restockRows.value) {
+        if (restockGroup.value === 'branch') {
+            // Cawangan yg REQUEST atau MENERIMA unit drpd agihan (cawangan lain yg stok rendah pun nampak design ini).
+            const received = Object.entries(allocationByRow.value[rowKey(item)] ?? {}).filter(([, qty]) => qty > 0).map(([store]) => store);
+            const keys = Array.from(new Set([...item.requests.map((r) => r.store_code), ...received]));
+
+            (keys.length ? keys : [NO_REQUEST_SECTION]).forEach((key) => add(key, item));
+        } else if (restockGroup.value === 'supplier' && props.canSeeSuppliers) {
+            add(item.suppliers[0]?.vendor_code || 'Tiada data supplier', item);
+        } else {
+            add(item.category_name || 'Tanpa kategori', item);
+        }
+    }
+
+    return Array.from(groups, ([key, items]) => ({ key, title: key, items })).sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0));
+});
+
+// Pada kumpulan Cawangan, setiap bahagian cuma tunjuk permintaan cawangan itu & stok cawangan itu.
+function sectionRequests(item: RestockItem, sectionKey: string): RestockRequest[] {
+    return restockGroup.value === 'branch' ? item.requests.filter((r) => r.store_code === sectionKey) : item.requests;
+}
+
+function branchStockOf(item: RestockItem, store: string): number {
+    return item.stock.find((s) => s.store_code === store)?.stock ?? 0;
+}
+
+const restockColumnCount = computed(() => (props.canSeeSuppliers ? 6 : 5));
+
 function isRemovedRow(item: RestockItem): boolean {
     return !item.pending && !!restockEdits.value[item.id]?.remove;
 }
@@ -1971,7 +2012,8 @@ function save(andPrint = false) {
                         </p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
-                        <NativeSelect v-model="restockGroup" aria-label="Kumpul eksport ikut">
+                        <span class="text-sm text-muted-foreground">Kumpul ikut</span>
+                        <NativeSelect v-model="restockGroup" aria-label="Kumpul ikut">
                             <NativeSelectOption value="category">Ikut Kategori</NativeSelectOption>
                             <NativeSelectOption value="branch">Ikut Cawangan</NativeSelectOption>
                             <NativeSelectOption v-if="canSeeSuppliers" value="supplier">Ikut Supplier
@@ -2040,7 +2082,14 @@ function save(andPrint = false) {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr v-for="item in restockRows" :key="rowKey(item)"
+                                    <template v-for="section in restockSections" :key="section.key">
+                                    <tr class="border-b bg-muted/50">
+                                        <td :colspan="restockColumnCount" class="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide">
+                                            {{ section.title }}
+                                            <span class="ml-1 font-normal normal-case text-muted-foreground">{{ section.items.length }} design</span>
+                                        </td>
+                                    </tr>
+                                    <tr v-for="item in section.items" :key="`${section.key}:${rowKey(item)}`"
                                         class="border-b align-top last:border-0"
                                         :class="{ 'bg-destructive/5 line-through opacity-60': isRemovedRow(item), 'bg-success/10': isOrderedRow(item), 'bg-primary/5': item.pending || isEditedRow(item) }">
                                         <td class="py-2 pr-3">
@@ -2065,8 +2114,8 @@ function save(andPrint = false) {
                                             </div>
                                         </td>
                                         <td class="py-2 pr-3">
-                                            <ul v-if="item.requests.length" class="flex flex-col gap-0.5 text-xs">
-                                                <li v-for="(r, i) in item.requests" :key="i">
+                                            <ul v-if="sectionRequests(item, section.key).length" class="flex flex-col gap-0.5 text-xs">
+                                                <li v-for="(r, i) in sectionRequests(item, section.key)" :key="i">
                                                     <Badge variant="secondary">{{ r.store_code }}</Badge>
                                                     <span class="ml-1">
                                                         <template v-if="r.size">saiz {{ r.size }}</template>
@@ -2079,6 +2128,7 @@ function save(andPrint = false) {
                                             <span v-else class="text-muted-foreground">-</span>
                                         </td>
                                         <td class="py-2 pr-3">
+                                            <template v-if="restockGroup !== 'branch'">
                                             <div class="flex flex-wrap gap-1">
                                                 <Badge v-for="s in item.stock" :key="s.store_code" variant="outline" size="sm"
                                                     class="gap-1 text-[9px]" :class="stockChipClass(item, s)"
@@ -2096,6 +2146,20 @@ function save(andPrint = false) {
                                                 <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-blue-600" /> cawangan request</span>
                                                 <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-warning" /> request belum dipenuhi</span>
                                             </p>
+                                            </template>
+                                            <div v-else class="text-sm">
+                                                <p>
+                                                    <span class="text-xs text-muted-foreground mr-2">Stok cawangan ini</span>
+                                                    <span :class="allocOf(item, section.key) > 0 ? 'font-semibold' : ''">
+                                                        {{ branchStockOf(item, section.key) }}<template v-if="allocOf(item, section.key) > 0">
+                                                            &rarr; {{ branchStockOf(item, section.key) + allocOf(item, section.key) }}
+                                                            <span class="text-primary">(+{{ allocOf(item, section.key) }})</span></template>
+                                                    </span>
+                                                </p>
+                                                <p class="mt-0.5 text-xs text-muted-foreground">
+                                                    cawangan ini dapat {{ allocOf(item, section.key) }} unit daripada order {{ rowQty(item) }}
+                                                </p>
+                                            </div>
                                             <div class="mt-1.5 flex flex-wrap items-center gap-2">
                                                 <span class="text-xs text-muted-foreground">Paras</span>
                                                 <NumberField class="w-24" :model-value="targetOf(item)" :min="0" :max="50"
@@ -2197,6 +2261,7 @@ function save(andPrint = false) {
                                             </p>
                                         </td>
                                     </tr>
+                                    </template>
                                 </tbody>
                             </table>
                         </div>

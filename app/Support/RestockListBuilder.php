@@ -47,6 +47,92 @@ class RestockListBuilder
     }
 
     /**
+     * Stok setiap cawangan + agihan Qty order (Restock sahaja): `short` = qty yg BO taip sendiri (beza drpd
+     * cadangan) tak cukup menampung permintaan cawangan itu (sama dgn dot amber di halaman).
+     *
+     * @param  array<string, mixed>  $item
+     * @return array<int, array{store_code: string, stock: int, alloc: int, after: int, requested: int, short: bool}>
+     */
+    public static function branchRows(array $item): array
+    {
+        $allocation = (array) ($item['allocation'] ?? []);
+        $requested = collect($item['plan']['branches'] ?? [])->mapWithKeys(fn (array $b) => [$b['store_code'] => (int) $b['requested']]);
+        $manual = (int) ($item['qty_to_order'] ?? 0) !== (int) ($item['suggested_qty'] ?? 0);
+
+        return collect($item['stock'] ?? [])->map(function (array $s) use ($allocation, $requested, $manual) {
+            $alloc = (int) ($allocation[$s['store_code']] ?? 0);
+            $asked = (int) ($requested[$s['store_code']] ?? 0);
+
+            return [
+                'store_code' => $s['store_code'],
+                'stock' => (int) $s['stock'],
+                'alloc' => $alloc,
+                'after' => (int) $s['stock'] + $alloc,
+                'requested' => $asked,
+                'short' => $manual && $alloc < $asked,
+            ];
+        })->all();
+    }
+
+    /**
+     * Cawangan yg dapat bahagian sendiri pd kumpulan "Ikut Cawangan": cawangan yg REQUEST design ini ATAU yg
+     * MENERIMA unit drpd agihan order (cawangan yg tak request tapi stok rendah pun nampak design ini).
+     *
+     * @param  array<string, mixed>  $item
+     * @return array<int, string>
+     */
+    public static function branchKeys(array $item): array
+    {
+        $keys = collect($item['requests'] ?? [])->pluck('store_code')
+            ->merge(collect((array) ($item['allocation'] ?? []))->filter(fn ($qty) => (int) $qty > 0)->keys())
+            ->unique()
+            ->values()
+            ->all();
+
+        return $keys ?: ['Tiada permintaan cawangan'];
+    }
+
+    /** "1 → 3 (+2)" atau "1" - stok cawangan bahagian ini (section_store) sebelum & selepas order. */
+    public static function describeSectionStock(array $item): string
+    {
+        $row = collect(self::branchRows($item))->firstWhere('store_code', $item['section_store'] ?? null);
+
+        if (! $row) {
+            return '-';
+        }
+
+        return (string) $row['stock'].($row['alloc'] > 0 ? " → {$row['after']} (+{$row['alloc']})" : '');
+    }
+
+    /** "WM 0 → 3 (+3), DAMAI 1" - stok semasa, dan stok selepas order utk cawangan yg menerima unit. */
+    public static function describeStock(array $item): string
+    {
+        return collect(self::branchRows($item))
+            ->map(fn (array $r) => "{$r['store_code']} {$r['stock']}".($r['alloc'] > 0 ? " → {$r['after']} (+{$r['alloc']})" : ''))
+            ->implode(', ');
+    }
+
+    /** "3" atau "3 (DAMAI 2, WM 5)" - paras lalai design + pengecualian cawangan. */
+    public static function describeParas(array $item): string
+    {
+        $overrides = (array) ($item['branch_targets'] ?? []);
+        ksort($overrides);
+
+        $exceptions = collect($overrides)->map(fn ($value, $store) => "{$store} {$value}")->implode(', ');
+
+        return (string) ((int) ($item['target_stock'] ?? 3)).($exceptions !== '' ? " ({$exceptions})" : '');
+    }
+
+    /** "DAMAI request 3, dapat 2" - cawangan yg request tapi agihan kurang (kosong jika tiada). */
+    public static function describeShort(array $item): string
+    {
+        return collect(self::branchRows($item))
+            ->filter(fn (array $r) => $r['short'])
+            ->map(fn (array $r) => "{$r['store_code']} request {$r['requested']}, dapat {$r['alloc']}")
+            ->implode('; ');
+    }
+
+    /**
      * Susun item mengikut kumpulan eksport: kategori, cawangan peminta (setiap cawangan nampak
      * permintaan DIA sahaja) atau supplier teratas.
      *
@@ -59,7 +145,7 @@ class RestockListBuilder
 
         foreach ($items as $item) {
             $keys = match ($group) {
-                self::GROUP_BRANCH => collect($item['requests'])->pluck('store_code')->unique()->all() ?: ['Tiada permintaan cawangan'],
+                self::GROUP_BRANCH => self::branchKeys($item),
                 self::GROUP_SUPPLIER => [($item['suppliers'][0]['vendor_code'] ?? null) ?: 'Tiada data supplier'],
                 default => [($item['category_name'] ?? null) ?: 'Tanpa kategori'],
             };
@@ -73,6 +159,9 @@ class RestockListBuilder
 
                 if ($group === self::GROUP_BRANCH) {
                     $entry['requested_total'] = (int) collect($entry['requests'])->sum('qty');
+                    // Unit yg cawangan SECTION ini dapat drpd order (utk lajur "Cawangan ini dapat") & stok cawangan ini.
+                    $entry['section_store'] = $key;
+                    $entry['section_alloc'] = (int) (((array) ($item['allocation'] ?? []))[$key] ?? 0);
                 }
 
                 $sections[$key][] = $entry;

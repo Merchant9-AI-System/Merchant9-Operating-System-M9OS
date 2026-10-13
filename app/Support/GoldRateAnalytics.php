@@ -26,8 +26,6 @@ class GoldRateAnalytics
     /** Julat maksimum utk granulariti harian (titik/kelas ~ 92); mingguan/bulanan ikut had umum 366 hari. */
     public const MAX_DAILY_RANGE_DAYS = 92;
 
-    public const TIMEOUT_SECONDS = 60;
-
     private const CONNECTION = 'jemisys';
 
     /**
@@ -75,7 +73,7 @@ class GoldRateAnalytics
             WHERE rn = 1
             ORDER BY cls, d",
             $bindings,
-        ), self::TIMEOUT_SECONDS);
+        ), SqlServerQueryTimeout::HEAVY_SECONDS);
 
         return [
             'class_codes' => $classCodes,

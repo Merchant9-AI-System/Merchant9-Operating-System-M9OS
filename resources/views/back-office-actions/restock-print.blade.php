@@ -22,6 +22,10 @@
         .muted { color: #57534e; }
         .qty { font-size: 15px; font-weight: 700; }
         .low { color: #b91c1c; font-weight: 600; }
+        .got { font-weight: 700; }
+        .warn { font-weight: 700; text-decoration: underline; }
+        .chip { display: inline-block; margin: 0 6px 2px 0; white-space: nowrap; }
+        .note { font-size: 10px; color: #57534e; }
         .thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; }
         ul { margin: 0; padding-left: 14px; }
         .supplier-table { margin-top: 6px; }
@@ -44,6 +48,7 @@
 
     <h1>Senarai Restock</h1>
     <p class="meta">Dikumpul ikut {{ $groupLabel }} &middot; {{ now()->format('d/m/Y H:i') }} &middot; {{ $generatedBy }}</p>
+    <p class="note">Agihan qty order ke setiap cawangan (Restock sahaja): cawangan yang request dahulu, kemudian isi ke paras. <strong>Tebal</strong> = cawangan menerima unit; <span class="warn">!</span> = request belum dipenuhi (qty diubah sendiri).</p>
 
     @forelse ($sections as $section)
         <h2>{{ $section['title'] }}</h2>
@@ -53,12 +58,16 @@
                     <th></th>
                     <th>Design</th>
                     <th>Permintaan cawangan (saiz / berat / qty)</th>
-                    <th>Stok semasa</th>
+                    <th>{!! $group === 'branch' ? 'Stok cawangan ini &rarr; selepas order' : 'Stok semasa &rarr; selepas order' !!}</th>
+                    <th class="num">Paras</th>
                     <th class="num">Jualan 7H / 30H</th>
                     @if ($withSuppliers)
                         <th>Kod supplier teratas</th>
                     @endif
                     <th class="num">Qty order</th>
+                    @if ($group === 'branch')
+                        <th class="num">Cawangan ini dapat</th>
+                    @endif
                 </tr>
             </thead>
             <tbody>
@@ -86,10 +95,18 @@
                             @endif
                         </td>
                         <td>
-                            @foreach ($item['stock'] as $s)
-                                <span class="{{ $s['stock'] <= 1 ? 'low' : '' }}">{{ $s['store_code'] }} {{ $s['stock'] }}</span>@if (! $loop->last), @endif
+                            @if ($group === 'branch')
+                                <span class="{{ ($item['section_alloc'] ?? 0) > 0 ? 'got' : '' }}">{{ \App\Support\RestockListBuilder::describeSectionStock($item) }}</span>
+                            @else
+                            @foreach (\App\Support\RestockListBuilder::branchRows($item) as $s)
+                                <span class="chip {{ $s['alloc'] > 0 ? 'got' : ($s['stock'] <= 1 ? 'low' : '') }}">
+                                    {{ $s['store_code'] }} {{ $s['stock'] }}@if ($s['alloc'] > 0) &rarr; {{ $s['after'] }} (+{{ $s['alloc'] }})@endif
+                                    @if ($s['short'])<span class="warn">! request {{ $s['requested'] }}, dapat {{ $s['alloc'] }}</span>@endif
+                                </span>
                             @endforeach
+                            @endif
                         </td>
+                        <td class="num">{{ \App\Support\RestockListBuilder::describeParas($item) }}</td>
                         <td class="num">{{ $item['sold_7d'] }} / {{ $item['sold_30d'] }}</td>
                         @if ($withSuppliers)
                             <td>
@@ -99,6 +116,9 @@
                             </td>
                         @endif
                         <td class="num qty">{{ $item['qty_to_order'] }}</td>
+                        @if ($group === 'branch')
+                            <td class="num qty">{{ $item['section_alloc'] ?? 0 }}</td>
+                        @endif
                     </tr>
                 @endforeach
             </tbody>

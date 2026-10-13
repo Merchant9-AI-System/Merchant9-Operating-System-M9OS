@@ -394,7 +394,10 @@ class BackOfficeActionsController extends Controller
 
             $writer->getCurrentSheet()->setName('Senarai Restock');
             $writer->addRow(Row::fromValues(['Senarai Restock - '.now()->format('d/m/Y H:i').' - ikut '.RestockListBuilder::GROUP_LABELS[$group]], $bold));
-            $header = ['Kod Design', 'Keterangan', 'Nickname', 'Kategori', 'Permintaan Cawangan (saiz / berat / qty)', 'Jumlah Diminta', 'Stok Semasa', 'Jualan 7 Hari', 'Jualan 30 Hari', 'Kuantiti Order'];
+            $header = ['Kod Design', 'Keterangan', 'Nickname', 'Kategori', 'Permintaan Cawangan (saiz / berat / qty)', 'Jumlah Diminta', $group === RestockListBuilder::GROUP_BRANCH ? 'Stok Cawangan Ini → Selepas Order' : 'Stok Semasa → Selepas Order', 'Paras', 'Request Belum Dipenuhi', 'Jualan 7 Hari', 'Jualan 30 Hari', 'Kuantiti Order'];
+            if ($group === RestockListBuilder::GROUP_BRANCH) {
+                $header[] = 'Cawangan Ini Dapat';
+            }
             if ($withSuppliers) {
                 $header[] = 'Kod Supplier Teratas';
             }
@@ -412,11 +415,16 @@ class BackOfficeActionsController extends Controller
                         $item['category_name'],
                         collect($item['requests'])->map(fn (array $r) => RestockListBuilder::describeRequest($r))->implode("\n"),
                         $item['requested_total'],
-                        collect($item['stock'])->map(fn (array $s) => "{$s['store_code']} {$s['stock']}")->implode(', '),
+                        $group === RestockListBuilder::GROUP_BRANCH ? RestockListBuilder::describeSectionStock($item) : RestockListBuilder::describeStock($item),
+                        RestockListBuilder::describeParas($item),
+                        RestockListBuilder::describeShort($item),
                         $item['sold_7d'],
                         $item['sold_30d'],
                         $item['qty_to_order'],
                     ];
+                    if ($group === RestockListBuilder::GROUP_BRANCH) {
+                        $values[] = (int) ($item['section_alloc'] ?? 0);
+                    }
                     if ($withSuppliers) {
                         $values[] = collect($item['suppliers'])->map(fn (array $v) => "{$v['vendor_code']} ({$v['sold']} terjual)")->implode("\n");
                     }
@@ -451,6 +459,7 @@ class BackOfficeActionsController extends Controller
             'sections' => $restock->sections($data['items'], $group),
             'suppliers' => $data['suppliers'],
             'withSuppliers' => $withSuppliers,
+            'group' => $group,
             'groupLabel' => RestockListBuilder::GROUP_LABELS[$group],
             'generatedBy' => (string) Auth::user()->name,
         ]);
