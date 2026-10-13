@@ -2162,7 +2162,7 @@ function save(andPrint = false) {
                                             </div>
                                             <div class="mt-1.5 flex flex-wrap items-center gap-2">
                                                 <span class="text-xs text-muted-foreground">Paras</span>
-                                                <NumberField class="w-24" :model-value="targetOf(item)" :min="0" :max="50"
+                                                <NumberField class="w-24" :model-value="targetOf(item)" :min="1" :max="50"
                                                     :disabled="isRemovedRow(item)" @update:model-value="(v: number) => setTarget(item, v)">
                                                     <NumberFieldContent>
                                                         <NumberFieldDecrement />
@@ -2196,7 +2196,7 @@ function save(andPrint = false) {
                                                                     <span class="font-medium">{{ b.store_code }}</span>
                                                                     <span class="ml-1 text-xs text-muted-foreground">stok {{ b.stock }}<template v-if="b.requested"> &middot; request {{ b.requested }}</template></span>
                                                                 </div>
-                                                                <NumberField class="w-24 shrink-0" :model-value="b.target" :min="0" :max="50"
+                                                                <NumberField class="w-24 shrink-0" :model-value="b.target" :min="1" :max="50"
                                                                     @update:model-value="(v: number) => setBranchTarget(item, b.store_code, v)">
                                                                     <NumberFieldContent>
                                                                         <NumberFieldDecrement />
