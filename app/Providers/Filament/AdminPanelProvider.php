@@ -62,6 +62,10 @@ class AdminPanelProvider extends PanelProvider
                 'secondary' => Color::Zinc,
             ])
             ->brandName('Merchant9 OS')
+            ->brandLogo(asset('images/brand/merchant9-lockup-horizontal.svg'))
+            ->darkModeBrandLogo(asset('images/brand/merchant9-lockup-horizontal-dark.svg'))
+            ->brandLogoHeight('2.25rem')
+            ->favicon(asset('favicon.svg').'?v=2')
             ->maxContentWidth(Width::ScreenTwoExtraLarge)
             ->simplePageMaxContentWidth(Width::Medium)
             ->sidebarCollapsibleOnDesktop()

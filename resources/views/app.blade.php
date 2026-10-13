@@ -30,9 +30,14 @@
     </style> --}}
     <title inertia>{{ config('app.name') }}</title>
 
-    <link rel="icon" href="/favicon.ico" sizes="any">
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    {{-- Logo Merchant9 OS. Naikkan ?v= bila logo ditukar (pelayar menyimpan favicon lama sangat lama). --}}
+    <link rel="icon" href="{{ asset('favicon.ico') }}?v=2" sizes="48x48">
+    <link rel="icon" href="{{ asset('favicon.svg') }}?v=2" type="image/svg+xml">
+    <link rel="icon" href="{{ asset('favicon-32x32.png') }}?v=2" type="image/png" sizes="32x32">
+    <link rel="icon" href="{{ asset('favicon-16x16.png') }}?v=2" type="image/png" sizes="16x16">
+    <link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}?v=2">
+    <link rel="manifest" href="{{ asset('site.webmanifest') }}?v=2">
+    <meta name="theme-color" content="#16181D">
 
     {{-- @vite(['resources/css/inertia.css', 'resources/js/inertia.ts', "resources/js/pages/{$page['component']}.vue"]) --}}
     @vite(['resources/css/inertia.css', 'resources/js/inertia.ts'])

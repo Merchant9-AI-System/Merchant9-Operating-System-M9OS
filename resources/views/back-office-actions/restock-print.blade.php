@@ -9,6 +9,7 @@
         * { box-sizing: border-box; }
         body { margin: 0; padding: 24px; font: 12px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #1c1917; background: #fff; }
         h1 { font-size: 18px; margin: 0 0 2px; }
+        .brand { display: block; height: 32px; width: auto; margin: 0 0 10px; }
         h2 { font-size: 14px; margin: 22px 0 6px; padding-bottom: 4px; border-bottom: 2px solid #1c1917; break-after: avoid; }
         .meta { color: #57534e; margin-bottom: 8px; }
         .toolbar { display: flex; gap: 8px; margin-bottom: 16px; }
@@ -46,6 +47,7 @@
         @endif
     </div>
 
+    <img class="brand" src="{{ asset('images/brand/merchant9-lockup-horizontal.png') }}" alt="Merchant9 Operating Systems">
     <h1>Senarai Restock</h1>
     <p class="meta">Dikumpul ikut {{ $groupLabel }} &middot; {{ now()->format('d/m/Y H:i') }} &middot; {{ $generatedBy }}</p>
     <p class="note">Agihan qty order ke setiap cawangan (Restock sahaja): cawangan yang request dahulu, kemudian isi ke paras. <strong>Tebal</strong> = cawangan menerima unit; <span class="warn">!</span> = request belum dipenuhi (qty diubah sendiri).</p>
