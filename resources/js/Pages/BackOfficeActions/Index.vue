@@ -1519,6 +1519,13 @@ function save(andPrint = false) {
                             <InputGroupAddon>
                                 <Search />
                             </InputGroupAddon>
+                            <!-- Butang kosongkan: hanya bila ada teks carian. -->
+                            <InputGroupAddon v-if="search" align="inline-end">
+                                <InputGroupButton type="button" size="icon-xs" aria-label="Kosongkan carian"
+                                    @click="search = ''">
+                                    <X />
+                                </InputGroupButton>
+                            </InputGroupAddon>
                         </InputGroup>
                         <FacetedFilter v-model="branchFilters" title="Cawangan" :options="branchOptions" />
                         <FacetedFilter v-model="categoryFilters" title="Kategori" :options="categoryOptions" />
