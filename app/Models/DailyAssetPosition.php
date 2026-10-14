@@ -47,6 +47,7 @@ class DailyAssetPosition extends Model
         'affin_rm',
         'od_affin',
         'locked_gold_bar',
+        'reserved_fund',
         'available_cash',
         'cash_for_gb',
         'notes',
@@ -80,6 +81,7 @@ class DailyAssetPosition extends Model
         'affin_rm' => 'decimal:2',
         'od_affin' => 'decimal:2',
         'locked_gold_bar' => 'decimal:2',
+        'reserved_fund' => 'decimal:2',
         'available_cash' => 'decimal:2',
         'cash_for_gb' => 'decimal:2',
     ];
@@ -180,10 +182,11 @@ class DailyAssetPosition extends Model
 
     public function calculateAvailableCash(): float
     {
-        // affin_rm: Affin FD RM.
+        // affin_rm: Affin FD RM. reserved_fund: dana rizab (RM) - ditolak, kosong dikira 0.
         return round(
             (float) $this->ambank_balance + (float) $this->affin_balance + (float) $this->cash
-            - (float) $this->affin_rm - (float) $this->od_affin - (float) $this->locked_gold_bar,
+            - (float) $this->affin_rm - (float) $this->od_affin - (float) $this->locked_gold_bar
+            - (float) $this->reserved_fund,
             2
         );
     }

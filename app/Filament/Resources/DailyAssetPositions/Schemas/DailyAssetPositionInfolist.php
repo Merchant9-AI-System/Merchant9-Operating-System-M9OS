@@ -62,6 +62,7 @@ class DailyAssetPositionInfolist
                             TextEntry::make('cash')->label('Cash')->money('MYR'),
                             TextEntry::make('affin_rm')->label('Affin RM')->money('MYR'),
                             TextEntry::make('od_affin')->label('OD Affin')->money('MYR'),
+                            TextEntry::make('reserved_fund')->label('Reserved Fund')->money('MYR'),
                         ]),
                     ]),
 

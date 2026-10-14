@@ -116,9 +116,16 @@ class DailyAssetPositionForm
                             TextInput::make('affin_rm')->label('Affin FD RM')->numeric()->placeholder(0)->required()->live(onBlur: true),
                             TextInput::make('od_affin')->label('Affin OD (RM)')->numeric()->placeholder(0)->required()->live(onBlur: true),
                             TextInput::make('locked_gold_bar')->label('Unpaid Gold Bar RM')->numeric()->placeholder(0)->required(),
+                            // Pilihan: kosong disimpan sbg 0 (lajur NOT NULL default 0).
+                            TextInput::make('reserved_fund')
+                                ->label('Reserved Fund (RM)')
+                                ->numeric()
+                                ->placeholder(0)
+                                ->live(onBlur: true)
+                                ->dehydrateStateUsing(fn ($state) => filled($state) ? $state : 0),
                         ]),
                         Placeholder::make('available_cash_preview')
-                            ->label('Available Cash (auto = Amb + afb balance + cash - afb FD - OD - unpaid)') // Ambank Balance + Affin Balance + Cash - Affin FD - OD - Unpaid Gold Bar
+                            ->label('Available Cash (auto = Amb + afb balance + cash - afb FD - OD - unpaid - reserved fund)') // Ambank Balance + Affin Balance + Cash - Affin FD - OD - Unpaid Gold Bar - Reserved Fund
                             ->live()
                             ->content(fn (Get $get) => 'RM '.number_format(static::availableCash($get), 2)),
                         Placeholder::make('available_cash_for_gb_preview')
@@ -218,7 +225,8 @@ class DailyAssetPositionForm
             + (float) ($get('cash') ?? 0)
             - (float) ($get('affin_rm') ?? 0)
             - (float) ($get('od_affin') ?? 0)
-            - (float) ($get('locked_gold_bar') ?? 0);
+            - (float) ($get('locked_gold_bar') ?? 0)
+            - (float) ($get('reserved_fund') ?? 0);
     }
 
     /** Sepadan App\Models\DailyAssetPosition::calculateCashForGb() - rizab dikongsi drpd konstanta model. */
