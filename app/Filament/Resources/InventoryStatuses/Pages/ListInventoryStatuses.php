@@ -25,7 +25,7 @@ class ListInventoryStatuses extends ListRecords
     protected function getHeaderWidgets(): array
     {
         return [
-            InventoryStatusOverview::class,
+            // InventoryStatusOverview::class,
         ];
     }
 }
