@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Deferred, Head, router } from '@inertiajs/vue3';
-import { Check, ChevronDown, Download, FileSpreadsheet, Loader2, Printer, Save, Search, X } from '@lucide/vue';
+import { Check, ChevronDown, CircleDot, Download, FileSpreadsheet, Loader2, Printer, Save, Search, X } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import FacetedFilter from '@/components/FacetedFilter.vue';
@@ -13,6 +13,9 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from '@/components/ui/item';
+import { Spinner } from '@/components/ui/spinner';
 import { NumberField, NumberFieldContent, NumberFieldDecrement, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -1050,6 +1053,12 @@ async function loadCandidates(group: DesignGroup, query = '') {
     }
 }
 
+// X pada medan carian: kosongkan istilah & muat semula senarai calon asal (berdasarkan nama permintaan).
+function clearCandidateSearch(group: DesignGroup) {
+    candidateQuery.value = '';
+    loadCandidates(group, '');
+}
+
 // Butang "Muat Lagi": tambah halaman calon seterusnya ke senarai sedia ada (tak ganti).
 async function loadMoreCandidates(group: DesignGroup) {
     const state = candidatePage.value[group.key];
@@ -1504,11 +1513,13 @@ function save(andPrint = false) {
                 <div class="flex flex-wrap items-center gap-3 min-w-0 lg:col-span-2">
                     <div class="flex-1 text-base font-semibold gap-1">Senarai Permintaan Cawangan</div>
                     <div class="flex flex-wrap items-center gap-2">
-                        <div class="relative min-w-56 flex-1">
-                            <Search class="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
-                            <Input v-model="search" class="h-8 pl-8 bg-white"
+                        <InputGroup class="min-w-56 flex-1 bg-white h-8">
+                            <InputGroupInput v-model="search"
                                 placeholder="Cari kod design, keterangan, no. permintaan..." />
-                        </div>
+                            <InputGroupAddon>
+                                <Search />
+                            </InputGroupAddon>
+                        </InputGroup>
                         <FacetedFilter v-model="branchFilters" title="Cawangan" :options="branchOptions" />
                         <FacetedFilter v-model="categoryFilters" title="Kategori" :options="categoryOptions" />
                         <FacetedFilter v-model="actionFilters" title="Cadangan" :options="actionOptions" />
@@ -1788,45 +1799,67 @@ function save(andPrint = false) {
                                     ini.
                                 </p>
                                 <form class="flex gap-2" @submit.prevent="loadCandidates(activeGroup, candidateQuery)">
-                                    <Input v-model="candidateQuery" placeholder="Cari nama / nickname / kod design"
-                                        class="h-8" />
-                                    <Button type="submit" size="sm" variant="outline"
-                                        :disabled="candidateLoading">Cari</Button>
+                                    <InputGroup class="h-8 flex-1">
+                                        <InputGroupInput v-model="candidateQuery"
+                                            placeholder="Cari nama / nickname / kod design" class="h-8" />
+                                        <InputGroupAddon>
+                                            <Search />
+                                        </InputGroupAddon>
+                                        <!-- Spinner di kanan semasa mencari padanan. -->
+                                        <InputGroupAddon v-if="candidateLoading" align="inline-end">
+                                            <Spinner />
+                                        </InputGroupAddon>
+                                        <!-- X bila tiada padanan: kosongkan carian & muat semula senarai asal. -->
+                                        <InputGroupAddon v-else-if="candidateQuery.trim() && !(candidates[activeGroup.key]?.length)"
+                                            align="inline-end">
+                                            <InputGroupButton type="button" size="icon-xs" aria-label="Kosongkan carian"
+                                                @click="clearCandidateSearch(activeGroup)">
+                                                <X />
+                                            </InputGroupButton>
+                                        </InputGroupAddon>
+                                        <InputGroupAddon align="inline-end">
+                                            <InputGroupButton type="submit" variant="secondary"
+                                                :disabled="candidateLoading">
+                                                Cari
+                                            </InputGroupButton>
+                                        </InputGroupAddon>
+                                    </InputGroup>
                                 </form>
 
-                                <div v-if="candidateLoading" class="flex items-center gap-2 text-muted-foreground">
-                                    <Loader2 class="size-4 animate-spin" /> Mencari padanan...
+                                <div v-if="candidateLoading" class="flex items-center gap-2 text-xs text-muted-foreground">
+                                    Mencari padanan...
                                 </div>
-                                <p v-else-if="!(candidates[activeGroup.key]?.length)" class="text-muted-foreground">
+                                <p v-else-if="!(candidates[activeGroup.key]?.length)" class=" text-xs text-muted-foreground">
                                     Tiada padanan. Cuba carian lain (nama atau kod design).
                                 </p>
                                 <ScrollArea v-else class="h-[min(22rem,50vh)]">
                                     <ul class="flex flex-col gap-1.5 pr-3">
-                                        <li v-for="c in candidates[activeGroup.key]" :key="c.internal_code"
-                                            class="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5">
-                                            <div class="flex min-w-0 items-center gap-2">
-                                                <ImagePreview :src="c.image_url"
-                                                    :alt="c.nickname ?? c.description ?? ''"
-                                                    class="size-10 shrink-0 rounded-md" />
-                                                <div class="min-w-0">
-                                                    <p class="font-medium">{{ c.internal_code }}
-                                                        <Badge v-if="c.score > 0"
-                                                            :class="['ml-1 px-1.5 py-0 text-[9px]', scoreBadgeClass(c.score)]"
-                                                            :title="`${c.score}% mirip dengan nama permintaan`">{{
-                                                                c.score }}%
-                                                        </Badge>
-                                                        <!-- <span class="ml-1 text-xs font-normal text-muted-foreground">{{ c.score }}% mirip</span> -->
-                                                    </p>
-                                                    <p class="truncate text-[9px] text-muted-foreground">{{ c.nickname
-                                                        ??
-                                                        c.description }}</p>
-                                                </div>
-                                            </div>
-                                            <Button type="button" size="sm" variant="outline" :disabled="previewLoading"
-                                                @click="chooseCode(activeGroup, c)">
-                                                Pilih
-                                            </Button>
-                                        </li>
+                                        <Item v-for="c in candidates[activeGroup.key]" :key="c.internal_code" as="li"
+                                            variant="muted" size="sm" class="px-2 py-1.5">
+                                            <!-- Tanpa ItemMedia: varian image-nya memaksa object-cover yg memotong gambar.
+                                                 object-contain = tunjuk gambar penuh. -->
+                                            <ImagePreview :src="c.image_url" :alt="c.nickname ?? c.description ?? ''"
+                                                class="size-10 rounded-md bg-white object-contain" />
+                                            <ItemContent class="min-w-0">
+                                                <ItemTitle>
+                                                    {{ c.internal_code }}
+                                                    <Badge v-if="c.score > 0"
+                                                        :class="['px-1.5 py-0 text-[9px]', scoreBadgeClass(c.score)]"
+                                                        :title="`${c.score}% mirip dengan nama permintaan`">
+                                                        {{ c.score }}%
+                                                    </Badge>
+                                                </ItemTitle>
+                                                <ItemDescription class="truncate text-[10px]">
+                                                    {{ c.nickname ?? c.description }}
+                                                </ItemDescription>
+                                            </ItemContent>
+                                            <ItemActions>
+                                                <Button type="button" size="icon-sm" variant="outline" class="border-dashed"
+                                                    :disabled="previewLoading" @click="chooseCode(activeGroup, c)">
+                                                    <CircleDot />
+                                                </Button>
+                                            </ItemActions>
+                                        </Item>
                                     </ul>
                                     <div v-if="candidatePage[activeGroup.key]?.hasMore" class="mt-2 pr-3">
                                         <Button type="button" size="sm" class="w-full" :disabled="candidateLoadingMore"
@@ -2147,7 +2180,7 @@ function save(andPrint = false) {
                                                             &quot;{{ item.nickname }}&quot;</template>
                                                         <template v-else>{{ item.description }}</template>
                                                     </p>
-                                                    <Badge v-if="item.category_name" variant="outline" class="mt-1 bg-white">{{
+                                                    <Badge v-if="item.category_name" variant="outline" class="mt-1">{{
                                                         item.category_name }}</Badge>
                                                 </div>
                                             </div>
@@ -2205,7 +2238,7 @@ function save(andPrint = false) {
                                                     :disabled="isRemovedRow(item)" @update:model-value="(v: number) => setTarget(item, v)">
                                                     <NumberFieldContent>
                                                         <NumberFieldDecrement />
-                                                        <NumberFieldInput class="h-7 bg-white" :aria-label="`Paras ${item.internal_code}`" />
+                                                        <NumberFieldInput class="h-7" :aria-label="`Paras ${item.internal_code}`" />
                                                         <NumberFieldIncrement />
                                                     </NumberFieldContent>
                                                 </NumberField>
