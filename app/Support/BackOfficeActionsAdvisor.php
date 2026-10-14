@@ -164,12 +164,18 @@ class BackOfficeActionsAdvisor
      */
     protected function candidatePool(string $term): array
     {
-        return Cache::remember('bo_design_candidates:'.md5(mb_strtolower(trim($term))), now()->addMinutes(5), fn () => $this->buildCandidatePool($term));
+        return Cache::remember('bo_design_candidates_v2:'.md5(mb_strtolower(trim($term))), now()->addMinutes(5), fn () => $this->buildCandidatePool($term));
     }
 
     /** @return array<int, array<string, mixed>> */
     protected function buildCandidatePool(string $term): array
     {
+        $byCode = $this->codeMatches($term);
+
+        if ($byCode !== []) {
+            return $byCode;
+        }
+
         $words = collect(preg_split('/[^\p{L}0-9]+/u', mb_strtolower($term), -1, PREG_SPLIT_NO_EMPTY))
             ->reject(fn (string $w) => mb_strlen($w) < 3 || preg_match('/\d/', $w) === 1 || in_array($w, ['dimensi', 'cm'], true))
             ->unique()
@@ -207,21 +213,70 @@ class BackOfficeActionsAdvisor
                     continue;
                 }
 
-                $found[$code] = [
-                    'internal_code' => $code,
-                    'description' => filled($r->Description) ? trim((string) $r->Description) : null,
-                    'nickname' => filled($r->nickname) ? trim((string) $r->nickname) : null,
-                    'category_code' => filled($r->CategoryCode) ? trim((string) $r->CategoryCode) : null,
-                    'size' => filled($r->JewelSize) ? trim((string) $r->JewelSize) : null,
-                    'weight' => $r->GoldWeight !== null ? (float) $r->GoldWeight : null,
-                    'image_url' => filled($r->image_url) ? $r->image_url : null,
-                    'match' => $match,
-                    'score' => $this->similarity($term, $match === 'nickname' ? $r->nickname : $r->Description),
-                ];
+                $found[$code] = $this->candidateRow($r, $match, $this->similarity($term, $match === 'nickname' ? $r->nickname : $r->Description));
             }
         }
 
         return $found->sortByDesc('score')->values()->all();
+    }
+
+    /**
+     * Carian ikut KOD design (InternalCode): satu token tanpa ruang, 4-20 huruf/nombor (cth. "CFBTPI02H04G" atau
+     * awalan "CFBTPI"). Carian nickname/Description membuang perkataan berdigit (supaya "2C L:0.6CM" dlm nama
+     * permintaan tak mengacau padanan), jadi kod sebenar tak pernah padan di sana. Padanan awalan guna index
+     * InternalCode; kod tepat skor 100. Tiada padanan -> kosong & carian nama diteruskan.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function codeMatches(string $term): array
+    {
+        $code = trim($term);
+
+        if (preg_match('/^[A-Za-z0-9]{4,20}$/', $code) !== 1) {
+            return [];
+        }
+
+        $rows = InventoryPiece::query()
+            ->realVendor()
+            ->where('InternalCode', 'like', $code.'%')
+            ->select(['InternalCode', 'nickname', 'Description', 'CategoryCode', 'JewelSize', 'GoldWeight', 'image_url'])
+            ->limit(400)
+            ->toBase()
+            ->get();
+
+        $found = collect();
+
+        foreach ($rows as $r) {
+            $internal = trim((string) $r->InternalCode);
+
+            if ($found->has($internal)) {
+                continue;
+            }
+
+            $found[$internal] = $this->candidateRow($r, 'code', strcasecmp($internal, $code) === 0 ? 100 : $this->similarity($code, $internal));
+        }
+
+        return $found->sortByDesc('score')->values()->all();
+    }
+
+    /**
+     * Satu baris calon design code drpd baris cermin.
+     *
+     * @return array<string, mixed>
+     */
+    protected function candidateRow(object $r, string $match, int $score): array
+    {
+        return [
+            'internal_code' => trim((string) $r->InternalCode),
+            'description' => filled($r->Description) ? trim((string) $r->Description) : null,
+            'nickname' => filled($r->nickname) ? trim((string) $r->nickname) : null,
+            'category_code' => filled($r->CategoryCode) ? trim((string) $r->CategoryCode) : null,
+            'size' => filled($r->JewelSize) ? trim((string) $r->JewelSize) : null,
+            'weight' => $r->GoldWeight !== null ? (float) $r->GoldWeight : null,
+            'image_url' => filled($r->image_url) ? $r->image_url : null,
+            'match' => $match,
+            'score' => $score,
+        ];
     }
 
     /** Kemiripan nama 0-100 (similar_text pada huruf/nombor sahaja, tak sensitif huruf besar). */

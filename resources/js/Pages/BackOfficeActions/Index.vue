@@ -1519,13 +1519,6 @@ function save(andPrint = false) {
                             <InputGroupAddon>
                                 <Search />
                             </InputGroupAddon>
-                            <!-- Butang kosongkan: hanya bila ada teks carian. -->
-                            <InputGroupAddon v-if="search" align="inline-end">
-                                <InputGroupButton type="button" size="icon-xs" aria-label="Kosongkan carian"
-                                    @click="search = ''">
-                                    <X />
-                                </InputGroupButton>
-                            </InputGroupAddon>
                         </InputGroup>
                         <FacetedFilter v-model="branchFilters" title="Cawangan" :options="branchOptions" />
                         <FacetedFilter v-model="categoryFilters" title="Kategori" :options="categoryOptions" />
@@ -1794,7 +1787,7 @@ function save(andPrint = false) {
 
                             <!-- Design tanpa kod (web/upload): BO pilih kod dulu, baru cadangan keluar -->
                             <section v-if="needsDesignCode"
-                                class="flex flex-col gap-2 rounded-md border border-dashed px-3 py-3">
+                                class="flex flex-col gap-2 rounded-md border border-dashed bg-muted px-3 py-3">
                                 <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pilih
                                     design code
                                 </h3>
@@ -1806,7 +1799,7 @@ function save(andPrint = false) {
                                     ini.
                                 </p>
                                 <form class="flex gap-2" @submit.prevent="loadCandidates(activeGroup, candidateQuery)">
-                                    <InputGroup class="h-8 flex-1">
+                                    <InputGroup class="h-8 flex-1 bg-card">
                                         <InputGroupInput v-model="candidateQuery"
                                             placeholder="Cari nama / nickname / kod design" class="h-8" />
                                         <InputGroupAddon>
@@ -1842,7 +1835,7 @@ function save(andPrint = false) {
                                 <ScrollArea v-else class="h-[min(22rem,50vh)]">
                                     <ul class="flex flex-col gap-1.5 pr-3">
                                         <Item v-for="c in candidates[activeGroup.key]" :key="c.internal_code" as="li"
-                                            variant="muted" size="sm" class="px-2 py-1.5">
+                                            variant="outline" size="sm" class="px-2 py-1.5 bg-card">
                                             <!-- Tanpa ItemMedia: varian image-nya memaksa object-cover yg memotong gambar.
                                                  object-contain = tunjuk gambar penuh. -->
                                             <ImagePreview :src="c.image_url" :alt="c.nickname ?? c.description ?? ''"
