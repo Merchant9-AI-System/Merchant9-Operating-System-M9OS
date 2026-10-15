@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import type { Component } from "vue"
 import { AlertDialogTrigger } from "reka-ui"
 
-// Written locally instead of `defineProps<AlertDialogTriggerProps>()` (reka-ui's type, which is
-// just `PrimitiveProps`) - see ui/toggle-group/ToggleGroupItem.vue for why.
+// Inline literal (bukan `AlertDialogTriggerProps` drpd reka-ui) - rujuk AlertDialog.vue untuk sebab.
 const props = defineProps<{
+  as?: string
   asChild?: boolean
-  as?: string | Component
 }>()
 </script>
 

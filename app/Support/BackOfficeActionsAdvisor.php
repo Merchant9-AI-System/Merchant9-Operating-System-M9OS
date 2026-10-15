@@ -388,7 +388,7 @@ class BackOfficeActionsAdvisor
         }
 
         if ($outstanding < 1) {
-            $this->fail("{$label}: tiada baki permintaan utk dipindahkan.");
+            $this->fail("{$label}: tiada unit belum dipenuhi utk dipindahkan.");
         }
 
         $donors = collect($this->donors($this->stockByCode([$code])[$code] ?? [], $own, $outstanding));

@@ -1,16 +1,14 @@
 <script setup lang="ts">
-import type { Component, HTMLAttributes } from "vue"
+import type { HTMLAttributes } from "vue"
 import { reactiveOmit } from "@vueuse/core"
 import { AlertDialogAction } from "reka-ui"
-import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { buttonVariants } from '@/components/ui/button'
 
-// Written locally instead of `defineProps<AlertDialogActionProps & {...}>()` (reka-ui's type,
-// which is just `PrimitiveProps`, same as DialogCloseProps) - see
-// ui/toggle-group/ToggleGroupItem.vue for why.
+// Inline literal (bukan `AlertDialogActionProps & {...}` drpd reka-ui) - rujuk AlertDialog.vue untuk sebab.
 const props = defineProps<{
+  as?: string
   asChild?: boolean
-  as?: string | Component
   class?: HTMLAttributes["class"]
 }>()
 
@@ -18,7 +16,7 @@ const delegatedProps = reactiveOmit(props, "class")
 </script>
 
 <template>
-  <AlertDialogAction data-slot="alert-dialog-action" :class="cn(buttonVariants(), props.class)" v-bind="delegatedProps">
+  <AlertDialogAction v-bind="delegatedProps" :class="cn(buttonVariants(), props.class)">
     <slot />
   </AlertDialogAction>
 </template>

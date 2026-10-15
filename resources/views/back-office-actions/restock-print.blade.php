@@ -27,6 +27,7 @@
         .warn { font-weight: 700; text-decoration: underline; }
         .chip { display: inline-block; margin: 0 6px 2px 0; white-space: nowrap; }
         .note { font-size: 10px; color: #57534e; }
+        .badge { display: inline-block; margin-left: 4px; padding: 0 6px; border: 1px solid #a8a29e; border-radius: 999px; font-size: 10px; font-weight: 600; white-space: nowrap; }
         .thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; }
         ul { margin: 0; padding-left: 14px; }
         .supplier-table { margin-top: 6px; }
@@ -40,10 +41,10 @@
 <body>
     <div class="toolbar">
         <button type="button" onclick="window.print()">Cetak / Simpan sebagai PDF</button>
-        <a href="{{ route('back-office-actions.restock.print', ['group' => 'category']) }}">Ikut Kategori</a>
-        <a href="{{ route('back-office-actions.restock.print', ['group' => 'branch']) }}">Ikut Cawangan</a>
+        <a href="{{ route('back-office-actions.restock.print', ['group' => 'category', 'days' => $supplierDays]) }}">Ikut Kategori</a>
+        <a href="{{ route('back-office-actions.restock.print', ['group' => 'branch', 'days' => $supplierDays]) }}">Ikut Cawangan</a>
         @if ($withSuppliers)
-            <a href="{{ route('back-office-actions.restock.print', ['group' => 'supplier']) }}">Ikut Supplier</a>
+            <a href="{{ route('back-office-actions.restock.print', ['group' => 'supplier', 'days' => $supplierDays]) }}">Ikut Supplier</a>
         @endif
     </div>
 
@@ -62,9 +63,9 @@
                     <th>Permintaan cawangan (saiz / berat / qty)</th>
                     <th>{!! $group === 'branch' ? 'Stok cawangan ini &rarr; selepas order' : 'Stok semasa &rarr; selepas order' !!}</th>
                     <th class="num">Paras</th>
-                    <th class="num">Jualan 7H / 30H</th>
+                    <th>Jualan terkini</th>
                     @if ($withSuppliers)
-                        <th>Kod supplier teratas</th>
+                        <th>Kod supplier teratas (terjual {{ $supplierDays }} hari)</th>
                     @endif
                     <th class="num">Qty order</th>
                     @if ($group === 'branch')
@@ -109,11 +110,22 @@
                             @endif
                         </td>
                         <td class="num">{{ \App\Support\RestockListBuilder::describeParas($item) }}</td>
-                        <td class="num">{{ $item['sold_7d'] }} / {{ $item['sold_30d'] }}</td>
+                        <td>
+                            @if (! empty($item['last_sale']))
+                                {{ \Illuminate\Support\Carbon::parse($item['last_sale']['date'])->format('d/m/Y') }}
+                                <div class="muted">
+                                    {{ $item['last_sale']['days_ago'] === 0 ? 'hari ini' : ($item['last_sale']['days_ago'] === 1 ? 'semalam' : $item['last_sale']['days_ago'].' hari lepas') }}
+                                    &middot; {{ $item['last_sale']['store'] }}
+                                </div>
+                                <div class="muted">{{ $item['last_sale']['sold_30d'] }} unit terjual (30 hari)</div>
+                            @else
+                                <span class="muted">Belum pernah terjual</span>
+                            @endif
+                        </td>
                         @if ($withSuppliers)
                             <td>
                                 @foreach ($item['suppliers'] as $v)
-                                    <div>{{ $v['vendor_code'] }} <span class="muted">({{ $v['sold'] }})</span></div>
+                                    <div>{{ $v['vendor_code'] }}<span class="badge">{{ $v['sold'] }} terjual</span></div>
                                 @endforeach
                             </td>
                         @endif
@@ -135,6 +147,7 @@
             <thead>
                 <tr>
                     <th>Kod supplier</th>
+                    <th class="num">Terjual ({{ $supplierDays }} hari)</th>
                     <th>Kod design</th>
                 </tr>
             </thead>
@@ -142,6 +155,7 @@
                 @foreach ($suppliers as $v)
                     <tr>
                         <td class="code">{{ $v['vendor_code'] }}</td>
+                        <td class="num">{{ $v['sold'] }}</td>
                         <td>{{ implode(', ', $v['codes']) }}</td>
                     </tr>
                 @endforeach

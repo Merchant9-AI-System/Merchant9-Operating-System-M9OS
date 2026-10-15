@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { Deferred, Head, router } from '@inertiajs/vue3';
-import { Check, ChevronDown, CircleDot, Download, FileSpreadsheet, Loader2, Printer, Save, Search, X } from '@lucide/vue';
+import { Check, ChevronDown, CircleDot, Download, FileSpreadsheet, Loader2, MousePointerClick, Printer, Save, Search, X } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import FacetedFilter from '@/components/FacetedFilter.vue';
 import ImagePreview from '@/components/ImagePreview.vue';
 import SortableHeader from '@/components/SortableHeader.vue';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardAction, CardTitle, CardDescription } from '@/components/ui/card';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from '@/components/ui/item';
@@ -21,7 +23,6 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // Satu design = satu baris di senarai & satu tindakan utk SEMUA cawangan yg minta design tsb
@@ -138,6 +139,15 @@ interface RestockRequest {
     remark: string | null;
 }
 
+// Jualan terkini sesuatu design: tarikh piece terakhir terjual, cawangan & berapa hari lepas.
+interface LastSale {
+    date: string;
+    store: string;
+    days_ago: number;
+    // Unit terjual dlm 30 hari terakhir.
+    sold_30d: number;
+}
+
 interface RestockItem {
     id: number;
     // true = design baru dimasukkan (status Order BELUM disimpan) - papar sementara drpd data papan.
@@ -168,6 +178,8 @@ interface RestockItem {
     total_stock: number;
     sold_7d: number;
     sold_30d: number;
+    // null = tak pernah terjual. Baris BELUM disimpan tiada medan ni - dimuat berasingan (pendingLatestSales).
+    last_sale?: LastSale | null;
     suppliers: { vendor_code: string; sold: number; pieces: number }[];
 }
 
@@ -634,7 +646,8 @@ const restockSections = computed<RestockSection[]>(() => {
 
             (keys.length ? keys : [NO_REQUEST_SECTION]).forEach((key) => add(key, item));
         } else if (restockGroup.value === 'supplier' && props.canSeeSuppliers) {
-            add(item.suppliers[0]?.vendor_code || 'Tiada data supplier', item);
+            // Supplier dimuat atas permintaan (supplierData) - sebelum dimuat semua design masuk satu bahagian.
+            add(supplierRows(item)[0]?.vendor_code || (supplierData.value ? 'Tiada data supplier' : 'Supplier belum dimuat'), item);
         } else {
             add(item.category_name || 'Tanpa kategori', item);
         }
@@ -653,6 +666,122 @@ function branchStockOf(item: RestockItem, store: string): number {
 }
 
 const restockColumnCount = computed(() => (props.canSeeSuppliers ? 6 : 5));
+
+// ===== Jualan terkini: baris tersimpan dibawa dlm data Senarai Restock; baris BELUM disimpan dimuat berasingan =====
+// undefined = sedang dimuat, null = tak pernah terjual.
+const pendingLatestSales = ref<Record<string, LastSale | null>>({});
+
+function lastSaleOf(item: RestockItem): LastSale | null | undefined {
+    return item.pending ? pendingLatestSales.value[item.internal_code] : (item.last_sale ?? null);
+}
+
+function daysAgoLabel(days: number): string {
+    return days <= 0 ? 'hari ini' : days === 1 ? 'semalam' : `${days} hari lepas`;
+}
+
+async function loadPendingLatestSales() {
+    const missing = pendingRestock.value.map((i) => i.internal_code).filter((code) => !(code in pendingLatestSales.value));
+
+    if (missing.length === 0) {
+        return;
+    }
+
+    try {
+        const qs = new URLSearchParams();
+        missing.forEach((code) => qs.append('codes[]', code));
+
+        const res = await getJson<{ sales: Record<string, LastSale> }>(`/back-office-actions/restock/latest-sales?${qs.toString()}`);
+
+        missing.forEach((code) => {
+            pendingLatestSales.value[code] = res.sales?.[code] ?? null;
+        });
+    } catch (e) {
+        toast.error((e as Error).message);
+    }
+}
+
+watch(() => pendingRestock.value.map((i) => i.internal_code).join(','), loadPendingLatestSales, { immediate: true });
+
+// ===== Supplier (super_admin) - dimuat ATAS PERMINTAAN dgn tempoh jualan (lalai 30 hari, maks 2 tahun) =====
+interface SupplierVendor {
+    vendor_code: string;
+    sold: number;
+    pieces: number;
+}
+
+interface SupplierData {
+    days: number;
+    // Kod design yg dikira - bezakan "tiada supplier" drpd "belum dimuat" (cth. design baharu ditambah selepas muat).
+    codes: string[];
+    items: Record<string, SupplierVendor[]>;
+    suppliers: RestockSupplier[];
+}
+
+const SUPPLIER_PERIODS = [
+    { value: 30, label: '30 hari' },
+    { value: 60, label: '60 hari' },
+    { value: 90, label: '90 hari' },
+    { value: 180, label: '6 bulan' },
+    { value: 365, label: '1 tahun' },
+    { value: 730, label: '2 tahun' },
+];
+
+const supplierDays = ref(30);
+const supplierData = ref<SupplierData | null>(null);
+const supplierLoading = ref(false);
+const supplierDialogOpen = ref(false);
+
+function supplierRows(item: RestockItem): SupplierVendor[] {
+    return supplierData.value?.items?.[item.internal_code] ?? [];
+}
+
+function supplierLoadedFor(item: RestockItem): boolean {
+    return !!supplierData.value?.codes?.includes(item.internal_code);
+}
+
+async function loadSuppliers() {
+    if (supplierLoading.value) {
+        return;
+    }
+
+    supplierLoading.value = true;
+
+    try {
+        // Design belum disimpan turut dimuat (supplier ikut kod design) - dihantar sbg extra[KOD]=qty.
+        const qs = new URLSearchParams({ days: String(supplierDays.value) });
+        pendingRestock.value.forEach((item) => qs.append(`extra[${item.internal_code}]`, String(rowQty(item))));
+
+        supplierData.value = await getJson<SupplierData>(`/back-office-actions/restock/suppliers?${qs.toString()}`);
+    } catch (e) {
+        toast.error((e as Error).message);
+    } finally {
+        supplierLoading.value = false;
+    }
+}
+
+// Ada perubahan belum disimpan -> amaran dulu: supplier hanya dimuat utk design yg SUDAH disimpan.
+function requestLoadSuppliers() {
+    if (stagedCount.value > 0) {
+        supplierDialogOpen.value = true;
+
+        return;
+    }
+
+    loadSuppliers();
+}
+
+function saveThenLoadSuppliers() {
+    save(false, loadSuppliers);
+}
+
+// Tukar tempoh selepas supplier dimuat -> muat semula serta-merta (tak perlu amaran: tiada apa disimpan).
+function setSupplierDays(value: unknown) {
+    supplierDays.value = Number(value) || 30;
+
+    if (supplierData.value) {
+        loadSuppliers();
+    }
+}
 
 function isRemovedRow(item: RestockItem): boolean {
     return !item.pending && !!restockEdits.value[item.id]?.remove;
@@ -1186,7 +1315,7 @@ async function pickCode(group: DesignGroup, candidate: Candidate) {
 
 // Teks dlm fungsi (bukan literal dlm template) - pemformat editor memecahkan literal panjang ke dua baris & merosakkan build.
 function noRestockNote(line: Line): string {
-    return line.rearrange_qty > 0 ? 'Cukup dengan Rearrange - tak masuk Restock' : 'Tiada baki Restock';
+    return line.rearrange_qty > 0 ? 'Cukup dengan Rearrange - tak masuk Restock' : 'Tiada unit perlu Restock';
 }
 
 function submitRestock() {
@@ -1304,7 +1433,7 @@ function applyRestock() {
 
     toast.success(
         `${isBulk.value ? `${entered.size} design` : Array.from(entered)[0]} masuk Senarai Restock di bawah. Tekan Simpan untuk menyimpan.`
-        + (skipped.length ? ` Dilangkau (tiada baki Restock / tiada code): ${skipped.join(', ')}.` : ''),
+        + (skipped.length ? ` Dilangkau (tiada unit perlu Restock / tiada code): ${skipped.join(', ')}.` : ''),
     );
 }
 
@@ -1389,7 +1518,7 @@ function periodSold(d: { sold_7d: number; sold_30d: number }): number {
 
 // Cetak / PDF Senarai Restock TERSIMPAN (paparan cetak, buka tab baharu).
 function restockUrl(kind: 'print' | 'export'): string {
-    return `/back-office-actions/restock/${kind}?group=${restockGroup.value}`;
+    return `/back-office-actions/restock/${kind}?group=${restockGroup.value}&days=${supplierDays.value}`;
 }
 
 function handlePrint() {
@@ -1406,7 +1535,7 @@ function handleExport(kind: 'excel' | 'pdf') {
     }
 }
 
-function save(andPrint = false) {
+function save(andPrint = false, afterSave?: () => void) {
     if (stagedCount.value === 0) {
         toast.info('Tiada perubahan untuk disimpan.');
         return;
@@ -1471,6 +1600,8 @@ function save(andPrint = false) {
             if (andPrint) {
                 handlePrint();
             }
+
+            afterSave?.();
         },
         onError: (errors) => {
             toast.error(String(errors.changes ?? Object.values(errors)[0] ?? 'Gagal menyimpan perubahan.'));
@@ -1507,190 +1638,247 @@ function save(andPrint = false) {
              mengikut kad Cadangan Terperinci yg tingginya berubah ikut design dipilih. -->
         <div class="grid gap-4 lg:grid-cols-3 lg:items-start">
             <!-- ===== Kiri: senarai design ===== -->
-            <!-- <Card class="min-w-0 lg:col-span-2">
-                <CardHeader class="gap-3"> -->
-                    <!-- <CardTitle class="text-base">Senarai Permintaan Cawangan</CardTitle> -->
-                <div class="flex flex-wrap items-center gap-3 min-w-0 lg:col-span-2">
-                    <div class="flex-1 text-base font-semibold gap-1">Senarai Permintaan Cawangan</div>
-                    <div class="flex flex-wrap items-center gap-2">
-                        <InputGroup class="min-w-56 flex-1 bg-white h-8">
-                            <InputGroupInput v-model="search"
-                                placeholder="Cari kod design, keterangan, no. permintaan..." />
-                            <InputGroupAddon>
-                                <Search />
-                            </InputGroupAddon>
-                        </InputGroup>
-                        <FacetedFilter v-model="branchFilters" title="Cawangan" :options="branchOptions" />
-                        <FacetedFilter v-model="categoryFilters" title="Kategori" :options="categoryOptions" />
-                        <FacetedFilter v-model="actionFilters" title="Cadangan" :options="actionOptions" />
-                        <FacetedFilter v-model="statusFilters" title="Status" :options="statusOptions" />
-                        <Button type="button" size="sm" :variant="onlyCritical ? 'default' : 'outline'" class="h-8"
-                            @click="onlyCritical = !onlyCritical">
-                            Critical
-                        </Button>
-                        <Button v-if="isFiltered" type="button" variant="ghost" size="sm" class="h-8 px-2 lg:px-3"
-                            @click="resetFilters">
-                            Reset
-                            <X class="size-4" />
-                        </Button>
-                    </div>
+            <div class="flex flex-wrap items-center gap-3 min-w-0 lg:col-span-2">
+                <div class="flex-1 text-base font-semibold gap-1">Senarai Permintaan Cawangan</div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <InputGroup class="min-w-56 flex-1 bg-white h-8">
+                        <InputGroupInput v-model="search"
+                            placeholder="Cari kod design, keterangan, no. permintaan..." />
+                        <InputGroupAddon>
+                            <Search />
+                        </InputGroupAddon>
+                    </InputGroup>
+                    <FacetedFilter v-model="branchFilters" title="Cawangan" :options="branchOptions" />
+                    <FacetedFilter v-model="categoryFilters" title="Kategori" :options="categoryOptions" />
+                    <FacetedFilter v-model="actionFilters" title="Cadangan" :options="actionOptions" />
+                    <FacetedFilter v-model="statusFilters" title="Status" :options="statusOptions" />
+                    <Button type="button" size="sm" :variant="onlyCritical ? 'default' : 'outline'" class="h-8"
+                        @click="onlyCritical = !onlyCritical">
+                        Critical
+                    </Button>
+                    <Button v-if="isFiltered" type="button" variant="ghost" size="sm" class="h-8 px-2 lg:px-3"
+                        @click="resetFilters">
+                        Reset
+                        <X class="size-4" />
+                    </Button>
+                </div>
                 <!-- </CardHeader>
-                <CardContent> -->
-                    <Deferred data="board">
-                        <template #fallback>
-                            <!-- Rangka jadual yg sama dgn jadual sebenar (lebar lajur serupa) supaya tak melompat bila data tiba. -->
-                            <div class="overflow-hidden rounded-md border shadow-sm">
-                                <Table class="table-fixed bg-card">
-                                    <TableHeader>
-                                        <TableRow class="hover:bg-transparent">
-                                            <TableHead class="w-10 pr-0">
-                                                <Skeleton class="size-4 rounded-[4px]" />
-                                            </TableHead>
-                                            <TableHead>Design</TableHead>
-                                            <TableHead class="w-32">Permintaan</TableHead>
-                                            <TableHead class="w-36">Cadangan</TableHead>
-                                            <TableHead class="w-28">Status</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        <TableRow v-for="row in 6" :key="row" class="hover:bg-transparent">
-                                            <TableCell class="w-10 pr-0">
-                                                <Skeleton class="size-4 rounded-[4px]" />
-                                            </TableCell>
-                                            <TableCell>
-                                                <div class="flex min-w-0 items-center gap-3">
-                                                    <Skeleton class="size-10 shrink-0 rounded-md" />
-                                                    <div class="flex min-w-0 flex-1 flex-col gap-1.5">
-                                                        <Skeleton class="h-4 w-32" />
-                                                        <Skeleton class="h-3 w-full max-w-48" />
-                                                        <Skeleton class="h-5 w-20 rounded-full" />
-                                                    </div>
+            <CardContent> -->
+                <Deferred data="board">
+                    <template #fallback>
+                        <!-- Rangka jadual yg sama dgn jadual sebenar (lebar lajur serupa) supaya tak melompat bila data tiba. -->
+                        <div class="overflow-hidden rounded-md border shadow-sm">
+                            <Table class="table-fixed bg-card">
+                                <TableHeader>
+                                    <TableRow class="hover:bg-transparent">
+                                        <TableHead class="w-10 pr-0">
+                                            <Skeleton class="size-4 rounded-[4px]" />
+                                        </TableHead>
+                                        <TableHead>Design</TableHead>
+                                        <TableHead class="w-32">Permintaan</TableHead>
+                                        <TableHead class="w-36">Cadangan</TableHead>
+                                        <TableHead class="w-28">Status</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    <TableRow v-for="row in 6" :key="row" class="hover:bg-transparent">
+                                        <TableCell class="w-10 pr-0">
+                                            <Skeleton class="size-4 rounded-[4px]" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <div class="flex min-w-0 items-center gap-3">
+                                                <Skeleton class="size-10 shrink-0 rounded-md" />
+                                                <div class="flex min-w-0 flex-1 flex-col gap-1.5">
+                                                    <Skeleton class="h-4 w-32" />
+                                                    <Skeleton class="h-3 w-full max-w-48" />
+                                                    <Skeleton class="h-5 w-20 rounded-full" />
                                                 </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                <div class="flex flex-wrap gap-1">
-                                                    <Skeleton class="h-5 w-14 rounded-md" />
-                                                    <Skeleton class="h-5 w-14 rounded-md" />
-                                                </div>
-                                                <Skeleton class="mt-1.5 h-3 w-16" />
-                                            </TableCell>
-                                            <TableCell>
-                                                <Skeleton class="h-5 w-20 rounded-full" />
-                                            </TableCell>
-                                            <TableCell>
-                                                <Skeleton class="h-4 w-16" />
-                                            </TableCell>
-                                        </TableRow>
-                                    </TableBody>
-                                </Table>
-                            </div>
-                        </template>
+                                            </div>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div class="flex flex-wrap gap-1">
+                                                <Skeleton class="h-5 w-14 rounded-md" />
+                                                <Skeleton class="h-5 w-14 rounded-md" />
+                                            </div>
+                                            <Skeleton class="mt-1.5 h-3 w-16" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Skeleton class="h-5 w-20 rounded-full" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Skeleton class="h-4 w-16" />
+                                        </TableCell>
+                                    </TableRow>
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </template>
 
-                        <template #default>
-                            <p v-if="lines.length === 0" class="text-sm text-muted-foreground">
-                                Tiada permintaan cawangan yang perlu diuruskan.
-                            </p>
-                            <p v-else-if="designGroups.length === 0" class="text-sm text-muted-foreground">
-                                Tiada baris sepadan dengan carian/tapisan.
-                            </p>
+                    <template #default>
+                        <p v-if="lines.length === 0" class="text-sm text-muted-foreground">
+                            Tiada permintaan cawangan yang perlu diuruskan.
+                        </p>
+                        <p v-else-if="designGroups.length === 0" class="text-sm text-muted-foreground">
+                            Tiada baris sepadan dengan carian/tapisan.
+                        </p>
 
-                            <!-- Jadual (corak contoh "tasks" shadcn-vue): pengepala boleh disusun. table-fixed + truncate supaya
-                                 lajur Design dipendekkan & Status tak terpotong. [&>div]:!block - elemen dalam ScrollArea (reka-ui)
-                                 asalnya display:table & melebar ikut kandungan, menyebabkan lebihan dipotong. -->
-                            <ScrollArea v-else
-                                class="h-[min(34rem,calc(100vh-18rem))] rounded-md border shadow-sm [&_[data-slot=scroll-area-viewport]>div]:!block">
-                                <Table class="table-fixed bg-card">
-                                    <TableHeader class="sticky top-0 z-10 bg-card">
-                                        <TableRow class="hover:bg-transparent">
-                                            <TableHead class="w-10 pr-0">
-                                                <Checkbox :model-value="headerCheckState"
-                                                    aria-label="Pilih semua design yang kelihatan"
-                                                    @update:model-value="(v) => toggleAllVisible(v === true)" />
-                                            </TableHead>
-                                            <TableHead>
-                                                <SortableHeader title="Design" :direction="sortDirection('design')"
-                                                    @sort="toggleSort('design')" />
-                                            </TableHead>
-                                            <TableHead class="w-32">
-                                                <SortableHeader title="Permintaan"
-                                                    :direction="sortDirection('requested')"
-                                                    @sort="toggleSort('requested')" />
-                                            </TableHead>
-                                            <TableHead class="w-36">
-                                                <SortableHeader title="Cadangan" :direction="sortDirection('action')"
-                                                    @sort="toggleSort('action')" />
-                                            </TableHead>
-                                            <TableHead class="w-28">
-                                                <SortableHeader title="Status" :direction="sortDirection('status')"
-                                                    @sort="toggleSort('status')" />
-                                            </TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        <TableRow v-for="group in designGroups" :key="group.key" tabindex="0"
-                                            class="cursor-pointer focus-visible:bg-muted/40 focus-visible:outline-none"
-                                            :class="{
-                                                'bg-muted/60': selectedKey === group.key,
-                                                'bg-primary/5': stagedIn(group) > 0 && selectedKey !== group.key,
-                                            }" @click="selectedKey = group.key"
-                                            @keydown.enter.prevent="selectedKey = group.key"
-                                            @keydown.space.prevent="selectedKey = group.key">
-                                            <TableCell class="w-10 pr-0">
-                                                <Checkbox :model-value="checkedKeys.includes(group.key)"
-                                                    :aria-label="`Pilih ${group.title}`" @click.stop @keydown.stop
-                                                    @update:model-value="(v) => toggleChecked(group, v === true)" />
-                                            </TableCell>
-                                            <TableCell>
-                                                <div class="flex min-w-0 items-center gap-3">
-                                                    <ImagePreview :src="group.image_url" :alt="group.description ?? ''"
-                                                        class="size-10 shrink-0 rounded-md" />
-                                                    <div class="min-w-0">
-                                                        <p class="truncate font-medium">{{ group.title }}</p>
-                                                        <p class="truncate text-xs text-muted-foreground">
-                                                            <template v-if="group.nickname">&quot;{{ group.nickname
+                        <!-- Jadual (corak contoh "tasks" shadcn-vue): pengepala boleh disusun. table-fixed + truncate supaya
+                                lajur Design dipendekkan & Status tak terpotong. [&>div]:!block - elemen dalam ScrollArea (reka-ui)
+                                asalnya display:table & melebar ikut kandungan, menyebabkan lebihan dipotong. -->
+                        <ScrollArea v-else
+                            class="h-[min(34rem,calc(100vh-18rem))] rounded-md border shadow-sm [&_[data-slot=scroll-area-viewport]>div]:!block">
+                            <Table class="table-fixed bg-card">
+                                <TableHeader class="sticky top-0 z-10 bg-card">
+                                    <TableRow class="hover:bg-transparent">
+                                        <TableHead class="w-10 pr-0">
+                                            <Checkbox :model-value="headerCheckState"
+                                                aria-label="Pilih semua design yang kelihatan"
+                                                @update:model-value="(v) => toggleAllVisible(v === true)" />
+                                        </TableHead>
+                                        <TableHead>
+                                            <SortableHeader title="Design" :direction="sortDirection('design')"
+                                                @sort="toggleSort('design')" />
+                                        </TableHead>
+                                        <TableHead class="w-32">
+                                            <SortableHeader title="Permintaan" :direction="sortDirection('requested')"
+                                                @sort="toggleSort('requested')" />
+                                        </TableHead>
+                                        <TableHead class="w-36">
+                                            <SortableHeader title="Cadangan" :direction="sortDirection('action')"
+                                                @sort="toggleSort('action')" />
+                                        </TableHead>
+                                        <TableHead class="w-28">
+                                            <SortableHeader title="Status" :direction="sortDirection('status')"
+                                                @sort="toggleSort('status')" />
+                                        </TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    <TableRow v-for="group in designGroups" :key="group.key" tabindex="0"
+                                        class="cursor-pointer focus-visible:bg-muted/40 focus-visible:outline-none"
+                                        :class="{
+                                            'bg-muted/60': selectedKey === group.key,
+                                            'bg-primary/5': stagedIn(group) > 0 && selectedKey !== group.key,
+                                        }" @click="selectedKey = group.key"
+                                        @keydown.enter.prevent="selectedKey = group.key"
+                                        @keydown.space.prevent="selectedKey = group.key">
+                                        <TableCell class="w-10 pr-0">
+                                            <Checkbox :model-value="checkedKeys.includes(group.key)"
+                                                :aria-label="`Pilih ${group.title}`" @click.stop @keydown.stop
+                                                @update:model-value="(v) => toggleChecked(group, v === true)" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <div class="flex min-w-0 items-center gap-3">
+                                                <ImagePreview :src="group.image_url" :alt="group.description ?? ''"
+                                                    class="size-10 shrink-0 rounded-md" />
+                                                <div class="min-w-0">
+                                                    <p class="truncate font-medium">{{ group.title }}</p>
+                                                    <p class="truncate text-xs text-muted-foreground">
+                                                        <template v-if="group.nickname">&quot;{{ group.nickname
                                                             }}&quot;</template>
-                                                            <template v-else>{{ group.description ?? '-' }}</template>
-                                                        </p>
-                                                        <Badge v-if="group.category_name" variant="outline"
-                                                            class="mt-1 max-w-full">
-                                                            <span class="truncate">{{ group.category_name }}</span>
-                                                        </Badge>
-                                                    </div>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                <div class="flex flex-wrap gap-1">
-                                                    <Badge v-for="l in group.lines" :key="l.id" variant="secondary"
-                                                        :class="{ 'ring-1 ring-destructive': l.is_critical }"
-                                                        :title="l.is_critical ? 'Stok kritikal' : undefined">
-                                                        {{ l.store_code }} {{ l.qty_outstanding }}
+                                                        <template v-else>{{ group.description ?? '-' }}</template>
+                                                    </p>
+                                                    <Badge v-if="group.category_name" variant="outline"
+                                                        class="mt-1 max-w-full">
+                                                        <span class="truncate">{{ group.category_name }}</span>
                                                     </Badge>
                                                 </div>
-                                                <p class="mt-1 text-xs text-muted-foreground">jumlah {{
-                                                    group.total_outstanding }} unit</p>
-                                            </TableCell>
-                                            <TableCell>
-                                                <span v-if="group.action"
-                                                    :class="`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium ${ACTION_BADGE_CLASS[group.action]}`">
-                                                    {{ ACTION_LABEL[group.action] }}
-                                                </span>
-                                                <span v-else class="text-muted-foreground">-</span>
-                                            </TableCell>
-                                            <TableCell class="pr-3">
-                                                <p>{{ groupStatus(group) ? labelOf(groupStatus(group)) : 'Bercampur' }}
-                                                </p>
-                                                <p v-if="stagedIn(group)" class="mt-0.5 text-xs text-primary">Belum
-                                                    disimpan</p>
-                                            </TableCell>
-                                        </TableRow>
-                                    </TableBody>
-                                </Table>
-                            </ScrollArea>
-                        </template>
-                    </Deferred>
-                </div>
-                <!-- </CardContent>
-            </Card> -->
+                                            </div>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div class="flex flex-wrap gap-1">
+                                                <Badge v-for="l in group.lines" :key="l.id" variant="secondary"
+                                                    :class="{ 'ring-1 ring-destructive': l.is_critical }"
+                                                    :title="l.is_critical ? 'Stok kritikal' : undefined">
+                                                    {{ l.store_code }} {{ l.qty_outstanding }}
+                                                </Badge>
+                                            </div>
+                                            <p class="mt-1 text-xs text-muted-foreground">jumlah {{
+                                                group.total_outstanding }} unit</p>
+                                        </TableCell>
+                                        <TableCell>
+                                            <span v-if="group.action"
+                                                :class="`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium ${ACTION_BADGE_CLASS[group.action]}`">
+                                                {{ ACTION_LABEL[group.action] }}
+                                            </span>
+                                            <span v-else class="text-muted-foreground">-</span>
+                                        </TableCell>
+                                        <TableCell class="pr-3">
+                                            <p>{{ groupStatus(group) ? labelOf(groupStatus(group)) : 'Bercampur' }}
+                                            </p>
+                                            <p v-if="stagedIn(group)" class="mt-0.5 text-xs text-primary">Belum
+                                                disimpan</p>
+                                        </TableCell>
+                                    </TableRow>
+                                </TableBody>
+                            </Table>
+                        </ScrollArea>
+                    </template>
+                </Deferred>
+
+                <!-- ===== Tindakan: kad asing (bukan sebahagian Cadangan Terperinci) di bawah jadual Senarai Permintaan Cawangan,
+                        mengisi ruang kosong bawah senarai. Skop = semua cawangan design dipilih, SATU cawangan bila Override, atau
+                        semua design yg ditandakan (pukal). ===== -->
+                <Card v-if="activeGroup || isBulk" class="w-full py-4">
+                    <CardContent class="flex flex-col gap-3">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                Tindakan ({{ scopeLabel }})
+                            </h3>
+                            <div v-if="activeGroup && !isBulk" class="flex items-center gap-2">
+                                <NativeSelect v-if="isOverride" :model-value="String(overrideLineId)"
+                                    aria-label="Cawangan untuk override"
+                                    @update:model-value="(v: unknown) => (overrideLineId = Number(v))">
+                                    <NativeSelectOption v-for="l in activeGroup.lines" :key="l.id"
+                                        :value="String(l.id)">
+                                        {{ l.store_code }} ({{ l.qty_outstanding }} unit belum dipenuhi)
+                                    </NativeSelectOption>
+                                </NativeSelect>
+                                <Button type="button" size="sm" :variant="isOverride ? 'default' : 'outline'"
+                                    :disabled="!isOverride && activeGroup.lines.length < 2" @click="toggleOverride">
+                                    {{ isOverride ? 'Semua cawangan' : 'Override' }}
+                                </Button>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-wrap items-center justify-end gap-2">
+                            <NativeSelect :model-value="scopeStatus" :aria-label="`Status penuhan ${scopeLabel}`"
+                                @update:model-value="(v: unknown) => applyStatus(String(v))">
+                                <NativeSelectOption v-if="scopeStatus === ''" value="" disabled>Bercampur
+                                </NativeSelectOption>
+                                <NativeSelectOption v-for="o in fulfillmentOptions" :key="o.value" :value="o.value"
+                                    :disabled="o.value === STATUS_REARRANGE && scopeRearrange === 0 && scopeStatus !== STATUS_REARRANGE">
+                                    {{ o.label }}
+                                </NativeSelectOption>
+                            </NativeSelect>
+                            <Button v-if="scopeRearrange > 0" type="button" size="sm" @click="applyRearrange()">
+                                Rearrange {{ scopeRearrange }} unit
+                            </Button>
+                            <Button v-if="scopeRestock > 0 || isBulk" type="button" size="sm"
+                                :variant="scopeRearrange > 0 ? 'outline' : 'default'"
+                                @click="isBulk ? openRestockDialog() : applyRestock()">
+                                Masuk Restock
+                            </Button>
+                            <Button v-if="scopeStaged" type="button" size="sm" variant="ghost"
+                                @click="clearScopeStaged()">
+                                Batal
+                            </Button>
+                        </div>
+                        <p class="text-xs text-muted-foreground">
+                            <template v-if="isBulk">
+                                Tindakan terpakai kepada semua design yang ditandakan. Design tanpa kod atau tanpa donor
+                                dilangkau.
+                            </template>
+                            <template v-else>
+                                Override: klik satu cawangan di senarai atau tekan <span
+                                    class="font-medium">Override</span>
+                                untuk ubah satu cawangan sahaja.
+                            </template>
+                            Perubahan disenaraikan di Log dan hanya dikemaskini bila tekan Simpan.
+                        </p>
+                    </CardContent>
+                </Card>
+            </div>
 
             <!-- ===== Kanan: cadangan terperinci + tindakan ===== -->
             <Card class="min-w-0">
@@ -1712,7 +1900,7 @@ function save(andPrint = false) {
                                         <span v-else
                                             class="size-2 shrink-0 rounded-full border border-muted-foreground/40" />
                                         <span class="truncate font-medium">{{ activeGroup?.title ?? 'Pilih design...'
-                                        }}</span>
+                                            }}</span>
                                     </span>
                                     <span class="flex shrink-0 items-center gap-2 text-muted-foreground">
                                         <Badge variant="secondary" class="rounded-sm px-1.5 font-normal">{{
@@ -1760,9 +1948,17 @@ function save(andPrint = false) {
                         </p>
                     </div>
 
-                    <p v-if="!activeGroup" class="text-sm text-muted-foreground">
-                        Pilih satu design di sebelah kiri untuk lihat cadangan Rearrange / Restock.
-                    </p>
+                    <Empty v-if="!activeGroup" class="border border-dashed py-10 md:py-10">
+                        <EmptyHeader>
+                            <EmptyMedia variant="icon">
+                                <MousePointerClick />
+                            </EmptyMedia>
+                            <EmptyTitle>Tiada design dipilih</EmptyTitle>
+                            <EmptyDescription>
+                                Pilih satu design di sebelah kiri untuk lihat cadangan Rearrange / Restock.
+                            </EmptyDescription>
+                        </EmptyHeader>
+                    </Empty>
 
                     <ScrollArea v-else class="h-[min(34rem,calc(100vh-18rem))]">
                         <div class="flex flex-col gap-4 pr-3 text-sm">
@@ -1773,14 +1969,14 @@ function save(andPrint = false) {
                                     <p class="font-semibold">{{ activeGroup.title }}</p>
                                     <p class="text-xs text-muted-foreground">
                                         <template v-if="activeGroup.code">{{ activeGroup.description ?? '-'
-                                        }}</template>
+                                            }}</template>
                                         <template v-if="activeGroup.nickname"> &middot; &quot;{{ activeGroup.nickname
-                                        }}&quot;</template>
+                                            }}&quot;</template>
                                     </p>
                                     <p class="text-xs text-muted-foreground">
-                                        {{ activeGroup.lines.length }} cawangan &middot; baki {{
-                                            activeGroup.total_outstanding }}
-                                        unit
+                                        {{ activeGroup.lines.length }} cawangan &middot; {{
+                                            activeGroup.total_outstanding }} unit
+                                        belum dipenuhi
                                     </p>
                                 </div>
                             </div>
@@ -1810,7 +2006,8 @@ function save(andPrint = false) {
                                             <Spinner />
                                         </InputGroupAddon>
                                         <!-- X bila tiada padanan: kosongkan carian & muat semula senarai asal. -->
-                                        <InputGroupAddon v-else-if="candidateQuery.trim() && !(candidates[activeGroup.key]?.length)"
+                                        <InputGroupAddon
+                                            v-else-if="candidateQuery.trim() && !(candidates[activeGroup.key]?.length)"
                                             align="inline-end">
                                             <InputGroupButton type="button" size="icon-xs" aria-label="Kosongkan carian"
                                                 @click="clearCandidateSearch(activeGroup)">
@@ -1826,10 +2023,12 @@ function save(andPrint = false) {
                                     </InputGroup>
                                 </form>
 
-                                <div v-if="candidateLoading" class="flex items-center gap-2 text-xs text-muted-foreground">
+                                <div v-if="candidateLoading"
+                                    class="flex items-center gap-2 text-xs text-muted-foreground">
                                     Mencari padanan...
                                 </div>
-                                <p v-else-if="!(candidates[activeGroup.key]?.length)" class=" text-xs text-muted-foreground">
+                                <p v-else-if="!(candidates[activeGroup.key]?.length)"
+                                    class=" text-xs text-muted-foreground">
                                     Tiada padanan. Cuba carian lain (nama atau kod design).
                                 </p>
                                 <ScrollArea v-else class="h-[min(22rem,50vh)]">
@@ -1854,8 +2053,9 @@ function save(andPrint = false) {
                                                 </ItemDescription>
                                             </ItemContent>
                                             <ItemActions>
-                                                <Button type="button" size="icon-sm" variant="outline" class="border-dashed"
-                                                    :disabled="previewLoading" @click="chooseCode(activeGroup, c)">
+                                                <Button type="button" size="icon-sm" variant="outline"
+                                                    class="border-dashed" :disabled="previewLoading"
+                                                    @click="chooseCode(activeGroup, c)">
                                                     <CircleDot />
                                                 </Button>
                                             </ItemActions>
@@ -1895,14 +2095,12 @@ function save(andPrint = false) {
                                 <p v-if="activeGroup.action === 'both'" class="mt-0.5">
                                     <span class="font-medium">Rearrange {{ activeGroup.rearrange_qty }} unit</span> dari
                                     cawangan
-                                    lain,
-                                    baki <span class="font-medium">{{ activeGroup.restock_qty }} unit perlu
+                                    lain, selebihnya <span class="font-medium">{{ activeGroup.restock_qty }} unit perlu
                                         Restock</span>.
                                 </p>
                                 <p v-else-if="activeGroup.action === 'rearrange'" class="mt-0.5">
                                     Rearrange <span class="font-medium">{{ activeGroup.rearrange_qty }} unit</span>
-                                    boleh penuhi
-                                    semua baki permintaan.
+                                    boleh memenuhi semua unit yang belum dipenuhi.
                                 </p>
                                 <p v-else-if="activeDesign?.network_low" class="mt-0.5">
                                     Tiada cawangan boleh derma (semua stok &le; 2, jumlah rangkaian {{
@@ -1915,7 +2113,9 @@ function save(andPrint = false) {
                                 </p>
                             </div>
                             <p v-else-if="activeGroup.code" class="text-muted-foreground">
-                                Tiada tindakan dicadangkan &mdash; semua cawangan sudah diputuskan atau tiada baki.
+                                Tiada tindakan dicadangkan &mdash; semua cawangan sudah diputuskan atau tiada unit yang
+                                belum
+                                dipenuhi.
                             </p>
 
                             <!-- Permintaan setiap cawangan (digabung - tak perlu klik asing) -->
@@ -1944,18 +2144,19 @@ function save(andPrint = false) {
                                                 {{ ACTION_LABEL[l.action] }}
                                             </span>
                                             <span class="text-xs text-muted-foreground">{{ labelOf(effectiveStatus(l))
-                                            }}</span>
+                                                }}</span>
                                         </div>
                                         <p class="mt-0.5 text-xs text-muted-foreground">
                                             {{ l.request_number }}
                                             <template v-if="l.requested_at"> &middot; {{ formatDate(l.requested_at)
-                                            }}</template>
+                                                }}</template>
                                             <template v-if="l.size"> &middot; Saiz {{ l.size }}</template>
                                             <template v-if="l.weight"> &middot; {{ l.weight }}g</template>
                                         </p>
                                         <p v-if="l.moves.length" class="mt-0.5 text-xs">
                                             Rearrange: {{ describeMoves(l.moves, l.store_code) }}<template
-                                                v-if="l.restock_qty">, baki {{ l.restock_qty }} Restock</template>
+                                                v-if="l.restock_qty">, selebihnya {{ l.restock_qty }} unit
+                                                Restock</template>
                                         </p>
                                         <p v-else-if="l.restock_qty" class="mt-0.5 text-xs">Restock: {{ l.restock_qty }}
                                             unit</p>
@@ -1976,13 +2177,15 @@ function save(andPrint = false) {
                                         :class="{ 'opacity-60': st.stock === 0 }"
                                         :title="st.reserved ? `${st.reserved} unit sudah ditempah transfer` : undefined">
                                         {{ st.store_code }} {{ st.stock }}<template v-if="st.reserved"> (−{{ st.reserved
-                                        }})</template>
+                                            }})</template>
                                     </Badge>
                                 </div>
                                 <p class="text-xs text-muted-foreground">
                                     Jumlah {{ activeDesign.total_stock }} &middot; lebihan boleh didermakan {{
                                         activeDesign.spare_stock }}
-                                    (stok &ge; 3, baki 2 kekal; HQ semua stok boleh dipindah). Security tidak dikira.
+                                    (stok &ge; 3, 2 unit kekal di cawangan itu; HQ semua stok boleh dipindah). Security
+                                    tidak
+                                    dikira.
                                 </p>
                             </section>
 
@@ -2015,61 +2218,6 @@ function save(andPrint = false) {
                         </div>
                     </ScrollArea>
                 </CardContent>
-                <Separator />
-                <!-- Tindakan: kekal di bawah kad (luar ScrollArea). Skop = semua cawangan, atau satu cawangan bila Override. -->
-                <CardFooter v-if="activeGroup || isBulk" class="flex-col items-stretch gap-3">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                        <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            Tindakan ({{ scopeLabel }})
-                        </h3>
-                        <div v-if="activeGroup && !isBulk" class="flex items-center gap-2">
-                            <NativeSelect v-if="isOverride" :model-value="String(overrideLineId)"
-                                aria-label="Cawangan untuk override"
-                                @update:model-value="(v: unknown) => (overrideLineId = Number(v))">
-                                <NativeSelectOption v-for="l in activeGroup.lines" :key="l.id" :value="String(l.id)">
-                                    {{ l.store_code }} (baki {{ l.qty_outstanding }})
-                                </NativeSelectOption>
-                            </NativeSelect>
-                            <Button type="button" size="sm" :variant="isOverride ? 'default' : 'outline'"
-                                :disabled="!isOverride && activeGroup.lines.length < 2" @click="toggleOverride">
-                                {{ isOverride ? 'Semua cawangan' : 'Override' }}
-                            </Button>
-                        </div>
-                    </div>
-
-                    <div class="flex flex-wrap items-center gap-2">
-                        <Button v-if="scopeRearrange > 0" type="button" size="sm" @click="applyRearrange()">
-                            Rearrange {{ scopeRearrange }} unit
-                        </Button>
-                        <Button v-if="scopeRestock > 0 || isBulk" type="button" size="sm"
-                            :variant="scopeRearrange > 0 ? 'outline' : 'default'"
-                            @click="isBulk ? openRestockDialog() : applyRestock()">
-                            Masuk Restock
-                        </Button>
-                        <NativeSelect :model-value="scopeStatus" :aria-label="`Status penuhan ${scopeLabel}`"
-                            @update:model-value="(v: unknown) => applyStatus(String(v))">
-                            <NativeSelectOption v-if="scopeStatus === ''" value="" disabled>Bercampur
-                            </NativeSelectOption>
-                            <NativeSelectOption v-for="o in fulfillmentOptions" :key="o.value" :value="o.value"
-                                :disabled="o.value === STATUS_REARRANGE && scopeRearrange === 0 && scopeStatus !== STATUS_REARRANGE">
-                                {{ o.label }}
-                            </NativeSelectOption>
-                        </NativeSelect>
-                        <Button v-if="scopeStaged" type="button" size="sm" variant="ghost"
-                            @click="clearScopeStaged()">Batal</Button>
-                    </div>
-                    <p class="text-xs text-muted-foreground">
-                        <template v-if="isBulk">
-                            Tindakan terpakai kepada semua design yang ditandakan. Design tanpa kod atau tanpa donor
-                            dilangkau.
-                        </template>
-                        <template v-else>
-                            Override: klik satu cawangan di senarai atau tekan <span class="font-medium">Override</span>
-                            untuk ubah satu cawangan sahaja.
-                        </template>
-                        Perubahan disenaraikan di Log dan hanya dikemaskini bila tekan Simpan.
-                    </p>
-                </CardFooter>
             </Card>
         </div>
 
@@ -2079,44 +2227,66 @@ function save(andPrint = false) {
                 <div class="flex flex-wrap items-start justify-between gap-3">
                     <div>
                         <CardTitle class="text-base">Senarai Restock</CardTitle>
-                        <p class="mt-1 text-sm text-muted-foreground">
-                            Design yang dimasukkan ke Restock dan disimpan. Kuantiti order lalai mengikut paras setiap design (lalai 3 unit setiap cawangan, boleh diubah setiap design atau setiap cawangan); stok HQ &amp; lebihan cawangan yang tak request ditolak. Lajur Stok menunjukkan agihan qty order ke setiap cawangan (cawangan yang request dahulu).
-                        </p>
+                        <CardDescription class="mt-1 text-sm text-muted-foreground">
+                            Design yang dimasukkan ke Restock dan disimpan. Kuantiti order lalai mengikut paras setiap
+                            design
+                            (lalai 3 unit setiap cawangan, boleh diubah setiap design atau setiap cawangan); stok HQ
+                            &amp;
+                            lebihan cawangan yang tak request ditolak. Lajur Stok menunjukkan agihan qty order ke setiap
+                            cawangan (cawangan yang request dahulu).
+                        </CardDescription>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
-                        <span class="text-sm text-muted-foreground">Kumpul ikut</span>
-                        <NativeSelect v-model="restockGroup" aria-label="Kumpul ikut">
-                            <NativeSelectOption value="category">Ikut Kategori</NativeSelectOption>
-                            <NativeSelectOption value="branch">Ikut Cawangan</NativeSelectOption>
-                            <NativeSelectOption v-if="canSeeSuppliers" value="supplier">Ikut Supplier
-                            </NativeSelectOption>
-                        </NativeSelect>
-                        <Popover v-model:open="exportOpen">
-                            <PopoverTrigger as-child>
-                                <Button type="button" variant="outline" size="sm" :disabled="restockItems.length === 0">
-                                    <Download class="size-4" /> Export
-                                    <ChevronDown class="size-4" />
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent align="end" class="w-44 p-1">
-                                <button type="button"
-                                    class="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
-                                    @click="handleExport('excel')">
-                                    <FileSpreadsheet class="size-4" /> Excel (.xlsx)
-                                </button>
-                                <button type="button"
-                                    class="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
-                                    @click="handleExport('pdf')">
-                                    <Printer class="size-4" /> PDF / Cetak
-                                </button>
-                            </PopoverContent>
-                        </Popover>
+                        <!-- Supplier: tempoh jualan + butang muat (super_admin sahaja). -->
+                        <template v-if="canSeeSuppliers">
+                            <span class="text-sm text-muted-foreground">Jualan supplier</span>
+                            <NativeSelect :model-value="String(supplierDays)" aria-label="Tempoh jualan supplier"
+                                @update:model-value="setSupplierDays">
+                                <NativeSelectOption v-for="o in SUPPLIER_PERIODS" :key="o.value"
+                                    :value="String(o.value)">
+                                    {{ o.label }}
+                                </NativeSelectOption>
+                            </NativeSelect>
+                            <Button type="button" variant="outline"
+                                :disabled="supplierLoading || restockRows.length === 0" @click="requestLoadSuppliers">
+                                <Spinner v-if="supplierLoading" />
+                                {{ supplierData ? 'Muat semula supplier' : 'Load supplier' }}
+                            </Button>
+                        </template>
                     </div>
                 </div>
                 <p v-if="Object.keys(restockEdits).length || pendingRestock.length" class="text-xs text-primary">
                     Ada suntingan belum disimpan &mdash; Excel / PDF membaca versi yang telah disimpan, tekan Simpan
                     dahulu.
                 </p>
+                <CardAction class="gap-2">
+                    <NativeSelect v-model="restockGroup" aria-label="Kumpul ikut">
+                        <NativeSelectOption value="category">Ikut Kategori</NativeSelectOption>
+                        <NativeSelectOption value="branch">Ikut Cawangan</NativeSelectOption>
+                        <NativeSelectOption v-if="canSeeSuppliers" value="supplier">Ikut Supplier
+                        </NativeSelectOption>
+                    </NativeSelect>
+                    <Popover v-model:open="exportOpen">
+                        <PopoverTrigger as-child>
+                            <Button type="button" variant="outline" size="sm" :disabled="restockItems.length === 0">
+                                <Download class="size-4" /> Export
+                                <ChevronDown class="size-4" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent align="end" class="w-44 p-1">
+                            <button type="button"
+                                class="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
+                                @click="handleExport('excel')">
+                                <FileSpreadsheet class="size-4" /> Excel (.xlsx)
+                            </button>
+                            <button type="button"
+                                class="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted"
+                                @click="handleExport('pdf')">
+                                <Printer class="size-4" /> PDF / Cetak
+                            </button>
+                        </PopoverContent>
+                    </Popover>
+                </CardAction>
             </CardHeader>
             <CardContent>
                 <Deferred data="restock">
@@ -2144,221 +2314,290 @@ function save(andPrint = false) {
                                 <thead>
                                     <tr
                                         class="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-                                        <th class="py-2 pr-3 font-medium">Design</th>
-                                        <th class="py-2 pr-3 font-medium">Cawangan request (saiz / berat)</th>
-                                        <th class="py-2 pr-3 font-medium">Stok semua cawangan</th>
-                                        <th class="py-2 pr-3 font-medium">Jualan</th>
-                                        <th v-if="canSeeSuppliers" class="py-2 pr-3 font-medium">Kod supplier teratas
+                                        <th class="py-2 px-1.5 pr-3 font-medium">Design</th>
+                                        <th class="py-2 px-1.5 pr-3 font-medium">Cawangan request (saiz / berat)</th>
+                                        <th class="py-2 px-1.5 pr-3 font-medium">Stok semua cawangan</th>
+                                        <th class="py-2 px-1.5 pr-3 font-medium">Jualan terkini</th>
+                                        <th v-if="canSeeSuppliers" class="py-2 px-1.5 pr-3 font-medium">Kod supplier
+                                            teratas
+                                            <span v-if="supplierData" class="block font-normal normal-case">terjual {{
+                                                supplierData.days }} hari</span>
                                         </th>
-                                        <th class="py-2 font-medium">Qty order</th>
+                                        <th class="py-2 px-1.5 font-medium">Qty order</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <template v-for="section in restockSections" :key="section.key">
-                                    <tr class="border-b bg-muted/50">
-                                        <td :colspan="restockColumnCount" class="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide">
-                                            {{ section.title }}
-                                            <span class="ml-1 font-normal normal-case text-muted-foreground">{{ section.items.length }} design</span>
-                                        </td>
-                                    </tr>
-                                    <tr v-for="item in section.items" :key="`${section.key}:${rowKey(item)}`"
-                                        class="border-b align-top last:border-0"
-                                        :class="{ 'bg-destructive/5 line-through opacity-60': isRemovedRow(item), 'bg-success/10': isOrderedRow(item), 'bg-primary/5': item.pending || isEditedRow(item) }">
-                                        <td class="py-2 pr-3">
-                                            <div class="flex items-center gap-3">
-                                                <ImagePreview :src="item.image_url" :alt="item.description ?? ''"
-                                                    class="size-10 shrink-0 rounded-md" />
-                                                <div class="min-w-0">
-                                                    <p class="font-medium">
-                                                        {{ item.internal_code }}
-                                                        <span v-if="item.pending"
-                                                            class="ml-1 text-xs font-normal text-primary">Baharu
-                                                            &middot; belum disimpan</span>
-                                                    </p>
-                                                    <p class="text-xs text-muted-foreground">
-                                                        <template v-if="item.nickname">
-                                                            &quot;{{ item.nickname }}&quot;</template>
-                                                        <template v-else>{{ item.description }}</template>
-                                                    </p>
-                                                    <Badge v-if="item.category_name" variant="outline" class="mt-1">{{
-                                                        item.category_name }}</Badge>
+                                        <tr class="border-b bg-muted/50">
+                                            <td :colspan="restockColumnCount"
+                                                class="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide">
+                                                {{ section.title }}
+                                                <span class="ml-1 font-normal normal-case text-muted-foreground">{{
+                                                    section.items.length }} design</span>
+                                            </td>
+                                        </tr>
+                                        <tr v-for="item in section.items" :key="`${section.key}:${rowKey(item)}`"
+                                            class="border-b align-top last:border-0"
+                                            :class="{ 'bg-destructive/5 line-through opacity-60': isRemovedRow(item), 'bg-success/10': isOrderedRow(item), 'bg-muted-foreground/10': item.pending || isEditedRow(item) }">
+                                            <td class="py-2 px-1.5 pr-3">
+                                                <div class="flex items-center gap-3">
+                                                    <ImagePreview :src="item.image_url" :alt="item.description ?? ''"
+                                                        class="size-10 shrink-0 rounded-md" />
+                                                    <div class="min-w-0">
+                                                        <p class="font-medium">
+                                                            {{ item.internal_code }}
+                                                            <span v-if="item.pending"
+                                                                class="ml-1 text-xs font-normal text-primary">Baharu
+                                                                &middot; belum disimpan</span>
+                                                        </p>
+                                                        <p class="text-xs text-muted-foreground">
+                                                            <template v-if="item.nickname">
+                                                                &quot;{{ item.nickname }}&quot;</template>
+                                                            <template v-else>{{ item.description }}</template>
+                                                        </p>
+                                                        <Badge v-if="item.category_name" variant="outline" class="mt-1">
+                                                            {{
+                                                                item.category_name }}</Badge>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        </td>
-                                        <td class="py-2 pr-3">
-                                            <ul v-if="sectionRequests(item, section.key).length" class="flex flex-col gap-0.5 text-xs">
-                                                <li v-for="(r, i) in sectionRequests(item, section.key)" :key="i">
-                                                    <Badge variant="secondary">{{ r.store_code }}</Badge>
-                                                    <span class="ml-1">
-                                                        <template v-if="r.size">saiz {{ r.size }}</template>
-                                                        <template v-if="r.size && r.weight"> &middot; </template>
-                                                        <template v-if="r.weight">{{ r.weight }}g</template>
-                                                        &times;{{ r.qty }}
-                                                    </span>
-                                                </li>
-                                            </ul>
-                                            <span v-else class="text-muted-foreground">-</span>
-                                        </td>
-                                        <td class="py-2 pr-3">
-                                            <template v-if="restockGroup !== 'branch'">
-                                            <div class="flex flex-wrap gap-1">
-                                                <Badge v-for="s in item.stock" :key="s.store_code" variant="outline" size="sm"
-                                                    class="gap-1 text-[9px]" :class="stockChipClass(item, s)"
-                                                    :title="requestDotTitle(item, s.store_code)">
-                                                    <span v-if="requestedOf(item, s.store_code)" class="size-1.5 rounded-full"
-                                                        :class="requestShort(item, s.store_code) ? 'bg-warning' : 'bg-blue-600'" />
-                                                    {{ s.store_code }} {{ s.stock }}
-                                                    <template v-if="allocOf(item, s.store_code) > 0">
-                                                        &rarr; {{ s.stock + allocOf(item, s.store_code) }}
-                                                        <span class="text-primary">(+{{ allocOf(item, s.store_code) }})</span>
-                                                    </template>
-                                                </Badge>
-                                            </div>
-                                            <p class="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
-                                                <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-blue-600" /> cawangan request</span>
-                                                <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-warning" /> request belum dipenuhi</span>
-                                            </p>
-                                            </template>
-                                            <div v-else class="text-sm">
-                                                <p>
-                                                    <span class="text-xs text-muted-foreground mr-2">Stok cawangan ini</span>
-                                                    <span :class="allocOf(item, section.key) > 0 ? 'font-semibold' : ''">
-                                                        {{ branchStockOf(item, section.key) }}<template v-if="allocOf(item, section.key) > 0">
-                                                            &rarr; {{ branchStockOf(item, section.key) + allocOf(item, section.key) }}
-                                                            <span class="text-primary">(+{{ allocOf(item, section.key) }})</span></template>
-                                                    </span>
+                                            </td>
+                                            <td class="py-2 px-1.5 pr-3">
+                                                <ul v-if="sectionRequests(item, section.key).length"
+                                                    class="flex flex-col gap-0.5 text-xs">
+                                                    <li v-for="(r, i) in sectionRequests(item, section.key)" :key="i">
+                                                        <Badge variant="secondary">{{ r.store_code }}</Badge>
+                                                        <span class="ml-1">
+                                                            <template v-if="r.size">saiz {{ r.size }}</template>
+                                                            <template v-if="r.size && r.weight"> &middot; </template>
+                                                            <template v-if="r.weight">{{ r.weight }}g</template>
+                                                            &times;{{ r.qty }}
+                                                        </span>
+                                                    </li>
+                                                </ul>
+                                                <span v-else class="text-muted-foreground">-</span>
+                                            </td>
+                                            <td class="py-2 px-1.5 pr-3">
+                                                <template v-if="restockGroup !== 'branch'">
+                                                    <div class="flex flex-wrap gap-1">
+                                                        <Badge v-for="s in item.stock" :key="s.store_code"
+                                                            variant="outline" size="sm" class="gap-1 text-[9px]"
+                                                            :class="stockChipClass(item, s)"
+                                                            :title="requestDotTitle(item, s.store_code)">
+                                                            <span v-if="requestedOf(item, s.store_code)"
+                                                                class="size-1.5 rounded-full"
+                                                                :class="requestShort(item, s.store_code) ? 'bg-warning' : 'bg-blue-600'" />
+                                                            {{ s.store_code }} {{ s.stock }}
+                                                            <template v-if="allocOf(item, s.store_code) > 0">
+                                                                &rarr; {{ s.stock + allocOf(item, s.store_code) }}
+                                                                <span class="text-primary">(+{{ allocOf(item,
+                                                                    s.store_code) }})</span>
+                                                            </template>
+                                                        </Badge>
+                                                    </div>
+                                                    <p
+                                                        class="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+                                                        <span class="inline-flex items-center gap-1"><span
+                                                                class="size-1.5 rounded-full bg-blue-600" />
+                                                            cawangan request</span>
+                                                        <span class="inline-flex items-center gap-1"><span
+                                                                class="size-1.5 rounded-full bg-warning" />
+                                                            request belum dipenuhi</span>
+                                                    </p>
+                                                </template>
+                                                <div v-else class="text-sm">
+                                                    <p>
+                                                        <span class="text-xs text-muted-foreground mr-2">Stok cawangan
+                                                            ini</span>
+                                                        <span
+                                                            :class="allocOf(item, section.key) > 0 ? 'font-semibold' : ''">
+                                                            {{ branchStockOf(item, section.key) }}<template
+                                                                v-if="allocOf(item, section.key) > 0">
+                                                                &rarr; {{ branchStockOf(item, section.key) +
+                                                                    allocOf(item, section.key) }}
+                                                                <span class="text-primary">(+{{ allocOf(item,
+                                                                    section.key) }})</span></template>
+                                                        </span>
+                                                    </p>
+                                                    <p class="mt-0.5 text-xs text-muted-foreground">
+                                                        cawangan ini dapat {{ allocOf(item, section.key) }} unit
+                                                        daripada order {{ rowQty(item) }}
+                                                    </p>
+                                                </div>
+                                                <div class="mt-1.5 flex flex-wrap items-center gap-2">
+                                                    <span class="text-xs text-muted-foreground">Paras</span>
+                                                    <NumberField class="w-24" :model-value="targetOf(item)" :min="1"
+                                                        :max="50" :disabled="isRemovedRow(item)"
+                                                        @update:model-value="(v: number) => setTarget(item, v)">
+                                                        <NumberFieldContent>
+                                                            <NumberFieldDecrement />
+                                                            <NumberFieldInput class="h-7 bg-card"
+                                                                :aria-label="`Paras ${item.internal_code}`" />
+                                                            <NumberFieldIncrement />
+                                                        </NumberFieldContent>
+                                                    </NumberField>
+                                                    <Popover :open="branchPopoverKey === rowKey(item)"
+                                                        @update:open="(o: boolean) => (branchPopoverKey = o ? rowKey(item) : null)">
+                                                        <PopoverTrigger as-child>
+                                                            <Button type="button" size="sm" variant="outline"
+                                                                class="h-7 px-2 text-xs" :disabled="isRemovedRow(item)">
+                                                                Ikut cawangan
+                                                                <span v-if="Object.keys(branchTargetsOf(item)).length"
+                                                                    class="rounded-sm bg-primary px-1 text-[10px] text-primary-foreground">{{
+                                                                        Object.keys(branchTargetsOf(item)).length }}</span>
+                                                            </Button>
+                                                        </PopoverTrigger>
+                                                        <PopoverContent class="w-72" align="start">
+                                                            <p
+                                                                class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                                                Paras setiap cawangan
+                                                            </p>
+                                                            <p class="mb-2 mt-0.5 text-xs text-muted-foreground">
+                                                                Lalai {{ targetOf(item) }}. Ubah cawangan tertentu
+                                                                sahaja; yang sama dengan lalai tak
+                                                                disimpan.
+                                                            </p>
+                                                            <ul
+                                                                class="flex max-h-72 flex-col gap-1.5 overflow-y-auto pr-1">
+                                                                <li v-for="b in livePlan(item).branches"
+                                                                    :key="b.store_code"
+                                                                    class="flex items-center justify-between gap-2 rounded-md px-2 py-1"
+                                                                    :class="branchTargetsOf(item)[b.store_code] !== undefined ? 'bg-primary/10' : ''">
+                                                                    <div class="min-w-0 text-sm">
+                                                                        <span class="font-medium">{{ b.store_code
+                                                                            }}</span>
+                                                                        <span
+                                                                            class="ml-1 text-xs text-muted-foreground">stok
+                                                                            {{ b.stock }}<template v-if="b.requested">
+                                                                                &middot; request {{ b.requested
+                                                                                }}</template></span>
+                                                                    </div>
+                                                                    <NumberField class="w-24 shrink-0"
+                                                                        :model-value="b.target" :min="1" :max="50"
+                                                                        @update:model-value="(v: number) => setBranchTarget(item, b.store_code, v)">
+                                                                        <NumberFieldContent>
+                                                                            <NumberFieldDecrement />
+                                                                            <NumberFieldInput class="h-7 bg-card"
+                                                                                :aria-label="`Paras ${b.store_code}`" />
+                                                                            <NumberFieldIncrement />
+                                                                        </NumberFieldContent>
+                                                                    </NumberField>
+                                                                </li>
+                                                            </ul>
+                                                            <Button v-if="Object.keys(branchTargetsOf(item)).length"
+                                                                type="button" size="sm" variant="ghost"
+                                                                class="mt-2 h-7 w-full"
+                                                                @click="resetBranchTargets(item)">Set semula
+                                                                ikut paras lalai</Button>
+                                                        </PopoverContent>
+                                                    </Popover>
+                                                </div>
+                                            </td>
+                                            <td class="py-2 px-1.5 pr-3 whitespace-nowrap">
+                                                <Skeleton v-if="lastSaleOf(item) === undefined"
+                                                    class="h-4 w-20 bg-muted" />
+                                                <template v-else-if="lastSaleOf(item)">
+                                                    {{ formatDate(`${lastSaleOf(item)!.date}T00:00:00`) }}
+                                                    <p class="text-xs text-muted-foreground">
+                                                        {{ daysAgoLabel(lastSaleOf(item)!.days_ago) }} &middot; {{
+                                                            lastSaleOf(item)!.store }}
+                                                    </p>
+                                                    <p class="text-xs">
+                                                        <span class="font-medium">{{ lastSaleOf(item)!.sold_30d }}
+                                                            unit</span>
+                                                        <span class="text-muted-foreground"> terjual (30 hari)</span>
+                                                    </p>
+                                                </template>
+                                                <span v-else class="text-xs text-muted-foreground">Belum pernah
+                                                    terjual</span>
+                                            </td>
+                                            <td v-if="canSeeSuppliers" class="py-2 px-1.5 pr-3 text-xs">
+                                                <span v-if="!supplierData || !supplierLoadedFor(item)"
+                                                    class="text-muted-foreground">Belum dimuat</span>
+                                                <span v-else-if="supplierRows(item).length === 0"
+                                                    class="text-muted-foreground">-</span>
+                                                <div v-else class="flex flex-col gap-1">
+                                                    <div v-for="v in supplierRows(item)" :key="v.vendor_code"
+                                                        class="flex items-center gap-1.5">
+                                                        <Badge variant="secondary">{{ v.vendor_code }}</Badge>
+                                                        <Badge variant="outline" class="font-normal"
+                                                            :title="`${v.sold} unit terjual dalam ${supplierData.days} hari`">
+                                                            {{ v.sold }} terjual
+                                                        </Badge>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="py-2 px-1.5">
+                                                <div class="flex items-center gap-2">
+                                                    <Input type="number" min="0" max="100000" class="h-8 w-20 bg-white"
+                                                        :model-value="rowQty(item)" :disabled="isRemovedRow(item)"
+                                                        :aria-label="`Kuantiti order ${item.internal_code}`"
+                                                        @update:model-value="(v: string | number) => setRowQty(item, String(v))" />
+                                                    <Button v-if="!item.pending && !isRemovedRow(item)" type="button"
+                                                        size="icon" :variant="isOrderedRow(item) ? 'default' : 'ghost'"
+                                                        :class="isOrderedRow(item) ? 'bg-success text-success-foreground hover:bg-success/90' : 'text-success hover:text-success'"
+                                                        :title="isOrderedRow(item) ? 'Batal tanda Dah Order' : 'Tanda Dah Order (selepas order dengan supplier)'"
+                                                        :aria-label="`Tanda ${item.internal_code} Dah Order`"
+                                                        @click="toggleOrdered(item)">
+                                                        <Check class="size-4" />
+                                                    </Button>
+                                                    <Button v-if="!isRemovedRow(item) && !isOrderedRow(item)"
+                                                        type="button" size="icon" variant="ghost"
+                                                        :aria-label="`Buang ${item.internal_code} dari senarai`"
+                                                        @click="removeRow(item)">
+                                                        <X class="size-4" />
+                                                    </Button>
+                                                    <Button v-else type="button" size="sm" variant="ghost"
+                                                        @click="undoRestockEdit(item.id)">Batal</Button>
+                                                </div>
+                                                <p v-if="isOrderedRow(item)"
+                                                    class="mt-1 text-xs font-medium text-success">
+                                                    Dah Order &mdash; disimpan bila tekan Simpan
                                                 </p>
-                                                <p class="mt-0.5 text-xs text-muted-foreground">
-                                                    cawangan ini dapat {{ allocOf(item, section.key) }} unit daripada order {{ rowQty(item) }}
+                                                <p v-else class="mt-1 text-xs text-muted-foreground"
+                                                    :title="planHint(item)">
+                                                    cadangan {{ suggestedLive(item) }}
+                                                    <button
+                                                        v-if="rowQty(item) !== suggestedLive(item) && !isRemovedRow(item)"
+                                                        type="button" class="ml-1 text-primary underline"
+                                                        @click="setRowQty(item, String(suggestedLive(item)))">guna</button>
                                                 </p>
-                                            </div>
-                                            <div class="mt-1.5 flex flex-wrap items-center gap-2">
-                                                <span class="text-xs text-muted-foreground">Paras</span>
-                                                <NumberField class="w-24" :model-value="targetOf(item)" :min="1" :max="50"
-                                                    :disabled="isRemovedRow(item)" @update:model-value="(v: number) => setTarget(item, v)">
-                                                    <NumberFieldContent>
-                                                        <NumberFieldDecrement />
-                                                        <NumberFieldInput class="h-7" :aria-label="`Paras ${item.internal_code}`" />
-                                                        <NumberFieldIncrement />
-                                                    </NumberFieldContent>
-                                                </NumberField>
-                                                <Popover :open="branchPopoverKey === rowKey(item)"
-                                                    @update:open="(o: boolean) => (branchPopoverKey = o ? rowKey(item) : null)">
-                                                    <PopoverTrigger as-child>
-                                                        <Button type="button" size="sm" variant="outline" class="h-7 px-2 text-xs"
-                                                            :disabled="isRemovedRow(item)">
-                                                            Ikut cawangan
-                                                            <span v-if="Object.keys(branchTargetsOf(item)).length"
-                                                                class="rounded-sm bg-primary px-1 text-[10px] text-primary-foreground">{{
-                                                                    Object.keys(branchTargetsOf(item)).length }}</span>
-                                                        </Button>
-                                                    </PopoverTrigger>
-                                                    <PopoverContent class="w-72" align="start">
-                                                        <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                                            Paras setiap cawangan
-                                                        </p>
-                                                        <p class="mb-2 mt-0.5 text-xs text-muted-foreground">
-                                                            Lalai {{ targetOf(item) }}. Ubah cawangan tertentu sahaja; yang sama dengan lalai tak disimpan.
-                                                        </p>
-                                                        <ul class="flex max-h-72 flex-col gap-1.5 overflow-y-auto pr-1">
-                                                            <li v-for="b in livePlan(item).branches" :key="b.store_code"
-                                                                class="flex items-center justify-between gap-2 rounded-md px-2 py-1"
-                                                                :class="branchTargetsOf(item)[b.store_code] !== undefined ? 'bg-primary/10' : ''">
-                                                                <div class="min-w-0 text-sm">
-                                                                    <span class="font-medium">{{ b.store_code }}</span>
-                                                                    <span class="ml-1 text-xs text-muted-foreground">stok {{ b.stock }}<template v-if="b.requested"> &middot; request {{ b.requested }}</template></span>
-                                                                </div>
-                                                                <NumberField class="w-24 shrink-0" :model-value="b.target" :min="1" :max="50"
-                                                                    @update:model-value="(v: number) => setBranchTarget(item, b.store_code, v)">
-                                                                    <NumberFieldContent>
-                                                                        <NumberFieldDecrement />
-                                                                        <NumberFieldInput class="h-7 bg-white" :aria-label="`Paras ${b.store_code}`" />
-                                                                        <NumberFieldIncrement />
-                                                                    </NumberFieldContent>
-                                                                </NumberField>
-                                                            </li>
-                                                        </ul>
-                                                        <Button v-if="Object.keys(branchTargetsOf(item)).length" type="button" size="sm" variant="ghost"
-                                                            class="mt-2 h-7 w-full" @click="resetBranchTargets(item)">Set semula ikut paras lalai</Button>
-                                                    </PopoverContent>
-                                                </Popover>
-                                            </div>
-                                        </td>
-                                        <td class="py-2 pr-3 whitespace-nowrap">
-                                            {{ periodSold(item) }} unit
-                                            <p class="text-xs text-muted-foreground">{{ period === '7d' ? '1 minggu' :
-                                                '30 hari' }}</p>
-                                        </td>
-                                        <td v-if="canSeeSuppliers" class="py-2 pr-3 text-xs">
-                                            <p v-if="item.suppliers.length === 0" class="text-muted-foreground">{{
-                                                item.pending ? 'dikira selepas Simpan' : '-' }}</p>
-                                            <p v-for="v in item.suppliers" :key="v.vendor_code">
-                                                {{ v.vendor_code }} <span class="text-muted-foreground">({{ v.sold
-                                                }})</span>
-                                            </p>
-                                        </td>
-                                        <td class="py-2">
-                                            <div class="flex items-center gap-2">
-                                                <Input type="number" min="0" max="100000" class="h-8 w-20 bg-white"
-                                                    :model-value="rowQty(item)" :disabled="isRemovedRow(item)"
-                                                    :aria-label="`Kuantiti order ${item.internal_code}`"
-                                                    @update:model-value="(v: string | number) => setRowQty(item, String(v))" />
-                                                <Button v-if="!item.pending && !isRemovedRow(item)" type="button"
-                                                    size="icon" :variant="isOrderedRow(item) ? 'default' : 'ghost'"
-                                                    :class="isOrderedRow(item) ? 'bg-success text-success-foreground hover:bg-success/90' : 'text-success hover:text-success'"
-                                                    :title="isOrderedRow(item) ? 'Batal tanda Dah Order' : 'Tanda Dah Order (selepas order dengan supplier)'"
-                                                    :aria-label="`Tanda ${item.internal_code} Dah Order`"
-                                                    @click="toggleOrdered(item)">
-                                                    <Check class="size-4" />
-                                                </Button>
-                                                <Button v-if="!isRemovedRow(item) && !isOrderedRow(item)" type="button"
-                                                    size="icon" variant="ghost"
-                                                    :aria-label="`Buang ${item.internal_code} dari senarai`"
-                                                    @click="removeRow(item)">
-                                                    <X class="size-4" />
-                                                </Button>
-                                                <Button v-else type="button" size="sm" variant="ghost"
-                                                    @click="undoRestockEdit(item.id)">Batal</Button>
-                                            </div>
-                                            <p v-if="isOrderedRow(item)" class="mt-1 text-xs font-medium text-success">
-                                                Dah Order &mdash; disimpan bila tekan Simpan
-                                            </p>
-                                            <p v-else class="mt-1 text-xs text-muted-foreground"
-                                                :title="planHint(item)">
-                                                cadangan {{ suggestedLive(item) }}
-                                                <button
-                                                    v-if="rowQty(item) !== suggestedLive(item) && !isRemovedRow(item)"
-                                                    type="button" class="ml-1 text-primary underline"
-                                                    @click="setRowQty(item, String(suggestedLive(item)))">guna</button>
-                                            </p>
-                                        </td>
-                                    </tr>
+                                            </td>
+                                        </tr>
                                     </template>
                                 </tbody>
                             </table>
                         </div>
 
                         <!-- Best Supplier to Meet - super_admin sahaja buat masa ni -->
-                        <section v-if="canSeeSuppliers && (props.restock?.suppliers?.length ?? 0) > 0"
-                            class="mt-6 flex flex-col gap-2">
+                        <section v-if="canSeeSuppliers && supplierData" class="mt-6 flex flex-col gap-2">
                             <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                 Best Supplier to Meet <span class="font-normal normal-case">(3 supplier teratas ikut
                                     jualan
-                                    keseluruhan setiap design)</span>
+                                    {{ supplierData.days }} hari terakhir setiap design)</span>
                             </h3>
                             <div class="overflow-x-auto">
                                 <table class="w-full text-sm">
-                                    <thead>
+                                    <thead class="px-3 py-2">
                                         <tr
                                             class="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                                             <th class="py-2 pr-3 font-medium">Kod supplier</th>
                                             <th class="py-2 font-medium">Kod design</th>
                                         </tr>
                                     </thead>
-                                    <tbody>
-                                        <tr v-for="v in props.restock?.suppliers" :key="v.vendor_code"
+                                    <tbody class="px-3 py-2">
+                                        <tr v-if="supplierData.suppliers.length === 0">
+                                            <td colspan="2" class="py-2 text-xs text-muted-foreground">Tiada data
+                                                supplier untuk
+                                                tempoh ini.</td>
+                                        </tr>
+                                        <tr v-for="v in supplierData.suppliers" :key="v.vendor_code"
                                             class="border-b last:border-0">
-                                            <td class="py-2 pr-3 font-medium">{{ v.vendor_code }}</td>
+                                            <td class="py-2 pr-3 font-medium">
+                                                {{ v.vendor_code }}
+                                                <Badge variant="outline" class="ml-1.5 font-normal"
+                                                    :title="`${v.sold} unit terjual dalam ${supplierData.days} hari merentas ${v.designs} design`">
+                                                    {{ v.sold }} terjual</Badge>
+                                            </td>
                                             <td class="py-2 text-xs text-muted-foreground">{{ v.codes.join(', ') }}</td>
                                         </tr>
                                     </tbody>
@@ -2505,7 +2744,7 @@ function save(andPrint = false) {
                                                                     <p
                                                                         class="truncate text-[10px] text-muted-foreground">
                                                                         {{
-                                                                        c.nickname ?? c.description }}</p>
+                                                                            c.nickname ?? c.description }}</p>
                                                                 </div>
                                                             </button>
                                                         </li>
@@ -2553,9 +2792,9 @@ function save(andPrint = false) {
                                     class="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5">
                                     <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                                         <Badge variant="secondary">{{ l.store_code }}</Badge>
-                                        <span>baki {{ l.qty_outstanding }}</span>
+                                        <span>unit {{ l.qty_outstanding }}</span>
                                         <span v-if="l.restock_qty > 0" class="font-medium">Restock {{ l.restock_qty
-                                            }}</span>
+                                        }}</span>
                                         <span v-if="l.rearrange_qty > 0" class="text-xs text-blue-600">
                                             Rearrange {{ l.rearrange_qty }} ({{ describeMoves(l.moves, l.store_code) }})
                                         </span>
@@ -2594,5 +2833,32 @@ function save(andPrint = false) {
             </DialogContent>
         </Dialog>
 
+
+        <!-- ===== Amaran: Senarai Restock belum disimpan sebelum muat supplier ===== -->
+        <AlertDialog v-model:open="supplierDialogOpen">
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Senarai Restock ini belum disimpan</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Ada perubahan yang belum disimpan (termasuk design baharu yang baru dimasukkan ke Restock).
+                        Supplier hanya dimuatkan automatik untuk design yang <span
+                            class="font-medium text-primary">sudah
+                            disimpan</span>, jadi design baharu
+                        tak akan mendapat data supplier kecuali tekan butang <code class="font-medium text-primary">Load
+                    Supplier</code> ataupun butang <code class="font-medium text-primary">Simpan</code>.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Batal</AlertDialogCancel>
+                    <AlertDialogAction :class="buttonVariants({ variant: 'ghost' })" variant="ghost"
+                        @click="loadSuppliers">
+                        Load supplier
+                    </AlertDialogAction>
+                    <AlertDialogAction :disabled="saving" @click="saveThenLoadSuppliers">
+                        Load supplier &amp; simpan
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
     </div>
 </template>

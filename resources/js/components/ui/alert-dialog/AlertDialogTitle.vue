@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import type { Component, HTMLAttributes } from "vue"
+import type { HTMLAttributes } from "vue"
 import { reactiveOmit } from "@vueuse/core"
 import { AlertDialogTitle } from "reka-ui"
 import { cn } from "@/lib/utils"
 
-// Written locally instead of `defineProps<AlertDialogTitleProps & {...}>()` (reka-ui's type,
-// which is just `PrimitiveProps`) - see ui/toggle-group/ToggleGroupItem.vue for why.
+// Inline literal (bukan `AlertDialogTitleProps & {...}` drpd reka-ui) - rujuk AlertDialog.vue untuk sebab.
 const props = defineProps<{
+  as?: string
   asChild?: boolean
-  as?: string | Component
   class?: HTMLAttributes["class"]
 }>()
 
@@ -18,8 +17,8 @@ const delegatedProps = reactiveOmit(props, "class")
 <template>
   <AlertDialogTitle
     data-slot="alert-dialog-title"
-    :class="cn('text-lg font-semibold', props.class)"
     v-bind="delegatedProps"
+    :class="cn('text-lg font-semibold', props.class)"
   >
     <slot />
   </AlertDialogTitle>

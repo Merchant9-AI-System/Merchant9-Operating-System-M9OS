@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\BranchDemandRequestLine;
 use App\Models\Jemisys\InventoryPiece;
 use App\Models\RestockListItem;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
@@ -19,6 +20,14 @@ class RestockListBuilder
 {
     /** Bilangan supplier teratas dipaparkan setiap design. */
     public const TOP_SUPPLIERS = 3;
+
+    /** Tempoh (hari) bagi "qty terjual" di sebelah jualan terkini. */
+    public const LATEST_SALES_DAYS = 30;
+
+    /** Tempoh jualan (hari) utk ranking supplier: lalai 30, maksimum 2 tahun. */
+    public const DEFAULT_SUPPLIER_DAYS = 30;
+
+    public const MAX_SUPPLIER_DAYS = 730;
 
     public const GROUP_CATEGORY = 'category';
 
@@ -174,9 +183,113 @@ class RestockListBuilder
     }
 
     /**
+     * Jualan TERKINI setiap design: tarikh piece terakhir terjual (semua cawangan termasuk web) + cawangan + berapa hari
+     * lepas. Design yg tak pernah terjual tiada dlm hasil. Satu query dgn join ke MAX(SalesDate) per kod (tanpa fungsi
+     * tetingkap); seri (beberapa cawangan sama masa) -> cawangan pertama ikut abjad.
+     *
+     * `sold_30d` = unit terjual dlm LATEST_SALES_DAYS hari terakhir (setiap piece terjual = 1 unit).
+     *
+     * @param  array<int, string>  $codes
+     * @return array<string, array{date: string, store: string, days_ago: int, sold_30d: int}>
+     */
+    public function latestSales(array $codes): array
+    {
+        $codes = array_values(array_unique(array_filter(array_map(fn ($c) => trim((string) $c), $codes))));
+
+        if ($codes === []) {
+            return [];
+        }
+
+        $table = (new InventoryPiece)->getTable();
+
+        $latest = InventoryPiece::query()
+            ->realVendor()
+            ->whereIn('InternalCode', $codes)
+            ->whereNotNull('SalesDate')
+            ->selectRaw('InternalCode, MAX(SalesDate) as last_sold_at, SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as sold_recent', [now()->subDays(self::LATEST_SALES_DAYS)->startOfDay()])
+            ->groupBy('InternalCode')
+            ->toBase();
+
+        return InventoryPiece::query()
+            ->joinSub($latest, 'latest', fn ($join) => $join
+                ->on('latest.InternalCode', '=', "{$table}.InternalCode")
+                ->on('latest.last_sold_at', '=', "{$table}.SalesDate"))
+            ->whereIn("{$table}.InternalCode", $codes)
+            ->selectRaw("{$table}.InternalCode as code, MAX(latest.last_sold_at) as last_sold_at, MAX(latest.sold_recent) as sold_recent, MIN({$table}.StoreCode) as store")
+            ->groupBy("{$table}.InternalCode")
+            ->toBase()
+            ->get()
+            ->mapWithKeys(fn ($r) => [trim((string) $r->code) => [
+                'date' => Carbon::parse($r->last_sold_at)->toDateString(),
+                'store' => trim((string) $r->store),
+                'days_ago' => (int) Carbon::parse($r->last_sold_at)->startOfDay()->diffInDays(now()->startOfDay()),
+                'sold_30d' => (int) $r->sold_recent,
+            ]])
+            ->all();
+    }
+
+    /** Tempoh jualan supplier yg sah (1..MAX_SUPPLIER_DAYS hari); nilai tak sah/kosong -> lalai. */
+    public static function clampSupplierDays(mixed $value): int
+    {
+        $days = filter_var($value, FILTER_VALIDATE_INT);
+
+        if ($days === false) {
+            return self::DEFAULT_SUPPLIER_DAYS;
+        }
+
+        return max(1, min(self::MAX_SUPPLIER_DAYS, $days));
+    }
+
+    /**
+     * Supplier teratas setiap design dlm Senarai Restock + "Best Supplier to Meet" sahaja (tanpa stok/jualan
+     * cawangan) - dimuat atas permintaan (butang Load supplier) kerana query ke cermin agak berat.
+     *
+     * Supplier ikut KOD design, jadi design yg BELUM disimpan (baru masuk Restock di halaman) pun boleh dimuat:
+     * `$unsaved` = kod => qty order (utk jumlah unit di "Best Supplier to Meet"). `codes` dlm respons = senarai kod
+     * yg dikira (utk bezakan "tiada supplier" drpd "belum dimuat").
+     *
+     * @param  array<string, int>  $unsaved  kod design belum disimpan => kuantiti order
+     * @return array{days: int, codes: array<int, string>, items: object, suppliers: array<int, array<string, mixed>>}
+     */
+    public function supplierData(int $days = self::DEFAULT_SUPPLIER_DAYS, array $unsaved = []): array
+    {
+        $days = self::clampSupplierDays($days);
+
+        $qtyByCode = RestockListItem::query()
+            ->where('status', RestockListItem::STATUS_DRAFT)
+            ->orderBy('internal_code')
+            ->get(['internal_code', 'qty_to_order'])
+            ->mapWithKeys(fn (RestockListItem $item) => [trim((string) $item->internal_code) => (int) $item->qty_to_order])
+            ->all();
+
+        foreach ($unsaved as $code => $qty) {
+            $code = trim((string) $code);
+
+            if ($code !== '' && ! array_key_exists($code, $qtyByCode)) {
+                $qtyByCode[$code] = (int) $qty;
+            }
+        }
+
+        if ($qtyByCode === []) {
+            return ['days' => $days, 'codes' => [], 'items' => (object) [], 'suppliers' => []];
+        }
+
+        $codes = array_map('strval', array_keys($qtyByCode));
+        $vendors = $this->topVendors($codes, $days);
+
+        $rows = collect($qtyByCode)->map(fn (int $qty, $code) => [
+            'internal_code' => (string) $code,
+            'qty_to_order' => $qty,
+            'suppliers' => $vendors[(string) $code] ?? [],
+        ])->values();
+
+        return ['days' => $days, 'codes' => $codes, 'items' => (object) $vendors, 'suppliers' => $this->bestSuppliers($rows)];
+    }
+
+    /**
      * @return array{items: array<int, array<string, mixed>>, suppliers: array<int, array<string, mixed>>}
      */
-    public function build(bool $withSuppliers = false): array
+    public function build(bool $withSuppliers = false, int $supplierDays = self::DEFAULT_SUPPLIER_DAYS): array
     {
         $items = RestockListItem::query()
             ->where('status', RestockListItem::STATUS_DRAFT)
@@ -202,9 +315,10 @@ class RestockListBuilder
         $sales = $this->advisor->salesByCode($codes);
         $branches = $this->advisor->branchCodes();
         $meta = $this->meta($codes);
-        $vendors = $withSuppliers ? $this->topVendors($codes) : [];
+        $latestSales = $this->latestSales($codes);
+        $vendors = $withSuppliers ? $this->topVendors($codes, self::clampSupplierDays($supplierDays)) : [];
 
-        $rows = $items->map(function (RestockListItem $item) use ($lines, $stock, $sales, $branches, $meta, $vendors, $withSuppliers) {
+        $rows = $items->map(function (RestockListItem $item) use ($lines, $stock, $sales, $branches, $meta, $vendors, $withSuppliers, $latestSales) {
             $code = trim((string) $item->internal_code);
             $codeLines = $lines->get($code, collect());
             $stores = $stock[$code] ?? [];
@@ -252,6 +366,7 @@ class RestockListBuilder
                 'requested_total' => (int) $requests->sum('qty'),
                 'stock' => $stockRows->all(),
                 'total_stock' => (int) array_sum($stores),
+                'last_sale' => $latestSales[$code] ?? null,
                 'sold_7d' => (int) collect($codeSales)->sum('sold_7d'),
                 'sold_30d' => (int) collect($codeSales)->sum('sold_30d'),
                 'suppliers' => $withSuppliers ? ($vendors[$code] ?? []) : [],
@@ -287,18 +402,21 @@ class RestockListBuilder
     }
 
     /**
-     * 3 supplier teratas setiap design ikut JUALAN KESELURUHAN (piece terjual, semua tarikh).
-     * Kalau design belum pernah terjual, guna bilangan piece yg pernah dibeli (sandaran).
+     * 3 supplier teratas setiap design ikut JUALAN dlm $days hari terakhir (piece terjual; `sold` = unit terjual
+     * dlm tempoh itu). Kalau design tiada jualan langsung dlm tempoh itu, guna bilangan piece yg pernah dibeli
+     * (sandaran; `sold` kekal 0).
      *
      * @param  array<int, string>  $codes
      * @return array<string, array<int, array{vendor_code: string, sold: int, pieces: int}>>
      */
-    protected function topVendors(array $codes): array
+    protected function topVendors(array $codes, int $days = self::DEFAULT_SUPPLIER_DAYS): array
     {
+        $since = now()->subDays($days)->startOfDay();
+
         $rows = InventoryPiece::query()
             ->realVendor()
             ->whereIn('InternalCode', $codes)
-            ->selectRaw('InternalCode, VendorCode, SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as sold, COUNT(*) as pieces')
+            ->selectRaw('InternalCode, VendorCode, SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as sold, COUNT(*) as pieces', [$since])
             ->groupBy('InternalCode', 'VendorCode')
             ->toBase()
             ->get();

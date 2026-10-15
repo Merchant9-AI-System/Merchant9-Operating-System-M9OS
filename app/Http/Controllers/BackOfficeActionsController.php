@@ -12,6 +12,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -50,15 +51,16 @@ class BackOfficeActionsController extends Controller
             // halaman (tajuk, butang) terpapar dulu (rujuk <Deferred> di Index.vue).
             'board' => Inertia::defer(function () use ($advisor) {
                 return new RawInertiaProp($advisor->board());
-            },), // 'high'),
-            // Senarai Restock tersimpan (RestockListItem) - bahagian "Best Supplier to Meet" hanya super_admin.
-            'restock' => Inertia::defer(function () use ($restock, $canSeeSuppliers) {
-                return $restock->build($canSeeSuppliers);
-            },), // 'low'),
+            }, ), // 'high'),
+            // Senarai Restock tersimpan (RestockListItem). Supplier TIDAK dimuat di sini - super_admin tekan "Load supplier"
+            // (restockSuppliers()) kerana query supplier ke cermin berat & tempohnya boleh dipilih.
+            'restock' => Inertia::defer(function () use ($restock) {
+                return $restock->build(false);
+            }, ), // 'low'),
 
             'canSeeSuppliers' => $canSeeSuppliers,
             'fulfillmentOptions' => collect(BranchDemandRequestLine::FULFILLMENT_LABELS)
-                ->map(fn(string $label, string $value) => ['value' => $value, 'label' => $label])
+                ->map(fn (string $label, string $value) => ['value' => $value, 'label' => $label])
                 ->values(),
         ]);
     }
@@ -126,7 +128,7 @@ class BackOfficeActionsController extends Controller
 
         $changes = collect($data['changes'] ?? [])->keyBy('line_id');
         $restockEdits = collect($data['restock_items'] ?? []);
-        $restockNew = collect($data['restock_new'] ?? [])->mapWithKeys(fn(array $r) => [trim($r['internal_code']) => $r]);
+        $restockNew = collect($data['restock_new'] ?? [])->mapWithKeys(fn (array $r) => [trim($r['internal_code']) => $r]);
         $actor = (string) Auth::user()->name;
 
         [$updated, $transfers, $restockChanged, $ordered] = DB::transaction(function () use ($changes, $restockEdits, $restockNew, $advisor, $actor) {
@@ -246,8 +248,8 @@ class BackOfficeActionsController extends Controller
         $message = match (true) {
             $updated === 0 && $restockChanged === 0 => 'Tiada perubahan untuk disimpan.',
             default => implode(' ', array_filter([
-                $updated > 0 ? "{$updated} item dikemaskini" . ($transfers > 0 ? ", {$transfers} transfer Rearrange dicipta." : '.') : null,
-                $restockChanged > 0 ? "{$restockChanged} item Senarai Restock dikemaskini" . ($ordered > 0 ? ", {$ordered} ditanda Dah Order." : '.') : null,
+                $updated > 0 ? "{$updated} item dikemaskini".($transfers > 0 ? ", {$transfers} transfer Rearrange dicipta." : '.') : null,
+                $restockChanged > 0 ? "{$restockChanged} item Senarai Restock dikemaskini".($ordered > 0 ? ", {$ordered} ditanda Dah Order." : '.') : null,
             ])),
         };
 
@@ -266,7 +268,7 @@ class BackOfficeActionsController extends Controller
     {
         $changed = 0;
 
-        foreach (collect($lines)->groupBy(fn(BranchDemandRequestLine $l) => trim((string) $l->internal_code)) as $code => $group) {
+        foreach (collect($lines)->groupBy(fn (BranchDemandRequestLine $l) => trim((string) $l->internal_code)) as $code => $group) {
             $item = RestockListItem::query()
                 ->where('internal_code', $code)
                 ->where('status', RestockListItem::STATUS_DRAFT)
@@ -350,8 +352,8 @@ class BackOfficeActionsController extends Controller
         $valid = array_flip($advisor->branchCodes());
 
         return collect($branchTargets)
-            ->filter(fn($value, $store) => isset($valid[(string) $store]) && (int) $value !== $target)
-            ->map(fn($value) => (int) $value)
+            ->filter(fn ($value, $store) => isset($valid[(string) $store]) && (int) $value !== $target)
+            ->map(fn ($value) => (int) $value)
             ->all();
     }
 
@@ -374,7 +376,7 @@ class BackOfficeActionsController extends Controller
             ->where('fulfillment_status', BranchDemandRequestLine::FULFILLMENT_ORDER)
             ->whereNull('done_at')
             ->get()
-            ->each(fn(BranchDemandRequestLine $line) => $line->update(['fulfillment_status' => BranchDemandRequestLine::FULFILLMENT_DAH_ORDER]));
+            ->each(fn (BranchDemandRequestLine $line) => $line->update(['fulfillment_status' => BranchDemandRequestLine::FULFILLMENT_DAH_ORDER]));
     }
 
     /** Eksport Senarai Restock tersimpan ke Excel (.xlsx) - ikut kumpulan: category | branch | supplier. */
@@ -384,24 +386,25 @@ class BackOfficeActionsController extends Controller
 
         $withSuppliers = $this->canSeeSuppliers();
         $group = $this->exportGroup($request, $withSuppliers);
-        $data = $restock->build($withSuppliers);
+        $supplierDays = RestockListBuilder::clampSupplierDays($request->query('days'));
+        $data = $restock->build($withSuppliers, $supplierDays);
         $sections = $restock->sections($data['items'], $group);
 
-        $filename = 'Senarai-Restock-' . now()->format('Ymd-His') . '.xlsx';
+        $filename = 'Senarai-Restock-'.now()->format('Ymd-His').'.xlsx';
 
-        return response()->streamDownload(function () use ($data, $sections, $withSuppliers, $group) {
+        return response()->streamDownload(function () use ($data, $sections, $withSuppliers, $group, $supplierDays) {
             $writer = new Writer;
             $writer->openToFile('php://output');
             $bold = (new Style)->setFontBold();
 
             $writer->getCurrentSheet()->setName('Senarai Restock');
-            $writer->addRow(Row::fromValues(['Senarai Restock - ' . now()->format('d/m/Y H:i') . ' - ikut ' . RestockListBuilder::GROUP_LABELS[$group]], $bold));
-            $header = ['Kod Design', 'Keterangan', 'Nickname', 'Kategori', 'Permintaan Cawangan (saiz / berat / qty)', 'Jumlah Diminta', $group === RestockListBuilder::GROUP_BRANCH ? 'Stok Cawangan Ini → Selepas Order' : 'Stok Semasa → Selepas Order', 'Paras', 'Request Belum Dipenuhi', 'Jualan 7 Hari', 'Jualan 30 Hari', 'Kuantiti Order'];
+            $writer->addRow(Row::fromValues(['Senarai Restock - '.now()->format('d/m/Y H:i').' - ikut '.RestockListBuilder::GROUP_LABELS[$group]], $bold));
+            $header = ['Kod Design', 'Keterangan', 'Nickname', 'Kategori', 'Permintaan Cawangan (saiz / berat / qty)', 'Jumlah Diminta', $group === RestockListBuilder::GROUP_BRANCH ? 'Stok Cawangan Ini → Selepas Order' : 'Stok Semasa → Selepas Order', 'Paras', 'Request Belum Dipenuhi', 'Jualan Terkini', 'Cawangan Jualan Terkini', 'Hari Lepas', 'Qty Terjual (30 Hari)', 'Kuantiti Order'];
             if ($group === RestockListBuilder::GROUP_BRANCH) {
                 $header[] = 'Cawangan Ini Dapat';
             }
             if ($withSuppliers) {
-                $header[] = 'Kod Supplier Teratas';
+                $header[] = "Kod Supplier Teratas (terjual {$supplierDays} hari)";
             }
 
             foreach ($sections as $section) {
@@ -415,20 +418,22 @@ class BackOfficeActionsController extends Controller
                         $item['description'],
                         $item['nickname'],
                         $item['category_name'],
-                        collect($item['requests'])->map(fn(array $r) => RestockListBuilder::describeRequest($r))->implode("\n"),
+                        collect($item['requests'])->map(fn (array $r) => RestockListBuilder::describeRequest($r))->implode("\n"),
                         $item['requested_total'],
                         $group === RestockListBuilder::GROUP_BRANCH ? RestockListBuilder::describeSectionStock($item) : RestockListBuilder::describeStock($item),
                         RestockListBuilder::describeParas($item),
                         RestockListBuilder::describeShort($item),
-                        $item['sold_7d'],
-                        $item['sold_30d'],
+                        isset($item['last_sale']) ? Carbon::parse($item['last_sale']['date'])->format('d/m/Y') : 'Belum pernah terjual',
+                        $item['last_sale']['store'] ?? '',
+                        $item['last_sale']['days_ago'] ?? '',
+                        $item['last_sale']['sold_30d'] ?? 0,
                         $item['qty_to_order'],
                     ];
                     if ($group === RestockListBuilder::GROUP_BRANCH) {
                         $values[] = (int) ($item['section_alloc'] ?? 0);
                     }
                     if ($withSuppliers) {
-                        $values[] = collect($item['suppliers'])->map(fn(array $v) => "{$v['vendor_code']} ({$v['sold']} terjual)")->implode("\n");
+                        $values[] = collect($item['suppliers'])->map(fn (array $v) => "{$v['vendor_code']} ({$v['sold']} terjual / {$supplierDays} hari)")->implode("\n");
                     }
                     $writer->addRow(Row::fromValues($values));
                 }
@@ -437,15 +442,62 @@ class BackOfficeActionsController extends Controller
             if ($withSuppliers) {
                 // Satu jadual: kod supplier, kemudian kod design di lajur seterusnya.
                 $writer->addNewSheetAndMakeItCurrent()->setName('Best Supplier to Meet');
-                $writer->addRow(Row::fromValues(['Kod Supplier', 'Kod Design'], $bold));
+                $writer->addRow(Row::fromValues(['Kod Supplier', "Terjual ({$supplierDays} hari)", 'Kod Design'], $bold));
 
                 foreach ($data['suppliers'] as $v) {
-                    $writer->addRow(Row::fromValues([$v['vendor_code'], implode(', ', $v['codes'])]));
+                    $writer->addRow(Row::fromValues([$v['vendor_code'], $v['sold'], implode(', ', $v['codes'])]));
                 }
             }
 
             $writer->close();
         }, $filename, ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+    }
+
+    /**
+     * Supplier teratas setiap design dlm Senarai Restock + "Best Supplier to Meet", ikut tempoh jualan ?days= (1-730,
+     * lalai 30). super_admin sahaja (kod supplier tak didedahkan kpd role lain).
+     */
+    public function restockSuppliers(Request $request, RestockListBuilder $restock): JsonResponse
+    {
+        $this->authorizeBackOffice();
+        abort_unless($this->canSeeSuppliers(), 403);
+
+        $days = $request->query('days');
+        $max = RestockListBuilder::MAX_SUPPLIER_DAYS;
+
+        // Pengesahan eksplisit (bukan $request->validate()): ValidationException tersasar ke redirect HTML di sini,
+        // sedangkan klien fetch() jangka JSON 422.
+        if ($days !== null && $days !== '' && (! ctype_digit((string) $days) || (int) $days < 1 || (int) $days > $max)) {
+            $message = "Tempoh jualan mesti antara 1 hingga {$max} hari.";
+
+            return response()->json(['message' => $message, 'errors' => ['days' => [$message]]], 422);
+        }
+
+        // Design belum disimpan (baris baharu di halaman): ?extra[KOD]=qty - supplier ikut kod, tak perlu disimpan dulu.
+        $unsaved = collect((array) $request->query('extra', []))
+            ->filter(fn ($qty, $code) => is_scalar($qty) && is_string($code) && $code !== '' && mb_strlen($code) <= 50)
+            ->map(fn ($qty) => max(0, min(100000, (int) $qty)))
+            ->take(200)
+            ->all();
+
+        return response()->json($restock->supplierData($days === null || $days === '' ? RestockListBuilder::DEFAULT_SUPPLIER_DAYS : (int) $days, $unsaved));
+    }
+
+    /**
+     * Jualan terkini utk senarai kod design (?codes[]=) - dipakai utk baris Restock yg BELUM disimpan di halaman
+     * (yg tersimpan sudah ada `last_sale` dlm data Senarai Restock). Maksimum 200 kod.
+     */
+    public function restockLatestSales(Request $request, RestockListBuilder $restock): JsonResponse
+    {
+        $this->authorizeBackOffice();
+
+        $codes = collect((array) $request->query('codes', []))
+            ->filter(fn ($code) => is_string($code) && $code !== '' && mb_strlen($code) <= 50)
+            ->take(200)
+            ->values()
+            ->all();
+
+        return response()->json(['sales' => (object) $restock->latestSales($codes)]);
     }
 
     /** Paparan cetak Senarai Restock (Cetak / Simpan sebagai PDF melalui pelayar). */
@@ -455,12 +507,14 @@ class BackOfficeActionsController extends Controller
 
         $withSuppliers = $this->canSeeSuppliers();
         $group = $this->exportGroup($request, $withSuppliers);
-        $data = $restock->build($withSuppliers);
+        $supplierDays = RestockListBuilder::clampSupplierDays($request->query('days'));
+        $data = $restock->build($withSuppliers, $supplierDays);
 
         return view('back-office-actions.restock-print', [
             'sections' => $restock->sections($data['items'], $group),
             'suppliers' => $data['suppliers'],
             'withSuppliers' => $withSuppliers,
+            'supplierDays' => $supplierDays,
             'group' => $group,
             'groupLabel' => RestockListBuilder::GROUP_LABELS[$group],
             'generatedBy' => (string) Auth::user()->name,
