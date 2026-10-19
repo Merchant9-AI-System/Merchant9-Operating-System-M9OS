@@ -657,12 +657,28 @@ class BranchDemandEntryController extends Controller
             'lines.*.image_url' => ['required_if:lines.*.source_type,'.BranchDemandRequestLine::SOURCE_UPLOAD, 'nullable', 'string', 'max:500'],
             'lines.*.qty_requested' => ['required', 'integer', 'min:1'],
             'lines.*.remark' => ['nullable', 'string', 'max:255'],
-            'lines.*.size' => ['nullable', 'string', 'max:20'],
+            'lines.*.size' => ['nullable', 'string', 'max:100'],
             'lines.*.weight' => ['nullable', 'string', 'max:20'],
             'lines.*.category_name' => ['nullable', 'string', 'max:255'],
             // Toggle "Kritikal" staf cawangan - TIADA lajur berasingan, cuma menentukan
             // fulfillment_status AWAL line (rujuk BranchDemandRequestLine::FULFILLMENT_STOK_KRITIKAL).
             'lines.*.is_critical' => ['nullable', 'boolean'],
+        ], [
+            // Mesej Bahasa Melayu - dipaparkan terus kpd staf cawangan di borang (rujuk Create.vue errorSummary).
+            'store_code.required' => 'Cawangan perlu dipilih.',
+            'submitted_by_name.required' => 'Nama PIC perlu diisi.',
+            'lines.required' => 'Tambah sekurang-kurangnya satu item.',
+            'lines.min' => 'Tambah sekurang-kurangnya satu item.',
+            'lines.*.internal_code.required_if' => 'Kod design diperlukan.',
+            'lines.*.item_desc.required_if' => 'Keterangan diperlukan.',
+            'lines.*.image_url.required_if' => 'Gambar diperlukan.',
+            'lines.*.qty_requested.required' => 'Kuantiti perlu diisi.',
+            'lines.*.qty_requested.integer' => 'Kuantiti mesti nombor bulat.',
+            'lines.*.qty_requested.min' => 'Kuantiti mesti sekurang-kurangnya 1.',
+            'lines.*.size.max' => 'Saiz terlalu panjang (maksimum :max aksara).',
+            'lines.*.weight.max' => 'Berat terlalu panjang (maksimum :max aksara).',
+            'lines.*.remark.max' => 'Remark terlalu panjang (maksimum :max aksara).',
+            'notes.max' => 'Nota terlalu panjang (maksimum :max aksara).',
         ]);
 
         $store = $this->resolveStore($data['store_code']);

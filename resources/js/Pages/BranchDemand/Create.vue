@@ -453,6 +453,8 @@ function commitStagedToList() {
 
 function removeLine(index: number) {
     form.lines.splice(index, 1);
+    // Kunci ralat ikut indeks (lines.N.*) - tak lagi sepadan selepas item dibuang.
+    form.clearErrors();
 
     if (editingIndex.value === index) {
         editingIndex.value = null;
@@ -633,8 +635,65 @@ function openConfirm() {
     }
 }
 
+// Ralat pengesahan server dipaparkan jelas (dulu dialog kekal terbuka tanpa mesej - ralat peringkat item, cth.
+// lines.0.size, tak dipaparkan di mana-mana, jadi butang nampak "tak berfungsi").
+const FIELD_LABELS: Record<string, string> = {
+    size: 'Saiz',
+    weight: 'Berat',
+    remark: 'Remark',
+    qty_requested: 'Kuantiti',
+    item_desc: 'Keterangan',
+    image_url: 'Gambar',
+    internal_code: 'Kod design',
+    category_name: 'Kategori',
+};
+
+function lineLabel(index: number): string {
+    const line = form.lines[index];
+
+    if (!line) {
+        return `Item ${index + 1}`;
+    }
+
+    return line.internal_code ? `${line.internal_code} - ${line.item_desc}` : (line.item_desc || `Item ${index + 1}`);
+}
+
+function lineErrorKeys(index: number): string[] {
+    return Object.keys(form.errors).filter((key) => key.startsWith(`lines.${index}.`));
+}
+
+function lineErrors(index: number): string[] {
+    return lineErrorKeys(index).map((key) => {
+        const field = key.split('.')[2] ?? '';
+
+        return `${FIELD_LABELS[field] ?? field}: ${(form.errors as Record<string, string>)[key]}`;
+    });
+}
+
+const errorSummary = computed(() => Object.entries(form.errors as Record<string, string>).map(([key, message]) => {
+    const match = key.match(/^lines\.(\d+)\./);
+
+    return { key, text: match ? `${lineLabel(Number(match[1]))} - ${message}` : String(message) };
+}));
+
+// Buka panel sunting item pertama yg ada ralat supaya medan bermasalah terus kelihatan.
+function focusFirstLineError() {
+    const first = Object.keys(form.errors)
+        .map((key) => key.match(/^lines\.(\d+)\./))
+        .find((match) => match !== null);
+
+    if (first) {
+        editingIndex.value = Number(first[1]);
+    }
+}
+
 function submit() {
     form.post('/branch-demand', {
+        preserveScroll: 'errors',
+        onError: () => {
+            confirmOpen.value = false;
+            focusFirstLineError();
+        },
         onSuccess: () => {
             const storeCode = form.store_code;
             const picName = form.submitted_by_name;
@@ -791,11 +850,11 @@ function submit() {
                                 </div>
                                 <div>
                                     <Label class="mb-1.5 block">Saiz</Label>
-                                    <Input v-model="stagedItem.size" placeholder="cth. 17.5" />
+                                    <Input v-model="stagedItem.size" placeholder="cth. 17.5" maxlength="100" />
                                 </div>
                                 <div>
                                     <Label class="mb-1.5 block">Berat (g)</Label>
-                                    <Input v-model="stagedItem.weight" placeholder="cth. 2.50" />
+                                    <Input v-model="stagedItem.weight" placeholder="cth. 2.50" maxlength="20" />
                                 </div>
                             </div>
                             <div class="flex flex-wrap items-center gap-2">
@@ -854,7 +913,8 @@ function submit() {
                                         Item Baharu
                                     </p>
                                     <div v-for="(line, index) in form.lines" :key="index"
-                                        class="flex flex-col gap-3 bg-muted rounded-xl border p-3 mt-2">
+                                        class="flex flex-col gap-3 bg-muted rounded-xl border p-3 mt-2"
+                                        :class="lineErrorKeys(index).length ? 'border-destructive' : ''">
                                         <div class="flex items-center gap-3">
                                             <ImagePreview :src="line.image_url" :alt="line.item_desc"
                                                 class="size-11 rounded-lg" />
@@ -888,6 +948,9 @@ function submit() {
                                                 <p class="text-xs text-muted-foreground">{{
                                                     formatCreatedAt(line.created_at)
                                                     }}</p>
+                                                <p v-if="lineErrorKeys(index).length" class="mt-1 text-xs font-medium text-destructive">
+                                                    {{ lineErrors(index).join(' &middot; ') }}
+                                                </p>
                                             </div>
                                             <NumberField v-model="line.qty_requested" :min="1"
                                                 class="w-28 shrink-0 bg-white">
@@ -917,19 +980,34 @@ function submit() {
                                             class="grid gap-3 border-t px-3 py-3 rounded-md sm:grid-cols-2 bg-white">
                                             <div class="sm:col-span-2">
                                                 <Label class="mb-1.5 block">Keterangan</Label>
-                                                <Input v-model="line.item_desc" />
+                                                <Input v-model="line.item_desc" :aria-invalid="!!form.errors[`lines.${index}.item_desc`]"
+                                                    @update:model-value="form.clearErrors(`lines.${index}.item_desc`)" />
+                                                <p v-if="form.errors[`lines.${index}.item_desc`]" class="mt-1 text-xs text-destructive">
+                                                    {{ form.errors[`lines.${index}.item_desc`] }}</p>
                                             </div>
                                             <div>
                                                 <Label class="mb-1.5 block">Saiz</Label>
-                                                <Input v-model="line.size" placeholder="cth. 17.5" />
+                                                <Input v-model="line.size" placeholder="cth. 17.5" maxlength="100"
+                                                    :aria-invalid="!!form.errors[`lines.${index}.size`]"
+                                                    @update:model-value="form.clearErrors(`lines.${index}.size`)" />
+                                                <p v-if="form.errors[`lines.${index}.size`]" class="mt-1 text-xs text-destructive">
+                                                    {{ form.errors[`lines.${index}.size`] }}</p>
                                             </div>
                                             <div>
                                                 <Label class="mb-1.5 block">Berat (g)</Label>
-                                                <Input v-model="line.weight" placeholder="cth. 2.50" />
+                                                <Input v-model="line.weight" placeholder="cth. 2.50" maxlength="20"
+                                                    :aria-invalid="!!form.errors[`lines.${index}.weight`]"
+                                                    @update:model-value="form.clearErrors(`lines.${index}.weight`)" />
+                                                <p v-if="form.errors[`lines.${index}.weight`]" class="mt-1 text-xs text-destructive">
+                                                    {{ form.errors[`lines.${index}.weight`] }}</p>
                                             </div>
                                             <div class="sm:col-span-2">
                                                 <Label class="mb-1.5 block">Remark (optional)</Label>
-                                                <Input v-model="line.remark" placeholder="cth. warna, saiz khas..." />
+                                                <Input v-model="line.remark" placeholder="cth. warna, saiz khas..." maxlength="255"
+                                                    :aria-invalid="!!form.errors[`lines.${index}.remark`]"
+                                                    @update:model-value="form.clearErrors(`lines.${index}.remark`)" />
+                                                <p v-if="form.errors[`lines.${index}.remark`]" class="mt-1 text-xs text-destructive">
+                                                    {{ form.errors[`lines.${index}.remark`] }}</p>
                                             </div>
                                             <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
                                                 <Button type="button"
@@ -1020,6 +1098,13 @@ function submit() {
                             Nota
                         </div>
                         <Textarea v-model="form.notes" placeholder="Nota tambahan (optional)" :rows="2" />
+                        <div v-if="errorSummary.length" role="alert"
+                            class="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                            <p class="font-medium">Permintaan tidak dapat dihantar. Sila betulkan:</p>
+                            <ul class="mt-1 list-disc pl-5">
+                                <li v-for="e in errorSummary" :key="e.key">{{ e.text }}</li>
+                            </ul>
+                        </div>
                     </CardContent>
                     <CardFooter class="justify-end">
                         <Button type="submit" :disabled="!canSubmit || form.processing">
