@@ -9,7 +9,7 @@ namespace App\Support;
  * Struktur kod (disahkan drpd data & pengguna), cth. RTATAU04K10G:
  *   RT      awalan baris produk (BUKAN CategoryCode JEMiSys - cuma ~55% sama; CF/CB/CM semuanya kategori CE)
  *   ATAU    gaya (dikongsi antara awalan, jadi gaya sahaja bukan identiti reka bentuk)
- *   04      nombor reka bentuk ('00' = tiada nombor -> BUKAN identiti, dikecualikan)
+ *   04      versi/nombor reka bentuk ('00' = versi asal, sah; dikecualikan hanya bila gaya generik 'XX')
  *   K       jenis binaan: K Kosong, H Separa Padu, P Padu, G Hard Gold, S Stamping (barang berbeza -> kekal dlm kunci)
  *   10      julat berat (05, 10, 20, 50 ... ~had atas berat dlm gram) - SATU-SATUNYA segmen yg dibuang drpd kunci
  *   G       kemasan: G Full Gold, C Chrome (rupa berbeza -> kekal dlm kunci)
@@ -35,12 +35,15 @@ final class DesignFamily
         return ['prefix' => $m[1], 'style' => $m[2], 'design' => $m[3], 'build' => $m[4], 'weight' => $m[5], 'finish' => $m[6]];
     }
 
-    /** Kunci keluarga (julat berat dibuang), atau null jika kod tak berformat / tiada nombor reka bentuk ('00'). */
+    /**
+     * Kunci keluarga (julat berat dibuang), atau null jika kod tak berformat. '00' = versi asal (sah sbg keluarga), TETAPI
+     * jika gayanya generik (mengandungi 'XX') identitinya terlalu lemah - banyak produk berbeza berkongsi XX+00 - maka dikecualikan.
+     */
     public static function familyKey(string $code): ?string
     {
         $parts = self::parse($code);
 
-        if ($parts === null || $parts['design'] === '00') {
+        if ($parts === null || ($parts['design'] === '00' && str_contains($parts['style'], 'XX'))) {
             return null;
         }
 
