@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\InventoryMirror;
+use App\Support\DesignFamilyInheritor;
 use App\Support\MerchantWebsiteSearch;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -106,6 +107,10 @@ class SyncMerchantNicknamesAndImages implements ShouldQueue
 
             $ms = round((microtime(true) - $start) * 1000);
             Log::info("SyncMerchantNicknamesAndImages: selesai - {$processed} kod diproses, {$matched} padan ({$ms}ms).");
+
+            // Kod yg tiada padanan laman web (nickname/gambar NULL) diisi drpd adik-beradik dlm keluarga reka bentuk yg sama
+            // (hanya bila sependapat; rujuk App\Support\DesignFamily) - cth. RTATAU04K10G drpd RTATAU04K05G.
+            app(DesignFamilyInheritor::class)->run();
         } catch (Throwable $e) {
             Log::error('SyncMerchantNicknamesAndImages gagal: '.$e->getMessage());
 

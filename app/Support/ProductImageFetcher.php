@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\InventoryMirror;
 use DOMDocument;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
@@ -23,6 +24,12 @@ use Throwable;
  * DB" yg di-invalidate serentak dgn SyncJemisysMirrors (rujuk pattern Cache::rememberForever
  * kalkulator App\Support lain) - fetch luaran ni tiada isyarat "bila nak refresh" yg sama, jadi
  * TTL tetap lebih selamat drpd forever.
+ *
+ * SUMBER UTAMA = cermin: gambar yg sudah disegerak/diwarisi dlm jemisys_inventory_mirror.image_url (rujuk
+ * SyncMerchantNicknamesAndImages & App\Support\DesignFamily) didahulukan utk SATU gambar (firstImageUrlFor) dan sbg
+ * sandaran bila kikisan langsung tiada hasil (firstImageUrlsFor) - supaya nama (drpd cermin) & gambar sentiasa konsisten di
+ * semua skrin, dan kod berkeluarga yg tiada padanan laman web sendiri (cth. RTATAU04K10G) turut dapat gambar. Kikis
+ * langsung (cache 1 hari) hanya bila cermin tiada gambar.
  */
 class ProductImageFetcher
 {
@@ -53,10 +60,34 @@ class ProductImageFetcher
         );
     }
 
-    /** Imej pertama sahaja - cth. utk thumbnail ImageColumn (rujuk StockRearrangementRecommendation). */
+    /**
+     * Imej pertama sahaja - cth. utk thumbnail ImageColumn (rujuk StockRearrangementRecommendation). Cermin didahulukan
+     * (tiada HTTP), kikisan langsung hanya sandaran.
+     */
     public static function firstImageUrlFor(string $internalCode): ?string
     {
-        return static::imageUrlsFor($internalCode)[0] ?? null;
+        return static::mirrorImageFor($internalCode) ?? (static::imageUrlsFor($internalCode)[0] ?? null);
+    }
+
+    /**
+     * Gambar design dlm cermin (disegerak ATAU diwarisi keluarga), atau null. Padanan tepat tanpa TRIM (InternalCode di cermin
+     * berpadding & kolasi PAD SPACE - "KOD" sama dgn "KOD   ") supaya indeks InternalCode digunakan.
+     */
+    public static function mirrorImageFor(string $internalCode): ?string
+    {
+        $code = trim($internalCode);
+
+        if ($code === '') {
+            return null;
+        }
+
+        $url = InventoryMirror::query()
+            ->where('InternalCode', $code)
+            ->whereNotNull('image_url')
+            ->where('image_url', '!=', '')
+            ->value('image_url');
+
+        return filled($url) ? (string) $url : null;
     }
 
     /**
@@ -68,7 +99,14 @@ class ProductImageFetcher
      */
     public static function firstImageUrlsFor(string $internalCode, int $limit = 3): array
     {
-        return array_slice(static::imageUrlsFor($internalCode), 0, $limit);
+        $live = array_slice(static::imageUrlsFor($internalCode), 0, $limit);
+
+        // Kikisan tiada hasil (cth. kod berkeluarga tanpa padanan laman web sendiri) -> guna gambar cermin kalau ada.
+        if ($live === [] && ($mirror = static::mirrorImageFor($internalCode)) !== null) {
+            return [$mirror];
+        }
+
+        return $live;
     }
 
     /**

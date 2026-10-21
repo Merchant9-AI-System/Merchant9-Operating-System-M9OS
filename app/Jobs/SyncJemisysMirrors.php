@@ -340,13 +340,17 @@ class SyncJemisysMirrors implements ShouldQueue
         // toBase() pulangkan stdClass mentah drpd Query Builder, jauh lebih ringan drpd Model.
         $knownMerchantData = InventoryMirror::query()
             ->whereNotNull('merchant_synced_at')
-            ->select(['InternalCode', 'nickname', 'image_url', 'merchant_synced_at'])
+            ->select(['InternalCode', 'nickname', 'image_url', 'merchant_synced_at', 'nickname_source', 'image_source'])
             ->toBase()
             ->get()
             ->mapWithKeys(fn ($row) => [trim((string) $row->InternalCode) => [
                 'nickname' => $row->nickname,
                 'image_url' => $row->image_url,
                 'merchant_synced_at' => $row->merchant_synced_at,
+                // Penanda sumber warisan keluarga (rujuk App\Support\DesignFamily) - dibawa ke hadapan supaya nilai
+                // warisan tak nampak seperti padanan asli selepas truncate.
+                'nickname_source' => $row->nickname_source,
+                'image_source' => $row->image_source,
             ]])
             ->all();
 
@@ -414,6 +418,8 @@ class SyncJemisysMirrors implements ShouldQueue
                         'nickname' => null,
                         'image_url' => null,
                         'merchant_synced_at' => null,
+                        'nickname_source' => null,
+                        'image_source' => null,
                     ];
 
                     $buffer[] = (array) $row + ['synced_at' => now()] + $merchantData;
