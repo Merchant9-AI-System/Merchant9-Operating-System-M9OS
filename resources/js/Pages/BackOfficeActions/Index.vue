@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardAction, CardTitle, CardDescription }
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from '@/components/ui/item';
@@ -1729,13 +1729,37 @@ function save(andPrint = false, afterSave?: () => void) {
                     </template>
 
                     <template #default>
-                        <p v-if="lines.length === 0" class="text-sm text-muted-foreground">
-                            Tiada permintaan cawangan yang perlu diuruskan.
-                        </p>
-                        <p v-else-if="designGroups.length === 0" class="text-sm text-muted-foreground">
-                            Tiada baris sepadan dengan carian/tapisan.
-                        </p>
-
+                        <div v-if="lines.length === 0"  class="bg-card p-2 w-full rounded-md shadow-md">
+                            <Empty class="border border-dashed py-10 md:py-10">
+                                <EmptyHeader>
+                                    <EmptyMedia variant="icon">
+                                        <Check />
+                                    </EmptyMedia>
+                                    <EmptyTitle>Tiada permintaan cawangan</EmptyTitle>
+                                    <EmptyDescription>
+                                        Semua permintaan cawangan telah diuruskan - tiada tindakan diperlukan buat masa ini.
+                                    </EmptyDescription>
+                                </EmptyHeader>
+                            </Empty>
+                        </div>
+                        <div v-else-if="designGroups.length === 0" class="bg-card p-2 w-full rounded-md shadow-md">
+                            <Empty class="border border-dashed py-10 md:py-10">
+                                <EmptyHeader>
+                                    <EmptyMedia variant="icon">
+                                        <Search />
+                                    </EmptyMedia>
+                                    <EmptyTitle>Tiada hasil carian</EmptyTitle>
+                                    <EmptyDescription>
+                                        Tiada design sepadan dengan carian/tapisan semasa. Cuba kata kunci lain atau tetapkan semula tapisan.
+                                    </EmptyDescription>
+                                </EmptyHeader>
+                                <EmptyContent>
+                                    <Button type="button" variant="outline" size="sm" @click="resetFilters">
+                                        Tetapkan Semula Tapisan
+                                    </Button>
+                                </EmptyContent>
+                            </Empty>
+                        </div>
                         <!-- Jadual (corak contoh "tasks" shadcn-vue): pengepala boleh disusun. table-fixed + truncate supaya
                                 lajur Design dipendekkan & Status tak terpotong. [&>div]:!block - elemen dalam ScrollArea (reka-ui)
                                 asalnya display:table & melebar ikut kandungan, menyebabkan lebihan dipotong. -->
