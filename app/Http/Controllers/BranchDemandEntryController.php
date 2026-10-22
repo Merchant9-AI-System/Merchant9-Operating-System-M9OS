@@ -123,6 +123,10 @@ class BranchDemandEntryController extends Controller
 
         $branchDemandRequest = BranchDemandRequest::where('store_code', $store->StoreCode)->latest()->first();
 
+        $currentLines = $branchDemandRequest?->lines()->whereNull('done_at')
+            ->orderByDesc('created_at')->orderByDesc('id')->get();
+        $referenceImages = ProductImageFetcher::referenceImages($currentLines?->pluck('internal_code') ?? []);
+
         return response()->json([
             'request_number' => $branchDemandRequest?->request_number,
             // Nama PIC yg pernah taip utk cawangan ni - prefill terus (rujuk Create.vue) supaya
@@ -136,23 +140,23 @@ class BranchDemandEntryController extends Controller
             // KEDUA sbg tie-breaker - disahkan production: line dlm hantaran SAMA (cth. beberapa
             // item ditambah sekali gus) kongsi created_at SAMA ke saat, tanpa ni urutan antara
             // mereka jatuh balik ke gelagat kebetulan MySQL.
-            'lines' => $branchDemandRequest?->lines()->whereNull('done_at')
-                ->orderByDesc('created_at')->orderByDesc('id')->get()->map(fn ($l) => [
-                    'id' => $l->id,
-                    'internal_code' => $l->internal_code,
-                    'item_desc' => $l->item_desc,
-                    'source_type' => $l->source_type,
-                    'image_url' => $l->image_url,
-                    'qty_requested' => $l->qty_requested,
-                    'size' => $l->size,
-                    'weight' => $l->weight,
-                    'remark' => $l->remark,
-                    'category_name' => $l->category_name,
-                    'line_status' => $l->line_status,
-                    'fulfillment_status' => $l->fulfillment_status,
-                    'fulfillment_label' => $l->fulfillment_label,
-                    'created_at' => $l->created_at?->toIso8601String(),
-                ])->values() ?? [],
+            'lines' => $currentLines?->map(fn ($l) => [
+                'id' => $l->id,
+                'internal_code' => $l->internal_code,
+                'item_desc' => $l->item_desc,
+                'source_type' => $l->source_type,
+                'image_url' => $l->image_url,
+                'image_reference' => ProductImageFetcher::isReferenceImage($referenceImages, $l->internal_code, $l->image_url),
+                'qty_requested' => $l->qty_requested,
+                'size' => $l->size,
+                'weight' => $l->weight,
+                'remark' => $l->remark,
+                'category_name' => $l->category_name,
+                'line_status' => $l->line_status,
+                'fulfillment_status' => $l->fulfillment_status,
+                'fulfillment_label' => $l->fulfillment_label,
+                'created_at' => $l->created_at?->toIso8601String(),
+            ])->values() ?? [],
         ]);
     }
 
@@ -441,11 +445,13 @@ class BranchDemandEntryController extends Controller
             ->mapWithKeys(fn ($stock, $code) => [trim($code) => (int) $stock]);
 
         $categoryNames = Category::pluck('Description', 'CategoryCode');
+        $referenceImages = ProductImageFetcher::referenceImages($internalCodes);
 
         return response()->json([
-            'results' => $internalCodes->map(function ($code) use ($meta, $stockByCode, $categoryNames) {
+            'results' => $internalCodes->map(function ($code) use ($meta, $stockByCode, $categoryNames, $referenceImages) {
                 $trimmedCode = trim($code);
                 $row = $meta->get($trimmedCode);
+                $imageUrl = ProductImageFetcher::firstImageUrlFor($trimmedCode);
 
                 return [
                     'internal_code' => $trimmedCode,
@@ -455,7 +461,8 @@ class BranchDemandEntryController extends Controller
                     'size' => filled($row?->JewelSize) ? trim((string) $row->JewelSize) : null,
                     'weight' => $row?->GoldWeight !== null ? (float) $row->GoldWeight : null,
                     'nickname' => $row?->nickname,
-                    'image_url' => ProductImageFetcher::firstImageUrlFor($trimmedCode),
+                    'image_url' => $imageUrl,
+                    'image_reference' => ProductImageFetcher::isReferenceImage($referenceImages, $trimmedCode, $imageUrl),
                 ];
             })->values(),
             'has_more' => $hasMore,
@@ -469,8 +476,15 @@ class BranchDemandEntryController extends Controller
             'internal_code' => ['required', 'string'],
         ]);
 
+        $imageUrl = ProductImageFetcher::firstImageUrlFor($data['internal_code']);
+
         return response()->json([
-            'image_url' => ProductImageFetcher::firstImageUrlFor($data['internal_code']),
+            'image_url' => $imageUrl,
+            'image_reference' => ProductImageFetcher::isReferenceImage(
+                ProductImageFetcher::referenceImages([$data['internal_code']]),
+                $data['internal_code'],
+                $imageUrl,
+            ),
         ]);
     }
 
@@ -600,12 +614,13 @@ class BranchDemandEntryController extends Controller
             ->simplePaginate(self::RESTOCK_PAGE_SIZE, ['*'], 'page', $page);
 
         $categoryNames = Category::pluck('Description', 'CategoryCode');
+        $referenceImages = ProductImageFetcher::referenceImages($paginator->getCollection()->pluck('InternalCode'));
 
         // setCollection() (bukan through()) - through() cuma MAP setiap baris, x boleh BUANG
         // baris terus; filter() lepas map() perlukan koleksi diganti balik ke paginator.
         $paginator->setCollection(
             $paginator->getCollection()
-                ->map(function ($row) use ($store, $categoryNames) {
+                ->map(function ($row) use ($store, $categoryNames, $referenceImages) {
                     $imageUrl = ProductImageFetcher::firstImageUrlFor($row->InternalCode);
 
                     if (! $imageUrl) {
@@ -626,6 +641,7 @@ class BranchDemandEntryController extends Controller
                         'size' => trim((string) $row->JewelSize),
                         'weight' => (float) $row->GoldWeight,
                         'image_url' => $imageUrl,
+                        'image_reference' => ProductImageFetcher::isReferenceImage($referenceImages, $row->InternalCode, $imageUrl),
                     ];
                 })
                 ->filter()

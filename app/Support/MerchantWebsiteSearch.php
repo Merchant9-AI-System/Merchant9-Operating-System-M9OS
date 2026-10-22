@@ -37,7 +37,7 @@ class MerchantWebsiteSearch
     private const MAX_RESULTS = 12;
 
     /**
-     * @return array<int, array{name: string, website_code: ?string, category_label: ?string, price_label: ?string, image_url: ?string, product_url: ?string}>
+     * @return array<int, array{name: string, website_code: ?string, category_label: ?string, price_label: ?string, image_url: ?string, product_url: ?string, design_codes: array<int, string>}>
      */
     public static function search(string $term): array
     {
@@ -54,8 +54,21 @@ class MerchantWebsiteSearch
         );
     }
 
-    /** @return array<int, array{name: string, website_code: ?string, category_label: ?string, price_label: ?string, image_url: ?string, product_url: ?string}> */
-    protected static function fetchAndParse(string $term): array
+    /**
+     * SEMUA kad hasil (tanpa had MAX_RESULTS & tanpa cache) - utk penuaian katalog (App\Support\MerchantCatalogHarvester).
+     * Carian laman web memadan AWALAN kod design PERTAMA produk (min. 4 aksara) dan memaparkan SENARAI PENUH kod design
+     * produk itu (design_codes) - kod kedua/ketiga tak boleh dicari terus (cth. RTAUPA02K15C tiada hasil, tetapi kad
+     * RTOBBB05K10C menyenaraikannya).
+     *
+     * @return array<int, array{name: string, website_code: ?string, category_label: ?string, price_label: ?string, image_url: ?string, product_url: ?string, design_codes: array<int, string>}>
+     */
+    public static function fetchAll(string $term): array
+    {
+        return static::fetchAndParse(trim($term), PHP_INT_MAX);
+    }
+
+    /** @return array<int, array{name: string, website_code: ?string, category_label: ?string, price_label: ?string, image_url: ?string, product_url: ?string, design_codes: array<int, string>}> */
+    protected static function fetchAndParse(string $term, int $limit = self::MAX_RESULTS): array
     {
         try {
             $context = stream_context_create([
@@ -85,7 +98,7 @@ class MerchantWebsiteSearch
             $seenUrls = [];
 
             foreach ($cards as $card) {
-                if (count($results) >= self::MAX_RESULTS) {
+                if (count($results) >= $limit) {
                     break;
                 }
 
@@ -114,6 +127,12 @@ class MerchantWebsiteSearch
                     $itemCodeTexts[] = trim($span->textContent);
                 }
 
+                // Senarai kod design produk (teks kuning di bawah kad) - hanya dipaparkan bila carian ialah awalan kod.
+                $designCodes = [];
+                foreach ($xpath->query('.//p[contains(@class, "gold-font")]', $card) as $p) {
+                    $designCodes = array_merge($designCodes, preg_split('/\s+/', trim($p->textContent), -1, PREG_SPLIT_NO_EMPTY) ?: []);
+                }
+
                 $directParagraphs = [];
                 foreach ($xpath->query('./p', $card) as $p) {
                     $directParagraphs[] = trim($p->textContent);
@@ -136,6 +155,7 @@ class MerchantWebsiteSearch
                     'price_label' => $directParagraphs[1] ?? null,
                     'image_url' => $imageUrl,
                     'product_url' => $href,
+                    'design_codes' => array_values(array_unique(array_map('strtoupper', $designCodes))),
                 ];
             }
 

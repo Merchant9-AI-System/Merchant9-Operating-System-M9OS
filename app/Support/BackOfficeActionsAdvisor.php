@@ -141,7 +141,7 @@ class BackOfficeActionsAdvisor
      * Dibahagi kepada halaman (butang "Muat Lagi") - kolam calon dicache sebentar supaya halaman
      * seterusnya tak ulang carian FULLTEXT.
      *
-     * @return array{candidates: array<int, array{internal_code: string, description: ?string, nickname: ?string, category_code: ?string, size: ?string, weight: ?float, image_url: ?string, total_stock: int, match: string, score: int}>, has_more: bool, total: int}
+     * @return array{candidates: array<int, array{internal_code: string, description: ?string, nickname: ?string, category_code: ?string, size: ?string, weight: ?float, image_url: ?string, image_source: ?string, total_stock: int, match: string, score: int}>, has_more: bool, total: int}
      */
     public function designCandidates(string $term, int $page = 1, int $perPage = 10): array
     {
@@ -201,7 +201,7 @@ class BackOfficeActionsAdvisor
             $rows = InventoryPiece::query()
                 ->realVendor()
                 ->whereRaw("MATCH({$column}) AGAINST (? IN NATURAL LANGUAGE MODE)", [$normalised])
-                ->select(['InternalCode', 'nickname', 'Description', 'CategoryCode', 'JewelSize', 'GoldWeight', 'image_url'])
+                ->select(['InternalCode', 'nickname', 'Description', 'CategoryCode', 'JewelSize', 'GoldWeight', 'image_url', 'image_source'])
                 ->limit(400)
                 ->toBase()
                 ->get();
@@ -239,7 +239,7 @@ class BackOfficeActionsAdvisor
         $rows = InventoryPiece::query()
             ->realVendor()
             ->where('InternalCode', 'like', $code.'%')
-            ->select(['InternalCode', 'nickname', 'Description', 'CategoryCode', 'JewelSize', 'GoldWeight', 'image_url'])
+            ->select(['InternalCode', 'nickname', 'Description', 'CategoryCode', 'JewelSize', 'GoldWeight', 'image_url', 'image_source'])
             ->limit(400)
             ->toBase()
             ->get();
@@ -274,6 +274,7 @@ class BackOfficeActionsAdvisor
             'size' => filled($r->JewelSize) ? trim((string) $r->JewelSize) : null,
             'weight' => $r->GoldWeight !== null ? (float) $r->GoldWeight : null,
             'image_url' => filled($r->image_url) ? $r->image_url : null,
+            'image_source' => filled($r->image_url) && filled($r->image_source) ? $r->image_source : null,
             'match' => $match,
             'score' => $score,
         ];
@@ -324,7 +325,9 @@ class BackOfficeActionsAdvisor
             $designs[$key] = $this->design($group, $stores, $code ? ($reserved[$code] ?? []) : [], $code ? ($sales[$code] ?? []) : [], $branches, $allocations[$key]);
         }
 
-        $rows = $lines->map(function (BranchDemandRequestLine $line) use ($stock, $summary, $allocations) {
+        $referenceImages = ProductImageFetcher::referenceImages($lines->map(fn (BranchDemandRequestLine $line) => $this->codeOf($line)));
+
+        $rows = $lines->map(function (BranchDemandRequestLine $line) use ($stock, $summary, $allocations, $referenceImages) {
             $own = $this->storeOf($line);
             $code = $this->codeOf($line);
             $outstanding = $this->outstanding($line);
@@ -342,6 +345,7 @@ class BackOfficeActionsAdvisor
                 'item_desc' => $line->item_desc,
                 'category_name' => $line->category_name,
                 'image_url' => $line->image_url,
+                'image_reference' => ProductImageFetcher::isReferenceImage($referenceImages, $code, $line->image_url),
                 'nickname' => $summary->nicknameFor($line),
                 'size' => $line->size,
                 'weight' => $line->weight,

@@ -27,6 +27,8 @@ interface LineItem {
     remark: string;
     current_stock: number | null;
     image_url: string | null;
+    // true = gambar rujukan (berat terdekat), bukan gambar tepat kod ini.
+    image_reference?: boolean;
     size: string | null;
     weight: string | null;
     category_name: string | null;
@@ -53,6 +55,7 @@ interface ExistingLine {
     item_desc: string | null;
     source_type: 'catalog' | 'web' | 'upload';
     image_url: string | null;
+    image_reference?: boolean;
     qty_requested: number;
     size: string | null;
     weight: string | null;
@@ -336,6 +339,7 @@ function requestAgain(line: ExistingLine) {
         remark: '',
         current_stock: null,
         image_url: line.image_url,
+        image_reference: line.image_reference,
         size: line.size,
         weight: line.weight,
         category_name: line.category_name,
@@ -353,6 +357,7 @@ function onSelect(result: ProductSearchResult) {
         remark: '',
         current_stock: result.current_stock,
         image_url: result.image_url,
+        image_reference: result.image_reference,
         size: result.size,
         weight: result.weight !== null ? String(result.weight) : null,
         category_name: result.category_name || null,
@@ -523,6 +528,7 @@ async function onStagedImagePick(event: Event) {
 
     if (url) {
         stagedItem.value.image_url = url;
+        stagedItem.value.image_reference = false;
     } else {
         stagedImageError.value = 'Muat naik gagal - cuba imej lain (jpg/png/webp, maks 5MB).';
     }
@@ -552,6 +558,7 @@ async function onLineImagePick(event: Event, index: number) {
 
     if (url) {
         form.lines[index].image_url = url;
+        form.lines[index].image_reference = false;
     } else {
         lineImageError.value = 'Muat naik gagal - cuba imej lain (jpg/png/webp, maks 5MB).';
     }
@@ -590,6 +597,7 @@ function commitFromSuggestion(item: RestockSuggestion) {
         remark: '',
         current_stock: item.current_stock,
         image_url: item.image_url,
+        image_reference: item.image_reference,
         size: item.size,
         weight: String(item.weight),
         category_name: item.category_name || null,
@@ -798,7 +806,7 @@ function submit() {
                             class="flex flex-col gap-3 rounded-md border border-muted-background border-dashed p-3">
                             <div class="flex items-center justify-between gap-3 rounded-lg">
                                 <div class="flex items-center gap-3">
-                                    <ImagePreview :src="stagedItem.image_url" :alt="stagedItem.item_desc"
+                                    <ImagePreview :src="stagedItem.image_url" :reference="stagedItem.image_reference" :alt="stagedItem.item_desc"
                                         class="size-14" />
                                     <div class="min-w-0 flex-1">
                                         <p class="flex flex-wrap items-center gap-1.5 font-medium">
@@ -916,7 +924,7 @@ function submit() {
                                         class="flex flex-col gap-3 bg-muted rounded-xl border p-3 mt-2"
                                         :class="lineErrorKeys(index).length ? 'border-destructive' : ''">
                                         <div class="flex items-center gap-3">
-                                            <ImagePreview :src="line.image_url" :alt="line.item_desc"
+                                            <ImagePreview :src="line.image_url" :reference="line.image_reference" :alt="line.item_desc"
                                                 class="size-11 rounded-lg" />
                                             <div class="min-w-0 flex-1">
                                                 <p class="flex flex-wrap items-center gap-1.5 truncate font-medium">
@@ -1039,7 +1047,7 @@ function submit() {
                                     <div v-for="line in existingLines" :key="`existing-${line.id}`"
                                         class="flex items-center gap-4 rounded-xl border border-dashed border-muted-background p-3 mt-2"
                                         :class="isTerminal(line.fulfillment_status) ? 'opacity-50' : 'bg-muted/50'">
-                                        <ImagePreview :src="line.image_url" :alt="line.item_desc"
+                                        <ImagePreview :src="line.image_url" :reference="line.image_reference" :alt="line.item_desc"
                                             class="size-11 rounded-lg" />
                                         <div class="min-w-0 flex-1">
                                             <p class="flex flex-wrap items-center gap-1.5 truncate font-medium">

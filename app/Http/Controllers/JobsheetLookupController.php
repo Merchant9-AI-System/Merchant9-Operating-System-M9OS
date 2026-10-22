@@ -84,6 +84,7 @@ class JobsheetLookupController extends Controller
                 'purch_date' => $piece->PurchDate?->format('d/m/Y'),
                 'sales_date' => $piece->SalesDate?->format('d/m/Y'),
                 'image_url' => $piece->image_url,
+                'image_reference' => filled($piece->image_url) && $piece->image_source === 'nearest',
                 'nickname' => $piece->nickname,
             ])
             ->values();

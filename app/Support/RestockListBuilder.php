@@ -315,10 +315,11 @@ class RestockListBuilder
         $sales = $this->advisor->salesByCode($codes);
         $branches = $this->advisor->branchCodes();
         $meta = $this->meta($codes);
+        $referenceImages = ProductImageFetcher::referenceImages($codes);
         $latestSales = $this->latestSales($codes);
         $vendors = $withSuppliers ? $this->topVendors($codes, self::clampSupplierDays($supplierDays)) : [];
 
-        $rows = $items->map(function (RestockListItem $item) use ($lines, $stock, $sales, $branches, $meta, $vendors, $withSuppliers, $latestSales) {
+        $rows = $items->map(function (RestockListItem $item) use ($lines, $stock, $sales, $branches, $meta, $referenceImages, $vendors, $withSuppliers, $latestSales) {
             $code = trim((string) $item->internal_code);
             $codeLines = $lines->get($code, collect());
             $stores = $stock[$code] ?? [];
@@ -355,6 +356,7 @@ class RestockListBuilder
                 'description' => $item->item_desc ?: ($info['description'] ?? null),
                 'nickname' => $info['nickname'] ?? null,
                 'image_url' => $info['image_url'] ?? null,
+                'image_reference' => ProductImageFetcher::isReferenceImage($referenceImages, $code, $info['image_url'] ?? null),
                 'category_name' => $item->category_name ?: ($info['category_code'] ?? null),
                 'qty_to_order' => (int) $item->qty_to_order,
                 'suggested_qty' => (int) $item->suggested_qty,

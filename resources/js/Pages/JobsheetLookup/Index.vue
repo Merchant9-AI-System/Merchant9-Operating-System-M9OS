@@ -26,6 +26,7 @@ interface JobsheetItem {
     purch_date: string | null;
     sales_date: string | null;
     image_url: string | null;
+    image_reference: boolean;
     nickname: string | null;
     // Cadangan tindakan - rujuk App\Support\JobsheetRestockScorer dokblok utk 2 peraturan
     // (RESTOCK bila semua cawangan yg ada design ni balance=1; REARRANGE bila cawangan INI
@@ -101,6 +102,7 @@ interface GroupedRow {
     vendor_name: string | null;
     nickname: string | null;
     image_url: string | null;
+    image_reference: boolean;
     on_hand_count: number;
     sold_count: number;
     total_weight: number | null;
@@ -130,6 +132,7 @@ const groupedItems = computed<GroupedRow[]>(() => {
                 vendor_name: item.vendor_name,
                 nickname: item.nickname,
                 image_url: item.image_url,
+                image_reference: item.image_reference,
                 on_hand_count: 0,
                 sold_count: 0,
                 total_weight: null,
@@ -288,7 +291,7 @@ function search() {
                                                 <ChevronRight v-else class="size-4" />
                                             </td>
                                             <td class="py-2 pr-3">
-                                                <ImagePreview :src="group.image_url" :alt="group.description"
+                                                <ImagePreview :src="group.image_url" :reference="group.image_reference" :alt="group.description"
                                                     class="size-10 rounded-md" />
                                             </td>
                                             <td class="py-2 pr-3">

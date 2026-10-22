@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\InventoryMirror;
 use App\Support\DesignFamilyInheritor;
+use App\Support\MerchantCatalogHarvester;
 use App\Support\MerchantWebsiteSearch;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -37,6 +38,15 @@ class SyncMerchantNicknamesAndImages implements ShouldQueue
     use Queueable;
 
     public const CACHE_KEY_SYNCING = 'merchant_nicknames_syncing';
+
+    /**
+     * Kod yg sudah disync tetapi MASIH tiada nickname/gambar asli (kosong, atau hanya diwarisi/sandaran) dicuba semula selepas
+     * tempoh ini - laman web mungkin sudah menambah produk baharu. RETRY_BATCH menghadkan masa setiap run (~0.9s/kod); yg
+     * paling lama tak dicuba didahulukan, jadi semua calon dilitar berperingkat merentasi beberapa run.
+     */
+    public const RETRY_AFTER_DAYS = 7;
+
+    public const RETRY_BATCH = 3000;
 
     /**
      * 12 jam - job ni SENGAJA lama (rujuk dokblok kelas). Run PERTAMA (semua ~27,777 kod sejuk,
@@ -105,11 +115,20 @@ class SyncMerchantNicknamesAndImages implements ShouldQueue
                 usleep(200_000);
             }
 
+            $retried = $this->retryUnmatched();
+
             $ms = round((microtime(true) - $start) * 1000);
-            Log::info("SyncMerchantNicknamesAndImages: selesai - {$processed} kod diproses, {$matched} padan ({$ms}ms).");
+            Log::info("SyncMerchantNicknamesAndImages: selesai - {$processed} kod diproses, {$matched} padan; cuba semula {$retried['tried']} kod, {$retried['found']} baharu ditemui ({$ms}ms).");
+
+            // Tuai pemetaan produk -> senarai kod design pada kad laman web (rujuk MerchantCatalogHarvester): kod kedua/ketiga sesebuah
+            // produk tak boleh dicari terus tetapi tetap berkongsi gambar & nama produk itu. Pemetaan eksplisit ini MENGGANTI nilai
+            // kad-hasil-pertama yg tak disahkan, dan mendahului warisan di bawah (nilainya jadi sumber ASLI utk keluarga).
+            $catalog = app(MerchantCatalogHarvester::class)->run(dryRun: false);
+            Log::info("SyncMerchantNicknamesAndImages: katalog laman web - {$catalog['cards']} produk dituai, ".count($catalog['plan']['updates']).' kod dikemas kini drpd senarai kod produk.');
 
             // Kod yg tiada padanan laman web (nickname/gambar NULL) diisi drpd adik-beradik dlm keluarga reka bentuk yg sama
             // (hanya bila sependapat; rujuk App\Support\DesignFamily) - cth. RTATAU04K10G drpd RTATAU04K05G.
+            // Kemudian nickname sandaran drpd DiamondDesc utk yg masih tiada nama (rujuk App\Support\DescriptionNickname).
             app(DesignFamilyInheritor::class)->run();
         } catch (Throwable $e) {
             Log::error('SyncMerchantNicknamesAndImages gagal: '.$e->getMessage());
@@ -118,5 +137,55 @@ class SyncMerchantNicknamesAndImages implements ShouldQueue
         } finally {
             Cache::forget(self::CACHE_KEY_SYNCING);
         }
+    }
+
+    /**
+     * Cuba semula carian laman web utk kod yg sudah disync > RETRY_AFTER_DAYS lalu tetapi masih tiada nickname/gambar ASLI.
+     * Kena (padanan ditemui) -> ganti nilai diwarisi/sandaran dgn nilai laman web (sumber ASLI). Tiada padanan -> HANYA
+     * merchant_synced_at dikemas kini (nilai sedia ada, termasuk warisan, tak disentuh/dikosongkan).
+     *
+     * @return array{tried: int, found: int}
+     */
+    protected function retryUnmatched(): array
+    {
+        $rawCodes = InventoryMirror::query()
+            ->whereNotNull('InternalCode')
+            ->where('InternalCode', '!=', '')
+            ->where('merchant_synced_at', '<', now()->subDays(self::RETRY_AFTER_DAYS))
+            ->where(fn ($q) => $q->whereNull('image_url')->orWhere('image_url', '')
+                ->orWhereNull('nickname')->orWhere('nickname', '')
+                ->orWhereNotNull('image_source')->orWhereNotNull('nickname_source'))
+            ->groupBy('InternalCode')
+            ->orderByRaw('MIN(merchant_synced_at)')
+            ->limit(self::RETRY_BATCH)
+            ->pluck('InternalCode');
+
+        $found = 0;
+
+        foreach ($rawCodes as $rawCode) {
+            $searchTerm = trim((string) $rawCode);
+
+            if ($searchTerm === '') {
+                continue;
+            }
+
+            $first = MerchantWebsiteSearch::search($searchTerm)[0] ?? null;
+            $fields = ['merchant_synced_at' => now()];
+
+            if ($first !== null) {
+                $found++;
+                $fields += ['nickname' => $first['name'], 'nickname_source' => null];
+
+                if (filled($first['image_url'] ?? null)) {
+                    $fields += ['image_url' => $first['image_url'], 'image_source' => null];
+                }
+            }
+
+            InventoryMirror::where('InternalCode', $rawCode)->update($fields);
+
+            usleep(200_000);
+        }
+
+        return ['tried' => $rawCodes->count(), 'found' => $found];
     }
 }

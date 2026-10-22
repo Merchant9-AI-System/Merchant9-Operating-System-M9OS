@@ -43,6 +43,8 @@ interface Line {
     item_desc: string | null;
     category_name: string | null;
     image_url: string | null;
+    // true = gambar rujukan (berat terdekat), bukan gambar tepat kod ini.
+    image_reference: boolean;
     nickname: string | null;
     size: string | null;
     weight: string | null;
@@ -90,6 +92,8 @@ interface Candidate {
     size: string | null;
     weight: number | null;
     image_url: string | null;
+    // null = padanan laman web; 'family' = adik-beradik tepat; 'nearest' = rujukan berat terdekat.
+    image_source: 'family' | 'nearest' | null;
     total_stock: number;
     match: 'nickname' | 'description';
     score: number;
@@ -120,6 +124,7 @@ interface DesignGroup {
     description: string | null;
     nickname: string | null;
     image_url: string | null;
+    image_reference: boolean;
     category_name: string | null;
     lines: Line[];
     total_outstanding: number;
@@ -156,6 +161,7 @@ interface RestockItem {
     description: string | null;
     nickname: string | null;
     image_url: string | null;
+    image_reference: boolean;
     category_name: string | null;
     qty_to_order: number;
     suggested_qty: number;
@@ -334,6 +340,7 @@ const pendingRestock = computed<RestockItem[]>(() => {
             description: first.item_desc,
             nickname: first.nickname,
             image_url: codeLines.find((l) => l.image_url)?.image_url ?? null,
+            image_reference: codeLines.find((l) => l.image_url)?.image_reference ?? false,
             category_name: first.category_name,
             qty_to_order: pendingQty.value[code] ?? plan.suggested_qty,
             suggested_qty: plan.suggested_qty,
@@ -887,6 +894,7 @@ const groupedDesigns = computed<DesignGroup[]>(() => {
                 description: line.item_desc,
                 nickname: line.nickname,
                 image_url: line.image_url,
+                image_reference: line.image_reference,
                 category_name: line.category_name,
                 lines: [],
                 total_outstanding: 0,
@@ -902,7 +910,10 @@ const groupedDesigns = computed<DesignGroup[]>(() => {
         group.rearrange_qty += line.action ? line.rearrange_qty : 0;
         group.restock_qty += line.action ? line.restock_qty : 0;
         group.nickname ??= line.nickname;
-        group.image_url ??= line.image_url;
+        if (!group.image_url && line.image_url) {
+            group.image_url = line.image_url;
+            group.image_reference = line.image_reference;
+        }
         group.category_name ??= line.category_name;
     }
 
@@ -1495,6 +1506,9 @@ function removeEntry(key: string) {
 }
 
 // Warna lencana kemiripan calon design code: hijau = sangat mirip, kuning = sederhana, merah = lemah.
+// Gambar rujukan = dipinjam drpd adik-beradik berat terdekat (bukan gambar tepat kod ini).
+const referenceHint = 'Gambar rujukan: dipinjam daripada berat terdekat bagi reka bentuk yang sama';
+
 function scoreBadgeClass(score: number): string {
     if (score >= 70) {
         return 'border-transparent bg-success text-success-foreground';
@@ -1769,7 +1783,7 @@ function save(andPrint = false, afterSave?: () => void) {
                                         </TableCell>
                                         <TableCell>
                                             <div class="flex min-w-0 items-center gap-3">
-                                                <ImagePreview :src="group.image_url" :alt="group.description ?? ''"
+                                                <ImagePreview :src="group.image_url" :reference="group.image_reference" :alt="group.description ?? ''"
                                                     class="size-10 shrink-0 rounded-md" />
                                                 <div class="min-w-0">
                                                     <p class="truncate font-medium">{{ group.title }}</p>
@@ -1963,7 +1977,7 @@ function save(andPrint = false, afterSave?: () => void) {
                     <ScrollArea v-else class="h-[min(34rem,calc(100vh-18rem))]">
                         <div class="flex flex-col gap-4 pr-3 text-sm">
                             <div class="flex items-center gap-3">
-                                <ImagePreview :src="activeGroup.image_url" :alt="activeGroup.description ?? ''"
+                                <ImagePreview :src="activeGroup.image_url" :reference="activeGroup.image_reference" :alt="activeGroup.description ?? ''"
                                     class="size-14 shrink-0 rounded-md" />
                                 <div class="min-w-0">
                                     <p class="font-semibold">{{ activeGroup.title }}</p>
@@ -2037,11 +2051,15 @@ function save(andPrint = false, afterSave?: () => void) {
                                             variant="outline" size="sm" class="px-2 py-1.5 bg-card">
                                             <!-- Tanpa ItemMedia: varian image-nya memaksa object-cover yg memotong gambar.
                                                  object-contain = tunjuk gambar penuh. -->
-                                            <ImagePreview :src="c.image_url" :alt="c.nickname ?? c.description ?? ''"
+                                            <ImagePreview :src="c.image_url" :reference="c.image_source === 'nearest'" :alt="c.nickname ?? c.description ?? ''"
                                                 class="size-10 rounded-md bg-white object-contain" />
                                             <ItemContent class="min-w-0">
                                                 <ItemTitle>
                                                     {{ c.internal_code }}
+                                                    <Badge v-if="c.image_source === 'nearest'" variant="outline"
+                                                        class="px-1.5 py-0 text-[9px]" :title="referenceHint">
+                                                        Rujukan
+                                                    </Badge>
                                                     <Badge v-if="c.score > 0"
                                                         :class="['px-1.5 py-0 text-[9px]', scoreBadgeClass(c.score)]"
                                                         :title="`${c.score}% mirip dengan nama permintaan`">
@@ -2341,7 +2359,7 @@ function save(andPrint = false, afterSave?: () => void) {
                                             :class="{ 'bg-destructive/5 line-through opacity-60': isRemovedRow(item), 'bg-success/10': isOrderedRow(item), 'bg-muted-foreground/10': item.pending || isEditedRow(item) }">
                                             <td class="py-2 px-1.5 pr-3">
                                                 <div class="flex items-center gap-3">
-                                                    <ImagePreview :src="item.image_url" :alt="item.description ?? ''"
+                                                    <ImagePreview :src="item.image_url" :reference="item.image_reference" :alt="item.description ?? ''"
                                                         class="size-10 shrink-0 rounded-md" />
                                                     <div class="min-w-0">
                                                         <p class="font-medium">

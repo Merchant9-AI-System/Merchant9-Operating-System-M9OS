@@ -18,6 +18,7 @@ export interface RestockSuggestion {
     size: string;
     weight: number;
     image_url: string | null;
+    image_reference?: boolean;
 }
 
 // Tempoh KEKAL kawalan tersendiri di sini (BUKAN dikongsi via ProductFilters.vue "Tapis
@@ -133,7 +134,7 @@ watch(
                 <InfiniteScroll data="restockSuggestions" as="div" class="flex flex-col gap-2 pr-3" :manual-after="1">
                     <div v-for="item in restockSuggestions.data" :key="item.internal_code"
                         class="flex items-center gap-3 rounded-md border p-2 text-sm">
-                        <ImagePreview :src="item.image_url" :alt="item.description" class="size-10" />
+                        <ImagePreview :src="item.image_url" :reference="item.image_reference" :alt="item.description" class="size-10" />
                         <div class="min-w-0 flex-1">
                             <p class="flex items-center gap-2">
                                 <span class="truncate font-medium text-sm">

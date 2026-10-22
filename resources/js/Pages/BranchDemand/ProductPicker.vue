@@ -27,6 +27,7 @@ export interface ProductSearchResult {
     // SyncMerchantNicknamesAndImages) - MUNGKIN null utk design yg blm disegerak/tiada padanan.
     nickname: string | null;
     image_url: string | null;
+    image_reference?: boolean;
 }
 
 // Cadangan carian laman web merchant9.com (rujuk App\Support\MerchantWebsiteSearch) - fallback
@@ -82,6 +83,7 @@ function selectSuggestion(item: RestockSuggestion): void {
         weight: item.weight,
         nickname: null,
         image_url: item.image_url,
+        image_reference: item.image_reference,
     });
 }
 
@@ -277,8 +279,11 @@ function clear() {
                     <CommandItem v-for="item in defaultSuggestions" :key="item.internal_code"
                         :value="item.internal_code" class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm"
                         @select="selectSuggestion(item)">
-                        <img v-if="item.image_url" :src="item.image_url" class="size-10 shrink-0 rounded object-cover"
-                            alt="" loading="lazy">
+                        <div v-if="item.image_url" class="relative size-10 shrink-0 overflow-hidden rounded">
+                            <img :src="item.image_url" class="size-full object-cover" alt="" loading="lazy">
+                            <span v-if="item.image_reference"
+                                class="absolute inset-x-0 bottom-0 bg-black/60 text-center text-[8px] leading-tight text-white">Rujukan</span>
+                        </div>
                         <div v-else class="size-10 shrink-0 rounded bg-muted" />
                         <div class="min-w-0 flex-1">
                             <p class="truncate font-medium">{{ item.internal_code }}</p>
@@ -306,8 +311,11 @@ function clear() {
                 <CommandGroup>
                     <CommandItem v-for="result in results" :key="result.internal_code" :value="result.internal_code"
                         class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm" @select="select(result)">
-                        <img v-if="result.image_url" :src="result.image_url"
-                            class="size-10 shrink-0 rounded object-cover" alt="" loading="lazy">
+                        <div v-if="result.image_url" class="relative size-10 shrink-0 overflow-hidden rounded">
+                            <img :src="result.image_url" class="size-full object-cover" alt="" loading="lazy">
+                            <span v-if="result.image_reference"
+                                class="absolute inset-x-0 bottom-0 bg-black/60 text-center text-[8px] leading-tight text-white">Rujukan</span>
+                        </div>
                         <div v-else class="size-10 shrink-0 rounded bg-muted" />
                         <div class="min-w-0 flex-1">
                             <p class="truncate font-medium">{{ result.internal_code }}</p>

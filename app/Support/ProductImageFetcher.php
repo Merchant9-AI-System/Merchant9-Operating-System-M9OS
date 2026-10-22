@@ -91,6 +91,42 @@ class ProductImageFetcher
     }
 
     /**
+     * Gambar cermin yg sekadar RUJUKAN (dipinjam drpd berat terdekat, image_source = 'nearest', rujuk DesignFamily) bagi
+     * sekumpulan kod: kod (trim) => url. Pemanggil bandingkan url dgn gambar yg dipaparkan (isReferenceImage) supaya hanya
+     * gambar yg SAMA ditanda rujukan - bukan gambar lain yg mungkin disimpan pd baris permintaan.
+     *
+     * @param  iterable<int, mixed>  $codes
+     * @return array<string, string>
+     */
+    public static function referenceImages(iterable $codes): array
+    {
+        $unique = collect($codes)->map(fn ($c) => trim((string) $c))->filter()->unique()->values();
+        $map = [];
+
+        foreach ($unique->chunk(500) as $chunk) {
+            InventoryMirror::query()
+                ->whereIn('InternalCode', $chunk->all())
+                ->where('image_source', DesignFamily::SOURCE_NEAREST)
+                ->whereNotNull('image_url')
+                ->selectRaw('InternalCode, MAX(image_url) as image_url')
+                ->groupBy('InternalCode')
+                ->toBase()
+                ->get()
+                ->each(function ($row) use (&$map) {
+                    $map[trim((string) $row->InternalCode)] = (string) $row->image_url;
+                });
+        }
+
+        return $map;
+    }
+
+    /** @param  array<string, string>  $referenceImages  drpd referenceImages() */
+    public static function isReferenceImage(array $referenceImages, ?string $code, ?string $imageUrl): bool
+    {
+        return $code !== null && filled($imageUrl) && ($referenceImages[trim($code)] ?? null) === $imageUrl;
+    }
+
+    /**
      * 3 imej pertama sahaja (lalai) - cth. utk preview/carousel yg perlukan lebih drpd 1 gambar
      * tapi tak perlu SEMUA (rujuk firstImageUrlFor() utk kes 1 gambar). Guna imageUrlsFor() yg
      * sama (sudah cached) - TIADA scrape tambahan, sekadar potong array sedia ada.

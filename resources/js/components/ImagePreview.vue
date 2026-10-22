@@ -10,12 +10,18 @@ import { cn } from '@/lib/utils';
  * UI kedua (PrimeVue) yg akan bertembung/berlapis dgn shadcn-vue yg dah dipilih utk seluruh
  * permukaan Inertia ni. Klik sekali thumbnail = buka pratonton besar; klik imej dlm dialog
  * = toggle zum masuk/keluar.
+ *
+ * `reference` = gambar rujukan (dipinjam drpd berat terdekat bagi design yg sama, bukan gambar tepat kod ini - rujuk
+ * App\Support\DesignFamily): label "Rujukan" di thumbnail & nota di dlm pratonton.
  */
 const props = defineProps<{
     src: string | null;
     alt?: string;
     class?: string;
+    reference?: boolean;
 }>();
+
+const referenceNote = 'Gambar rujukan: dipinjam daripada berat terdekat bagi reka bentuk yang sama.';
 
 const open = ref(false);
 const zoomed = ref(false);
@@ -37,6 +43,12 @@ function openPreview() {
     >
         <img :src="src" :alt="alt ?? ''" :class="cn('object-cover', props.class)" loading="lazy">
         <span
+            v-if="reference"
+            class="absolute inset-x-0 bottom-0 bg-black/60 text-center text-[8px] leading-tight text-white"
+        >
+            Rujukan
+        </span>
+        <span
             class="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover:bg-black/30 group-hover:opacity-100"
         >
             <ZoomIn class="size-4 text-white" />
@@ -45,7 +57,7 @@ function openPreview() {
     <div v-else :class="cn('shrink-0 rounded bg-muted', props.class)" />
 
     <Dialog v-model:open="open">
-        <DialogContent class="flex mx-auto max-w-xl items-center justify-center p-2">
+        <DialogContent class="mx-auto flex max-w-xl flex-col items-center justify-center gap-2 p-2">
             <img
                 :src="src ?? ''"
                 :alt="alt ?? ''"
@@ -55,6 +67,9 @@ function openPreview() {
                 )"
                 @click="zoomed = !zoomed"
             >
+            <p v-if="reference" class="text-xs text-muted-foreground">
+                {{ referenceNote }}
+            </p>
         </DialogContent>
     </Dialog>
 </template>
