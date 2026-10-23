@@ -564,7 +564,7 @@ class BackOfficeActionsController extends Controller
     /** "Best Supplier to Meet" - super_admin sahaja buat masa ni (keputusan eksplisit pengguna). */
     protected function canSeeSuppliers(): bool
     {
-        return (bool) Auth::user()?->hasRole('super_admin', 'ceo', 'manager');
+        return (bool) Auth::user()?->hasRole(['super_admin', 'ceo', 'manager']);
     }
 
     protected function authorizeBackOffice(): void
