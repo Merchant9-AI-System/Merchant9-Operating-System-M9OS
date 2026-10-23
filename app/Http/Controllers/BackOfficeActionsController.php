@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use Inertia\Support\Header;
 use OpenSpout\Common\Entity\Row;
 use OpenSpout\Common\Entity\Style\Style;
 use OpenSpout\Writer\XLSX\Writer;
@@ -44,9 +45,22 @@ class BackOfficeActionsController extends Controller
     {
         $this->authorizeBackOffice();
 
-        $canSeeSuppliers = $this->canSeeSuppliers();
+        return Inertia::render('BackOfficeActions/Index', $this->boardProps($advisor, $restock));
+    }
 
-        return Inertia::render('BackOfficeActions/Index', [
+    /**
+     * Prop array halaman papan BO - dikongsi antara index() (lawatan penuh) & save() (render
+     * terus selepas Simpan, TANPA redirect, supaya partial reload "only" BO yg Simpan cuma
+     * Senarai Restock sahaja berkesan dlm SATU round-trip - rujuk save() & nota <Deferred>
+     * di Index.vue. Laravel Inertia tetap hormat defer/partial semantics sama ada ni index()
+     * ATAU save() yg panggil (defer tetap ditangguh pd lawatan penuh, cuma dikira semula bila
+     * nama prop ada dlm permintaan "only").
+     *
+     * @return array<string, mixed>
+     */
+    protected function boardProps(BackOfficeActionsAdvisor $advisor, RestockListBuilder $restock): array
+    {
+        return [
             // DITANGGUH - kira stok/jualan merentas cermin jemisys_inventory_mirror, jadi shell
             // halaman (tajuk, butang) terpapar dulu (rujuk <Deferred> di Index.vue).
             'board' => Inertia::defer(function () use ($advisor) {
@@ -58,11 +72,11 @@ class BackOfficeActionsController extends Controller
                 return $restock->build(false);
             }, ), // 'low'),
 
-            'canSeeSuppliers' => $canSeeSuppliers,
+            'canSeeSuppliers' => $this->canSeeSuppliers(),
             'fulfillmentOptions' => collect(BranchDemandRequestLine::FULFILLMENT_LABELS)
                 ->map(fn (string $label, string $value) => ['value' => $value, 'label' => $label])
                 ->values(),
-        ]);
+        ];
     }
 
     /**
@@ -96,7 +110,7 @@ class BackOfficeActionsController extends Controller
         return response()->json($advisor->previewFor($targets, $data['code']));
     }
 
-    public function save(Request $request, BackOfficeActionsAdvisor $advisor): RedirectResponse
+    public function save(Request $request, BackOfficeActionsAdvisor $advisor, RestockListBuilder $restock): Response|RedirectResponse
     {
         $this->authorizeBackOffice();
 
@@ -253,7 +267,22 @@ class BackOfficeActionsController extends Controller
             ])),
         };
 
-        return back()->with('success', $message);
+        session()->flash('success', $message);
+
+        // Permintaan "only" (rujuk save() di Index.vue - Simpan Senarai Restock sahaja minta
+        // only:['restock','flash']) kekal SATU request/response SAHAJA - back()->with() redirect
+        // hilangkan header X-Inertia-Partial-Data drpd permintaan asal (browser x hantar header
+        // custom semula pd redirect), jadi "only" tsb tak berkesan merentas redirect & board()
+        // (berat, ~5-7s) tetap dikira semula macam biasa. Render Inertia TERUS (bukan redirect)
+        // hormat "only" dlm response yg SAMA - board() terus dilangkau. Lawatan PENUH (tiada
+        // permintaan partial - index() biasa, atau save() dari client lama/ujian) kekal corak
+        // PRG (back()) spt sebelum ini - tiada perubahan tingkah laku.
+        if ($request->header(Header::PARTIAL_COMPONENT) === 'BackOfficeActions/Index'
+            && filled($request->header(Header::PARTIAL_ONLY))) {
+            return Inertia::render('BackOfficeActions/Index', $this->boardProps($advisor, $restock));
+        }
+
+        return back();
     }
 
     /**

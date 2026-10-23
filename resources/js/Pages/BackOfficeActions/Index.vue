@@ -1587,6 +1587,13 @@ function save(andPrint = false, afterSave?: () => void) {
             branch_targets: branchTargetsOf(i),
         }));
 
+    // Partial reload Senarai Restock SAHAJA bila SATU-SATUNYA perubahan ialah Senarai Restock (qty/paras/buang) -
+    // "ordered" dikecualikan sebab markRestockItemOrdered() di server cascade status fulfillment line ke "Dah
+    // Order" (papan turut berubah). `changes` (status line/Rearrange/kod design) sentiasa perlukan papan
+    // dikira semula. Partial reload langkau terus board() (~5-7s) dlm SATU round-trip - rujuk dokblok save()
+    // BackOfficeActionsController (Inertia::render terus, BUKAN back(), supaya header "only" ni berkesan).
+    const boardUnaffected = changes.length === 0 && !restock_items.some((r) => r.ordered);
+
     router.post('/back-office-actions', {
         changes: changes.length ? changes : null,
         restock_items: restock_items.length ? restock_items : null,
@@ -1594,6 +1601,7 @@ function save(andPrint = false, afterSave?: () => void) {
     }, {
         preserveScroll: true,
         preserveState: true,
+        ...(boardUnaffected ? { only: ['restock', 'flash'] } : {}),
         onStart: () => {
             saving.value = true;
         },

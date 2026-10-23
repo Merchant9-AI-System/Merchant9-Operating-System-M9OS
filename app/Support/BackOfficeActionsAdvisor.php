@@ -762,7 +762,13 @@ class BackOfficeActionsAdvisor
 
         $reserved ??= $this->reservedByCode($codes);
 
+        // FORCE INDEX: dgn ~300 kod dlm whereIn(), optimizer MySQL silap pilih
+        // idx_mirror_board_sales_covering (bukan covering utk query ni - masih perlu "Using where"
+        // baca baris sebenar, ~10.6s diukur) drpd idx_mirror_board_stock_covering yg SEPATUTNYA
+        // dipakai (covering penuh utk InternalCode+StoreCode+VendorCode+QtyOnHand, "Using index"
+        // sahaja, ~1.7s diukur - rujuk siasatan performance papan Back Office Actions).
         return InventoryPiece::query()
+            ->fromRaw('`jemisys_inventory_mirror` FORCE INDEX (idx_mirror_board_stock_covering)')
             ->realVendor()
             ->physicalStore()
             ->whereNotIn('StoreCode', ['SECURITY', 'security'])
