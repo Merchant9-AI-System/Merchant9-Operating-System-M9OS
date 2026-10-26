@@ -744,8 +744,8 @@ const branchPopoverKey = ref<string | null>(null);
 // sebab beberapa badge cawangan boleh wujud serentak dlm SATU baris.
 const piecePopoverKey = ref<string | null>(null);
 
-function pieceKey(item: RestockItem, store: string): string {
-    return `${rowKey(item)}:${store}`;
+function pieceKey(code: string, store: string): string {
+    return `${code}:${store}`;
 }
 
 // ===== Kumpulan paparan Senarai Restock (sama dgn Export/PDF - rujuk RestockListBuilder::sections()) =====
@@ -2829,13 +2829,41 @@ function save(andPrint = false, afterSave?: () => void) {
                                     semasa semua
                                     cawangan</h3>
                                 <div class="flex flex-wrap gap-1.5">
-                                    <Badge v-for="st in activeDesign.stock" :key="st.store_code"
-                                        :variant="activeGroup.lines.some((l) => l.store_code === st.store_code) ? 'default' : 'outline'"
-                                        :class="{ 'opacity-60': st.stock === 0 }"
-                                        :title="st.reserved ? `${st.reserved} unit sudah ditempah transfer` : undefined">
-                                        {{ st.store_code }} {{ st.stock }}<template v-if="st.reserved"> (−{{ st.reserved
-                                            }})</template>
-                                    </Badge>
+                                    <Popover v-for="st in activeDesign.stock" :key="st.store_code"
+                                        :open="piecePopoverKey === pieceKey(activeDesign.internal_code, st.store_code)"
+                                        @update:open="(o: boolean) => {
+                                            piecePopoverKey = o ? pieceKey(activeDesign.internal_code, st.store_code) : null;
+                                            if (o) loadBranchPieces(activeDesign.internal_code);
+                                        }">
+                                        <PopoverTrigger as="span"
+                                            :class="cn(badgeVariants({ variant: activeGroup.lines.some((l) => l.store_code === st.store_code) ? 'default' : 'outline' }), 'cursor-pointer transition-colors hover:shadow-sm data-[state=open]:ring-2 data-[state=open]:ring-primary', st.stock === 0 ? 'opacity-60' : '')"
+                                            :title="(st.reserved ? `${st.reserved} unit sudah ditempah transfer - ` : '') + 'Klik utk lihat saiz & berat piece'">
+                                            {{ st.store_code }} {{ st.stock }}<template v-if="st.reserved"> (−{{
+                                                st.reserved }})</template>
+                                            <Search class="ml-1 inline size-2.5 opacity-50" />
+                                        </PopoverTrigger>
+                                        <PopoverContent class="w-56 p-2" align="start">
+                                            <p
+                                                class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                                {{ st.store_code }} - piece sedia ada
+                                            </p>
+                                            <Skeleton
+                                                v-if="!branchPieces[activeDesign.internal_code] && branchPiecesLoading[activeDesign.internal_code]"
+                                                class="h-8 w-full" />
+                                            <ul v-else-if="branchPiecesFor(activeDesign.internal_code, st.store_code).length"
+                                                class="flex flex-col gap-1 text-xs">
+                                                <li v-for="(p, i) in branchPiecesFor(activeDesign.internal_code, st.store_code)"
+                                                    :key="i"
+                                                    class="flex items-center justify-between rounded-md bg-muted/40 px-2 py-1">
+                                                    <span>{{ p.size ? `Saiz ${p.size}` : 'Saiz -' }}</span>
+                                                    <span v-if="p.weight">{{ p.weight }}g</span>
+                                                </li>
+                                            </ul>
+                                            <p v-else class="text-xs text-muted-foreground">
+                                                Tiada piece direkodkan.
+                                            </p>
+                                        </PopoverContent>
+                                    </Popover>
                                 </div>
                                 <p class="text-xs text-muted-foreground">
                                     Jumlah {{ activeDesign.total_stock }} &middot; lebihan boleh didermakan {{
@@ -3034,9 +3062,9 @@ function save(andPrint = false, afterSave?: () => void) {
                                                 <template v-if="restockGroup !== 'branch'">
                                                     <div class="flex flex-wrap gap-1">
                                                         <Popover v-for="s in item.stock" :key="s.store_code"
-                                                            :open="piecePopoverKey === pieceKey(item, s.store_code)"
+                                                            :open="piecePopoverKey === pieceKey(item.internal_code, s.store_code)"
                                                             @update:open="(o: boolean) => {
-                                                                piecePopoverKey = o ? pieceKey(item, s.store_code) : null;
+                                                                piecePopoverKey = o ? pieceKey(item.internal_code, s.store_code) : null;
                                                                 if (o) loadBranchPieces(item.internal_code);
                                                             }">
                                                             <PopoverTrigger as="span"
