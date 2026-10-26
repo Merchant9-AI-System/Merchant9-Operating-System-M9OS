@@ -540,6 +540,24 @@ class BackOfficeActionsController extends Controller
         return response()->json(['sales' => (object) $restock->latestSales($codes)]);
     }
 
+    /**
+     * Piece individu (saiz/berat) yg available sekarang bagi SATU kod design, per cawangan - hover
+     * card "Stok Semua Cawangan" Senarai Restock. Dimuat ATAS PERMINTAAN (bila BO hover, bukan
+     * sebahagian build()) kerana query per-piece agak berat utk semua design sekali gus.
+     */
+    public function restockBranchPieces(Request $request, BackOfficeActionsAdvisor $advisor): JsonResponse
+    {
+        $this->authorizeBackOffice();
+
+        $code = trim((string) $request->query('code', ''));
+
+        if ($code === '' || mb_strlen($code) > 50) {
+            return response()->json(['pieces' => (object) []]);
+        }
+
+        return response()->json(['pieces' => (object) $advisor->piecesByCode($code)]);
+    }
+
     /** Paparan cetak Senarai Restock (Cetak / Simpan sebagai PDF melalui pelayar). */
     public function restockPrint(Request $request, RestockListBuilder $restock): View
     {

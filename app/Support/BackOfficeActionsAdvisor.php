@@ -787,6 +787,43 @@ class BackOfficeActionsAdvisor
     }
 
     /**
+     * Piece INDIVIDU (saiz & berat SEBENAR, bukan kiraan agregat stockByCode()) yg masih ada
+     * sekarang bagi SATU kod design, per cawangan - utk hover card "Stok Semua Cawangan" Senarai
+     * Restock (BO nak tahu saiz/berat SPESIFIK yg available). Dimuat atas permintaan (satu kod
+     * sahaja per panggilan) - query per-piece terlalu berat utk semua design papan sekali gus.
+     *
+     * @return array<string, array<int, array{size: ?string, weight: ?float}>> store_code => senarai piece
+     */
+    public function piecesByCode(string $code): array
+    {
+        $code = trim($code);
+
+        if ($code === '') {
+            return [];
+        }
+
+        return InventoryPiece::query()
+            ->realVendor()
+            ->physicalStore()
+            ->onHand()
+            ->whereNotIn('StoreCode', ['SECURITY', 'security'])
+            ->where('InternalCode', $code)
+            ->select(['StoreCode', 'JewelSize', 'GoldWeight'])
+            ->toBase()
+            ->get()
+            ->reject(fn ($r) => $this->isExcludedStore((string) $r->StoreCode))
+            ->groupBy(fn ($r) => trim((string) $r->StoreCode))
+            ->map(fn (Collection $rows) => $rows
+                ->map(fn ($r) => [
+                    'size' => filled($r->JewelSize) ? trim((string) $r->JewelSize) : null,
+                    'weight' => $r->GoldWeight !== null ? (float) $r->GoldWeight : null,
+                ])
+                ->values()
+                ->all())
+            ->all();
+    }
+
+    /**
      * Jualan 7 & 30 hari terkini (piece dgn SalesDate dlm tempoh) per design per cawangan fizikal.
      *
      * @param  array<int, string>  $codes

@@ -6,8 +6,9 @@ import { toast } from 'vue-sonner';
 import FacetedFilter from '@/components/FacetedFilter.vue';
 import ImagePreview from '@/components/ImagePreview.vue';
 import SortableHeader from '@/components/SortableHeader.vue';
+import { cn } from '@/lib/utils';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
+import { Badge, badgeVariants } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardAction, CardTitle, CardDescription } from '@/components/ui/card';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -678,16 +679,21 @@ function requestShort(item: RestockItem, store: string): boolean {
     return rowQty(item) !== suggestedLive(item) && allocOf(item, store) < requestedOf(item, store);
 }
 
-function requestDotTitle(item: RestockItem, store: string): string | undefined {
+// Sentiasa pulang teks (bukan undefined lagi) - rujuk hint "klik..." yg kekal walaupun tiada
+// permintaan cawangan, supaya BO tahu badge ni BOLEH diklik utk tengok saiz/berat piece.
+function requestDotTitle(item: RestockItem, store: string): string {
     const requested = requestedOf(item, store);
+    const hint = 'Klik utk lihat saiz & berat piece';
 
     if (!requested) {
-        return undefined;
+        return hint;
     }
 
-    return requestShort(item, store)
+    const base = requestShort(item, store)
         ? `${store} request ${requested} unit, dapat ${allocOf(item, store)} - belum dipenuhi`
         : `${store} request ${requested} unit`;
+
+    return `${base} - ${hint}`;
 }
 
 function stockChipClass(item: RestockItem, s: { store_code: string; stock: number }): string {
@@ -698,7 +704,49 @@ function stockChipClass(item: RestockItem, s: { store_code: string; stock: numbe
     return s.stock <= 1 ? 'border-destructive/50 text-destructive opacity-70' : 'opacity-70';
 }
 
+// Piece INDIVIDU (saiz+berat sebenar) setiap cawangan bagi SATU kod design - hover card "Stok Semua
+// Cawangan" (rujuk badge chip di bawah). Dimuat SEKALI per kod design (semua cawangan sekali gus),
+// cache dlm memori - hover kali kedua/seterusnya pada chip lain design yg SAMA tak perlu fetch lagi.
+interface BranchPiece {
+    size: string | null;
+    weight: number | null;
+}
+
+const branchPieces = ref<Record<string, Record<string, BranchPiece[]>>>({});
+const branchPiecesLoading = ref<Record<string, boolean>>({});
+
+async function loadBranchPieces(code: string) {
+    if (branchPieces.value[code] || branchPiecesLoading.value[code]) {
+        return;
+    }
+
+    branchPiecesLoading.value[code] = true;
+
+    try {
+        const res = await getJson<{ pieces: Record<string, BranchPiece[]> }>(
+            `/back-office-actions/restock/branch-pieces?code=${encodeURIComponent(code)}`,
+        );
+        branchPieces.value[code] = res.pieces ?? {};
+    } catch (e) {
+        toast.error((e as Error).message);
+    } finally {
+        delete branchPiecesLoading.value[code];
+    }
+}
+
+function branchPiecesFor(code: string, store: string): BranchPiece[] {
+    return branchPieces.value[code]?.[store] ?? [];
+}
+
 const branchPopoverKey = ref<string | null>(null);
+// Popover piece per cawangan (hover card reka-ui tak boleh dipercayai dlm app ni - tukar ke
+// Popover, pattern yg dah terbukti berfungsi, rujuk "Setting Paras"). Kunci = design + cawangan,
+// sebab beberapa badge cawangan boleh wujud serentak dlm SATU baris.
+const piecePopoverKey = ref<string | null>(null);
+
+function pieceKey(item: RestockItem, store: string): string {
+    return `${rowKey(item)}:${store}`;
+}
 
 // ===== Kumpulan paparan Senarai Restock (sama dgn Export/PDF - rujuk RestockListBuilder::sections()) =====
 interface RestockSection {
@@ -778,8 +826,6 @@ async function loadPendingLatestSales() {
         toast.error((e as Error).message);
     }
 }
-
-watch(() => pendingRestock.value.map((i) => i.internal_code).join(','), loadPendingLatestSales, { immediate: true });
 
 // ===== Supplier (super_admin) - dimuat ATAS PERMINTAAN dgn tempoh jualan (lalai 30 hari, maks 2 tahun) =====
 interface SupplierVendor {
@@ -982,6 +1028,13 @@ const lines = computed<Line[]>(() => {
             : l;
     });
 });
+
+// Diletak SELEPAS `lines`/`rawLines` (bukan terus lepas loadPendingLatestSales/pendingRestock
+// ditakrif) - watch() dgn getter function ("() => ...") sentiasa jalankan getter tu SEKALI SERTA-
+// MERTA (regardless of `immediate`) utk daftar dependency, & getter ni (via pendingRestock) akhirnya
+// baca `lines.value` - kalau watch() ni letak SEBELUM `const lines = computed(...)` ditakrif,
+// `lines` kena TDZ ("Cannot access before initialization"), pecahkan SELURUH page setup().
+watch(() => pendingRestock.value.map((i) => i.internal_code).join(','), loadPendingLatestSales, { immediate: true });
 
 const labelByValue = computed<Record<string, string>>(() =>
     Object.fromEntries(props.fulfillmentOptions.map((o) => [o.value, o.label])),
@@ -2980,20 +3033,48 @@ function save(andPrint = false, afterSave?: () => void) {
                                             <td class="py-2 px-1.5 pr-3">
                                                 <template v-if="restockGroup !== 'branch'">
                                                     <div class="flex flex-wrap gap-1">
-                                                        <Badge v-for="s in item.stock" :key="s.store_code"
-                                                            variant="outline" size="sm" class="gap-1 text-[9px]"
-                                                            :class="stockChipClass(item, s)"
-                                                            :title="requestDotTitle(item, s.store_code)">
-                                                            <span v-if="requestedOf(item, s.store_code)"
-                                                                class="size-1.5 rounded-full"
-                                                                :class="requestShort(item, s.store_code) ? 'bg-warning' : 'bg-blue-600'" />
-                                                            {{ s.store_code }} {{ s.stock }}
-                                                            <template v-if="allocOf(item, s.store_code) > 0">
-                                                                &rarr; {{ s.stock + allocOf(item, s.store_code) }}
-                                                                <span class="text-primary">(+{{ allocOf(item,
-                                                                    s.store_code) }})</span>
-                                                            </template>
-                                                        </Badge>
+                                                        <Popover v-for="s in item.stock" :key="s.store_code"
+                                                            :open="piecePopoverKey === pieceKey(item, s.store_code)"
+                                                            @update:open="(o: boolean) => {
+                                                                piecePopoverKey = o ? pieceKey(item, s.store_code) : null;
+                                                                if (o) loadBranchPieces(item.internal_code);
+                                                            }">
+                                                            <PopoverTrigger as="span"
+                                                                :class="cn(badgeVariants({ variant: 'outline' }), 'cursor-pointer gap-1 text-[9px] transition-colors hover:bg-accent hover:border-primary/60 hover:shadow-sm data-[state=open]:border-primary data-[state=open]:bg-accent', stockChipClass(item, s))"
+                                                                :title="requestDotTitle(item, s.store_code)">
+                                                                <span v-if="requestedOf(item, s.store_code)"
+                                                                    class="size-1.5 rounded-full"
+                                                                    :class="requestShort(item, s.store_code) ? 'bg-warning' : 'bg-blue-600'" />
+                                                                {{ s.store_code }} {{ s.stock }}
+                                                                <template v-if="allocOf(item, s.store_code) > 0">
+                                                                    &rarr; {{ s.stock + allocOf(item, s.store_code) }}
+                                                                    <span class="text-primary">(+{{ allocOf(item,
+                                                                        s.store_code) }})</span>
+                                                                </template>
+                                                                <Search class="size-2.5 opacity-40" />
+                                                            </PopoverTrigger>
+                                                            <PopoverContent class="w-56 p-2" align="start">
+                                                                <p
+                                                                    class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                                                    {{ s.store_code }} - piece sedia ada
+                                                                </p>
+                                                                <Skeleton
+                                                                    v-if="!branchPieces[item.internal_code] && branchPiecesLoading[item.internal_code]"
+                                                                    class="h-8 w-full" />
+                                                                <ul v-else-if="branchPiecesFor(item.internal_code, s.store_code).length"
+                                                                    class="flex flex-col gap-1 text-xs">
+                                                                    <li v-for="(p, i) in branchPiecesFor(item.internal_code, s.store_code)"
+                                                                        :key="i"
+                                                                        class="flex items-center justify-between rounded-md bg-muted/40 px-2 py-1">
+                                                                        <span>{{ p.size ? `Saiz ${p.size}` : 'Saiz -' }}</span>
+                                                                        <span v-if="p.weight">{{ p.weight }}g</span>
+                                                                    </li>
+                                                                </ul>
+                                                                <p v-else class="text-xs text-muted-foreground">
+                                                                    Tiada piece direkodkan.
+                                                                </p>
+                                                            </PopoverContent>
+                                                        </Popover>
                                                     </div>
                                                     <p
                                                         class="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
