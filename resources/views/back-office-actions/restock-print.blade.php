@@ -63,7 +63,9 @@
                     <th>Permintaan cawangan (saiz / berat / qty)</th>
                     <th>{!! $group === 'branch' ? 'Stok cawangan ini &rarr; selepas order' : 'Stok semasa &rarr; selepas order' !!}</th>
                     <th class="num">Paras</th>
-                    <th>Jualan terkini</th>
+                    @if ($withLatestSales)
+                        <th>Jualan terkini</th>
+                    @endif
                     @if ($withSuppliers)
                         <th>Kod supplier teratas (terjual {{ $supplierDays }} hari)</th>
                     @endif
@@ -83,8 +85,7 @@
                         </td>
                         <td>
                             <div class="code">{{ $item['internal_code'] }}</div>
-                            <div class="muted">{{ $item['description'] }}@if ($item['nickname']) &middot; &quot;{{ $item['nickname'] }}&quot;@endif</div>
-                            @if ($item['category_name'])<div class="muted">{{ $item['category_name'] }}</div>@endif
+                            <div class="muted">{{ $item['description'] }}@if ($item['nickname']) &middot; {{ $item['nickname'] }}@endif</div>
                         </td>
                         <td>
                             @if (count($item['requests']))
@@ -110,18 +111,20 @@
                             @endif
                         </td>
                         <td class="num">{{ \App\Support\RestockListBuilder::describeParas($item) }}</td>
-                        <td>
-                            @if (! empty($item['last_sale']))
-                                {{ \Illuminate\Support\Carbon::parse($item['last_sale']['date'])->format('d/m/Y') }}
-                                <div class="muted">
-                                    {{ $item['last_sale']['days_ago'] === 0 ? 'hari ini' : ($item['last_sale']['days_ago'] === 1 ? 'semalam' : $item['last_sale']['days_ago'].' hari lepas') }}
-                                    &middot; {{ $item['last_sale']['store'] }}
-                                </div>
-                                <div class="muted">{{ $item['last_sale']['sold_30d'] }} unit terjual (30 hari)</div>
-                            @else
-                                <span class="muted">Belum pernah terjual</span>
-                            @endif
-                        </td>
+                        @if ($withLatestSales)
+                            <td>
+                                @if (! empty($item['last_sale']))
+                                    {{ \Illuminate\Support\Carbon::parse($item['last_sale']['date'])->format('d/m/Y') }}
+                                    <div class="muted">
+                                        {{ $item['last_sale']['days_ago'] === 0 ? 'hari ini' : ($item['last_sale']['days_ago'] === 1 ? 'semalam' : $item['last_sale']['days_ago'].' hari lepas') }}
+                                        &middot; {{ $item['last_sale']['store'] }}
+                                    </div>
+                                    <div class="muted">{{ $item['last_sale']['sold_30d'] }} unit terjual (30 hari)</div>
+                                @else
+                                    <span class="muted">Belum pernah terjual</span>
+                                @endif
+                            </td>
+                        @endif
                         @if ($withSuppliers)
                             <td>
                                 @foreach ($item['suppliers'] as $v)

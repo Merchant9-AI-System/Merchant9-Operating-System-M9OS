@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Deferred, Head, router } from '@inertiajs/vue3';
-import { Check, ChevronDown, CircleDot, Download, FileSpreadsheet, Loader2, MousePointerClick, Printer, Save, Search, X } from '@lucide/vue';
+import { Check, ChevronDown, CircleDot, Download, FileSpreadsheet, Loader2, MousePointerClick, Printer, Save, Search, Trash2, X } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import FacetedFilter from '@/components/FacetedFilter.vue';
@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardAction, CardTitle, CardDescription } from '@/components/ui/card';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { DateRangePicker } from '@/components/ui/date-picker';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
@@ -131,6 +132,9 @@ interface DesignGroup {
     rearrange_qty: number;
     restock_qty: number;
     action: 'rearrange' | 'restock' | 'both' | null;
+    // Tarikh permintaan PALING TERKINI antara semua line dalam design ni (beberapa cawangan/permintaan
+    // boleh ada tarikh berbeza) - dipakai utk susun ikut "Tarikh" (rujuk sortValue()).
+    latest_requested_at: string | null;
 }
 
 // Senarai Restock tersimpan (RestockListItem). `requests` = cawangan yg request (saiz/berat dari
@@ -204,12 +208,21 @@ interface LogEntry {
     from: string;
     to: string;
     at?: string;
+    // Nilai status MENTAH (bukan label) sebelum perubahan ni - dipakai utk "Undo" (re-stage balik
+    // nilai ni) selepas entry masuk "Telah disimpan". Tiada utk entry Senarai Restock (restock-*).
+    fromStatus?: string;
+    // true = perubahan ni Rearrange (dah cipta StockTransfer SEBENAR) - "Undo" TAK ditawarkan utk
+    // jenis ni (tak cukup sekadar tukar fulfillment_status balik - transfer perlu dibatalkan
+    // berasingan, di luar skop papan BO ni buat masa ini).
+    isRearrange?: boolean;
 }
 
 const props = defineProps<{
     board?: Board;
     restock?: { items: RestockItem[]; suppliers: RestockSupplier[] };
     canSeeSuppliers?: boolean;
+    // Lajur "Jualan terkini" Senarai Restock - super_admin & ceo sahaja, manager tak perlu.
+    canSeeLatestSales?: boolean;
     fulfillmentOptions: { value: string; label: string }[];
 }>();
 
@@ -233,30 +246,76 @@ const ACTION_LABEL: Record<string, string> = {
     both: 'Rearrange + Restock',
 };
 
+// Warna status penuhan line (sama semantik dgn BranchDemandRequestLine::FULFILLMENT_COLORS PHP) -
+// highlight status yg DAH diputuskan/selesai (dah_order/order/dah_restock/dah_delivery/item_not_available)
+// supaya BO terus nampak sebab "Tiada tindakan dicadangkan" (rujuk Cadangan Terperinci) tanpa keliru
+// dgn status yg MASIH perlu tindakan (requested/stok_kritikal/special_request/listed_noted/rearrange).
+const STATUS_BADGE_CLASS: Record<string, string> = {
+    requested: 'border-transparent bg-muted text-muted-foreground',
+    stok_kritikal: 'border-transparent bg-destructive text-destructive-foreground',
+    special_request: 'border-transparent bg-blue-600 text-white',
+    listed_noted: 'border-transparent bg-muted text-muted-foreground',
+    dah_order: 'border-transparent bg-warning text-warning-foreground',
+    dah_restock: 'border-transparent bg-warning text-warning-foreground',
+    dah_delivery: 'border-transparent bg-success text-success-foreground',
+    rearrange: 'border-transparent bg-blue-600 text-white',
+    order: 'border-transparent bg-warning text-warning-foreground',
+    item_not_available: 'border-transparent bg-destructive text-destructive-foreground',
+};
+
 const STATUS_REARRANGE = 'rearrange';
 const STATUS_RESTOCK_DEFAULT = 'order';
+
+// Status yg leader BO dah tak perlu tindakan lanjut (dah settle/takde apa boleh buat) - TAK ditick
+// drpd mula supaya papan default fokus kpd status yg masih perlu perhatian.
+const DEFAULT_HIDDEN_STATUSES = ['dah_restock', 'rearrange', 'item_not_available'];
 
 const search = ref('');
 // Penapis senarai (berbilang pilihan). Cawangan = tapis line; Kategori/Cadangan/Status = tapis design.
 const branchFilters = ref<string[]>([]);
 const categoryFilters = ref<string[]>([]);
 const actionFilters = ref<string[]>([]);
-const statusFilters = ref<string[]>([]);
+const statusFilters = ref<string[]>(
+    props.fulfillmentOptions.filter((o) => !DEFAULT_HIDDEN_STATUSES.includes(o.value)).map((o) => o.value),
+);
+// Julat tarikh permintaan (format 'YYYY-MM-DD', sama dgn DatePicker) - tapis ikut
+// group.latest_requested_at (rujuk designGroups). null = tiada had.
+const dateFrom = ref<string | null>(null);
+const dateTo = ref<string | null>(null);
 const onlyCritical = ref(false);
 // Pilihan pukal (kunci design) - tindakan footer terpakai kpd semua design dipilih yg kelihatan.
 const checkedKeys = ref<string[]>([]);
 const bulkPickerOpen = ref(false);
 
-type SortKey = 'design' | 'requested' | 'action' | 'status';
-const sortKey = ref<SortKey | null>(null);
-const sortDir = ref<'asc' | 'desc'>('asc');
+type SortKey = 'design' | 'requested' | 'action' | 'status' | 'date';
+// Lalai: permintaan paling TERKINI dulu (rujuk toggleSort() - "Tarikh" jugak mula drpd menurun,
+// jadi keadaan lalai ni sepadan dgn keadaan pertama butang "Tarikh Req" diklik).
+const sortKey = ref<SortKey | null>('date');
+const sortDir = ref<'asc' | 'desc'>('desc');
 const selectedKey = ref<string | null>(null);
 // Override: tindakan di footer cuma utk SATU cawangan (id line) dan bukan semua cawangan design ni.
 const overrideLineId = ref<number | null>(null);
 const period = ref<'7d' | '30d'>('7d');
 const staged = ref<Record<number, Staged>>({});
+// Line yg DAH berjaya dihantar (quickSave/save) tapi override `staged` tu sendiri sengaja belum
+// dibuang (rujuk watcher reconcileStagedWithBoard bersama rawLines) - elak "double update"/kelip.
+// isPending() pakai ni utk bezakan "menunggu dihantar" drpd "dah dihantar, tunggu board sahkan".
+const confirming = ref<Record<number, true>>({});
 const savedLog = ref<LogEntry[]>([]);
 const saving = ref(false);
+// Confirm dialog SEBELUM auto-save Rearrange/Masuk Restock (satu design/override) - rujuk quickSave().
+// Masuk Restock PUKAL guna dialog sedia ada (restockDialogOpen/submitRestock) - bukan ni.
+const rearrangeConfirmOpen = ref(false);
+const restockConfirmOpen = ref(false);
+// Confirm dialog SEBELUM auto-save "Tanda Dah Order" / "Buang" (SATU item Senarai Restock TERSIMPAN -
+// rujuk askOrdered()/askRemove()/quickSaveRestock()). Item "pending" (belum disimpan langsung) tak
+// perlu dialog - buang terus (removeRow() unstage sahaja, tiada apa dihantar ke server).
+const orderedConfirmOpen = ref(false);
+const removeConfirmOpen = ref(false);
+const confirmTargetItem = ref<RestockItem | null>(null);
+// Item Senarai Restock yg edit dia (ordered/remove) DAH dihantar tapi belum disahkan drpd
+// `restock.items` refresh lagi - rujuk restockConfirming sama konsep dgn `confirming` (line).
+const restockConfirming = ref<Record<number, true>>({});
 
 const candidates = ref<Record<string, Candidate[]>>({});
 // Halaman calon seterusnya (butang "Muat Lagi") - kunci = kunci design; term carian yg sama dgn
@@ -366,7 +425,16 @@ const pendingRestock = computed<RestockItem[]>(() => {
     });
 });
 
-const restockRows = computed<RestockItem[]>(() => [...pendingRestock.value, ...restockItems.value]);
+// Item yg "Buang" ATAU "Dah Order" DAH disahkan server (restockConfirming, bukan sekadar staged)
+// terus ditapis keluar drpd paparan - dua2 keluarkan item drpd senarai DRAF (status jadi dipadam /
+// "ordered"), BO dah confirm & dapat toast berjaya, tak perlu tunggu `restock.items` refresh
+// (only:['flash'] sengaja langkau refresh tu, rujuk quickSaveRestock) utk nampak ia betul2 hilang.
+const restockRows = computed<RestockItem[]>(() => [...pendingRestock.value, ...restockItems.value]
+    .filter((item) => {
+        const edit = restockEdits.value[item.id];
+
+        return !((edit?.remove || edit?.ordered) && restockConfirming.value[item.id]);
+    }));
 
 function rowKey(item: RestockItem): string {
     return item.pending ? `pending-${item.internal_code}` : String(item.id);
@@ -672,7 +740,7 @@ function branchStockOf(item: RestockItem, store: string): number {
     return item.stock.find((s) => s.store_code === store)?.stock ?? 0;
 }
 
-const restockColumnCount = computed(() => (props.canSeeSuppliers ? 6 : 5));
+const restockColumnCount = computed(() => 4 + (props.canSeeLatestSales ? 1 : 0) + (props.canSeeSuppliers ? 1 : 0));
 
 // ===== Jualan terkini: baris tersimpan dibawa dlm data Senarai Restock; baris BELUM disimpan dimuat berasingan =====
 // undefined = sedang dimuat, null = tak pernah terjual.
@@ -687,6 +755,10 @@ function daysAgoLabel(days: number): string {
 }
 
 async function loadPendingLatestSales() {
+    if (!props.canSeeLatestSales) {
+        return;
+    }
+
     const missing = pendingRestock.value.map((i) => i.internal_code).filter((code) => !(code in pendingLatestSales.value));
 
     if (missing.length === 0) {
@@ -798,8 +870,12 @@ function isOrderedRow(item: RestockItem): boolean {
     return !item.pending && !!restockEdits.value[item.id]?.ordered;
 }
 
+// isRestockPending (bukan raw restockEdits) - lepas quickSaveRestock/quickSaveRestockPlan berjaya,
+// row ni dah "selesai" dr sudut pandang BO (dah disimpan), jadi dimmed "belum simpan" patut hilang
+// serta-merta walaupun override nilai sendiri (target/branchTargets) kekal sehingga board/restock
+// sahkan (rujuk watcher restockEditMatchesFresh - elak kelip NILAI, bukan label "belum simpan" ni).
 function isEditedRow(item: RestockItem): boolean {
-    return !item.pending && !!restockEdits.value[item.id] && !restockEdits.value[item.id].remove && !restockEdits.value[item.id].ordered;
+    return !item.pending && isRestockPending(item.id) && !restockEdits.value[item.id].remove && !restockEdits.value[item.id].ordered;
 }
 
 // Buang: baris baru -> batalkan status Order (kod yg BO pilih dikekalkan); baris tersimpan -> tanda buang.
@@ -827,6 +903,66 @@ function planHint(item: RestockItem): string {
 }
 
 const rawLines = computed<Line[]>(() => props.board?.lines ?? []);
+
+// Buang override `staged` SATU-SATU, bila-bila SAHAJA board() yg baru refresh (deferred prop)
+// menunjukkan server dah betul2 simpan status yg sama - bukan serta-merta lepas POST balik (rujuk
+// quickSave()/save() onSuccess). Dgn ni, bila override dibuang effectiveStatus() TAK berubah secara
+// visual (dah sama drpd dua sumber), elak baris "jatuh balik" ke status lama sekejap sblm lompat ke
+// status baharu (double update/kelip yg BO nampak - terutama preview "Masuk Restock" hilang-muncul
+// balik). `rawLines` (bukan `lines` - yg gabung preview code pula, lain tujuan) sumber data sebenar.
+watch(rawLines, (fresh) => {
+    for (const id of Object.keys(staged.value).map(Number)) {
+        const freshLine = fresh.find((l) => l.id === id);
+
+        if (freshLine && freshLine.fulfillment_status === staged.value[id].status) {
+            delete staged.value[id];
+            delete confirming.value[id];
+        }
+    }
+});
+
+// Sama konsep - "Dah Order"/"Buang" (quickSaveRestock) buang item drpd senarai draf SEBENAR (status
+// jadi "ordered", atau baris dipadam terus) - bila item ni dah TIADA lagi dlm `restock.items` segar,
+// edit tu dah disahkan, selamat buang override tanpa sebarang kesan visual (dah padan apa yg dipapar).
+// Edit paras (target/branchTargets) TAK buang item drpd `restock.items` (beza drpd ordered/remove) -
+// item kekal, cuma nilainya berubah. Jadi utk edit jenis ni, reconcile bila NILAI segar dah PADAN
+// dgn apa yg di-stage (bukan sekadar "item tiada") - cuma utk edit yg kita TAHU dah dihantar
+// (restockConfirming), elak tersalah buang edit yg belum dihantar langsung.
+function restockEditMatchesFresh(edit: RestockEdit, fresh: RestockItem): boolean {
+    if (edit.qty !== undefined && edit.qty !== fresh.qty_to_order) {
+        return false;
+    }
+    if (edit.target !== undefined && edit.target !== fresh.target_stock) {
+        return false;
+    }
+    if (edit.branchTargets !== undefined && !sameTargets(edit.branchTargets, fresh.branch_targets)) {
+        return false;
+    }
+
+    return true;
+}
+
+watch(() => props.restock?.items, (fresh) => {
+    if (!fresh) {
+        return;
+    }
+
+    for (const id of Object.keys(restockEdits.value).map(Number)) {
+        const freshItem = fresh.find((i) => i.id === id);
+
+        if (!freshItem) {
+            delete restockEdits.value[id];
+            delete restockConfirming.value[id];
+
+            continue;
+        }
+
+        if (restockConfirming.value[id] && restockEditMatchesFresh(restockEdits.value[id], freshItem)) {
+            delete restockEdits.value[id];
+            delete restockConfirming.value[id];
+        }
+    }
+});
 
 // Line yg BO dah pilihkan kod design guna data pratonton server (kod, cadangan, donor) - status
 // penuhan kekal drpd data sebenar.
@@ -901,6 +1037,7 @@ const groupedDesigns = computed<DesignGroup[]>(() => {
                 rearrange_qty: 0,
                 restock_qty: 0,
                 action: null,
+                latest_requested_at: null,
             };
             byKey.set(line.design_key, group);
         }
@@ -915,6 +1052,9 @@ const groupedDesigns = computed<DesignGroup[]>(() => {
             group.image_reference = line.image_reference;
         }
         group.category_name ??= line.category_name;
+        if (line.requested_at && (!group.latest_requested_at || line.requested_at > group.latest_requested_at)) {
+            group.latest_requested_at = line.requested_at;
+        }
     }
 
     // Cadangan peringkat design: gabungan semua cawangan (cawangan yg dah diputuskan BO tak dikira).
@@ -975,6 +1115,8 @@ function sortValue(group: DesignGroup, key: SortKey): string | number {
             return group.action ? ACTION_RANK[group.action] : 0;
         case 'status':
             return (groupStatus(group) ? labelOf(groupStatus(group)) : 'Bercampur').toLowerCase();
+        case 'date':
+            return group.latest_requested_at ? new Date(group.latest_requested_at).getTime() : 0;
     }
 }
 
@@ -987,8 +1129,21 @@ const designGroups = computed<DesignGroup[]>(() => {
         if (actionFilters.value.length && !actionFilters.value.includes(g.action ?? NO_ACTION)) {
             return false;
         }
+        if (dateFrom.value && (!g.latest_requested_at || g.latest_requested_at.slice(0, 10) < dateFrom.value)) {
+            return false;
+        }
+        if (dateTo.value && (!g.latest_requested_at || g.latest_requested_at.slice(0, 10) > dateTo.value)) {
+            return false;
+        }
 
-        return !statusFilters.value.length || g.lines.some((l) => statusFilters.value.includes(effectiveStatus(l)));
+        // Design dgn perubahan BELUM disimpan (staged) sentiasa lepas penapis Status, tak kira status
+        // baharu tu tertick atau tidak - elak design (& kad Tindakan dgn Save/Batal dia) terus hilang
+        // serta-merta bila BO tukar status ke satu yg kebetulan tersembunyi ikut penapis semasa
+        // (cth. default status tersembunyi: dah_restock/rearrange/item_not_available). BO tak sempat
+        // simpan/batal pun jadi "origin -> new, Belum Disimpan" kekal boleh diakses.
+        return !statusFilters.value.length
+            || g.lines.some((l) => statusFilters.value.includes(effectiveStatus(l)))
+            || g.lines.some((l) => !!staged.value[l.id]);
     });
 
     const key = sortKey.value;
@@ -1010,13 +1165,16 @@ const designGroups = computed<DesignGroup[]>(() => {
     });
 });
 
-// Klik pengepala: menaik -> menurun -> tiada susunan.
+// Klik pengepala: arah pertama -> arah kedua -> tiada susunan. Semua lajur mula drpd menaik,
+// KECUALI "Tarikh" yg mula drpd menurun (terkini dulu - lebih berguna utk tarikh permintaan).
 function toggleSort(key: SortKey) {
+    const firstDir: 'asc' | 'desc' = key === 'date' ? 'desc' : 'asc';
+
     if (sortKey.value !== key) {
         sortKey.value = key;
-        sortDir.value = 'asc';
-    } else if (sortDir.value === 'asc') {
-        sortDir.value = 'desc';
+        sortDir.value = firstDir;
+    } else if (sortDir.value === firstDir) {
+        sortDir.value = firstDir === 'asc' ? 'desc' : 'asc';
     } else {
         sortKey.value = null;
     }
@@ -1026,7 +1184,7 @@ function sortDirection(key: SortKey): 'asc' | 'desc' | null {
     return sortKey.value === key ? sortDir.value : null;
 }
 
-const isFiltered = computed(() => !!search.value.trim() || onlyCritical.value
+const isFiltered = computed(() => !!search.value.trim() || onlyCritical.value || !!dateFrom.value || !!dateTo.value
     || branchFilters.value.length + categoryFilters.value.length + actionFilters.value.length + statusFilters.value.length > 0);
 
 function resetFilters() {
@@ -1036,6 +1194,8 @@ function resetFilters() {
     categoryFilters.value = [];
     actionFilters.value = [];
     statusFilters.value = [];
+    dateFrom.value = null;
+    dateTo.value = null;
 }
 
 const activeGroup = computed(() => designGroups.value.find((g) => g.key === selectedKey.value) ?? null);
@@ -1056,6 +1216,37 @@ const activeDesign = computed<Design | null>(() => {
 // Design dipilih (kotak semak) yg masih kelihatan selepas tapisan, ikut tertib jadual.
 const checkedGroups = computed(() => designGroups.value.filter((g) => checkedKeys.value.includes(g.key)));
 const isBulk = computed(() => checkedGroups.value.length > 0);
+
+// Kunci jenis tindakan pilihan (checkbox) design - sekali design restock-SAHAJA/rearrange-SAHAJA
+// dipilih, design jenis BERLAWANAN (bukan "both") dikunci drpd dipilih sekali. "Rearrange X unit" &
+// "Masuk Restock" masing2 perlukan senarai design SEJENIS - tak boleh gabung dua jenis bertentangan
+// dlm SATU tindakan pukal. Design "both" (perlukan KEDUA-DUA) dikecualikan - sentiasa boleh dipilih
+// & tak mengunci jenis lain (rujuk permintaan BO).
+const lockedActionType = computed<'rearrange' | 'restock' | null>(() => {
+    for (const group of checkedGroups.value) {
+        if (group.action === 'rearrange' || group.action === 'restock') {
+            return group.action;
+        }
+    }
+
+    return null;
+});
+
+function isCheckDisabled(group: DesignGroup): boolean {
+    const lock = lockedActionType.value;
+
+    return lock !== null && (group.action === 'rearrange' || group.action === 'restock') && group.action !== lock;
+}
+
+function checkDisabledReason(group: DesignGroup): string | undefined {
+    if (!isCheckDisabled(group)) {
+        return undefined;
+    }
+
+    return lockedActionType.value === 'restock'
+        ? 'Sudah ada design Restock dipilih - nyahtanda dulu sebelum pilih design Rearrange.'
+        : 'Sudah ada design Rearrange dipilih - nyahtanda dulu sebelum pilih design Restock.';
+}
 
 const isOverride = computed(() => !isBulk.value && !!activeGroup.value && overrideLineId.value !== null && activeGroup.value.lines.some((l) => l.id === overrideLineId.value));
 
@@ -1082,14 +1273,18 @@ const scopeLabel = computed(() => {
 });
 const scopeRearrange = computed(() => scopeLines.value.reduce((sum, l) => sum + (l.action ? l.rearrange_qty : 0), 0));
 const scopeRestock = computed(() => scopeLines.value.reduce((sum, l) => sum + (l.action ? l.restock_qty : 0), 0));
-const scopeStaged = computed(() => scopeLines.value.filter((l) => staged.value[l.id]).length);
+const scopeStagedLines = computed(() => scopeLines.value.filter((l) => isPending(l.id)));
+const scopeStaged = computed(() => scopeStagedLines.value.length);
 const scopeStatus = computed(() => {
     const set = new Set(scopeLines.value.map(effectiveStatus));
 
     return set.size === 1 ? Array.from(set)[0] : '';
 });
 
-const allVisibleChecked = computed(() => designGroups.value.length > 0 && designGroups.value.every((g) => checkedKeys.value.includes(g.key)));
+// "Pilih semua" header cuma kira design yg BOLEH dipilih (bukan dikunci drpd jenis tindakan
+// bertentangan) - rujuk lockedActionType/isCheckDisabled.
+const selectableVisibleGroups = computed(() => designGroups.value.filter((g) => !isCheckDisabled(g)));
+const allVisibleChecked = computed(() => selectableVisibleGroups.value.length > 0 && selectableVisibleGroups.value.every((g) => checkedKeys.value.includes(g.key)));
 // Header "pilih semua": penuh = true, sebahagian = 'indeterminate'.
 const headerCheckState = computed<boolean | 'indeterminate'>(() => {
     if (allVisibleChecked.value) {
@@ -1100,6 +1295,10 @@ const headerCheckState = computed<boolean | 'indeterminate'>(() => {
 });
 
 function toggleChecked(group: DesignGroup, checked: boolean) {
+    if (checked && isCheckDisabled(group)) {
+        return;
+    }
+
     checkedKeys.value = checked
         ? [...checkedKeys.value.filter((k) => k !== group.key), group.key]
         : checkedKeys.value.filter((k) => k !== group.key);
@@ -1111,13 +1310,13 @@ function toggleChecked(group: DesignGroup, checked: boolean) {
 }
 
 function toggleAllVisible(checked: boolean) {
-    const visible = new Set(designGroups.value.map((g) => g.key));
+    const visible = new Set(selectableVisibleGroups.value.map((g) => g.key));
     const rest = checkedKeys.value.filter((k) => !visible.has(k));
 
     checkedKeys.value = checked ? [...rest, ...visible] : rest;
 
-    if (checked && !selectedKey.value && designGroups.value.length) {
-        selectedKey.value = designGroups.value[0].key;
+    if (checked && !selectedKey.value && selectableVisibleGroups.value.length) {
+        selectedKey.value = selectableVisibleGroups.value[0].key;
     }
 }
 
@@ -1151,7 +1350,7 @@ function toggleOverride() {
 const activePreview = computed(() => (activeGroup.value?.code ? previews.value[activeGroup.value.code] ?? null : null));
 const needsDesignCode = computed(() => !!activeGroup.value && !activeGroup.value.code);
 
-const stagedCount = computed(() => Object.keys(staged.value).length + Object.keys(restockEdits.value).length);
+const stagedCount = computed(() => Object.keys(staged.value).filter((id) => isPending(Number(id))).length + Object.keys(restockEdits.value).filter((id) => isRestockPending(Number(id))).length);
 
 async function getJson<T>(url: string): Promise<T> {
     const res = await fetch(url, {
@@ -1343,8 +1542,9 @@ function submitRestock() {
     const skipped = dialogUncoded.value.length;
 
     restockDialogOpen.value = false;
+    quickSave(targets);
     toast.success(
-        `${dialogDesignCount.value} design (${targets.length} cawangan) masuk Senarai Restock di bawah. Tekan Simpan untuk menyimpan.`
+        `${dialogDesignCount.value} design (${targets.length} cawangan) dimasukkan & disimpan ke Senarai Restock.`
         + (skipped ? ` ${skipped} design tanpa code dilangkau.` : ''),
     );
 }
@@ -1364,8 +1564,18 @@ function groupStatus(group: DesignGroup): string {
     return set.size === 1 ? Array.from(set)[0] : '';
 }
 
+// true = ada override `staged` DAN belum dihantar lagi (bukan dah dihantar & tunggu board sahkan).
+function isPending(id: number): boolean {
+    return !!staged.value[id] && !confirming.value[id];
+}
+
+// Sama konsep dgn isPending() tapi utk edit Senarai Restock (restockEdits, rujuk quickSaveRestock()).
+function isRestockPending(id: number): boolean {
+    return !!restockEdits.value[id] && !restockConfirming.value[id];
+}
+
 function stagedIn(group: DesignGroup): number {
-    return group.lines.filter((l) => staged.value[l.id]).length;
+    return group.lines.filter((l) => isPending(l.id)).length;
 }
 
 function describeMoves(moves: Move[], to: string): string {
@@ -1443,14 +1653,14 @@ function applyRestock() {
         : [];
 
     toast.success(
-        `${isBulk.value ? `${entered.size} design` : Array.from(entered)[0]} masuk Senarai Restock di bawah. Tekan Simpan untuk menyimpan.`
+        `${isBulk.value ? `${entered.size} design` : Array.from(entered)[0]} dimasukkan & disimpan ke Senarai Restock.`
         + (skipped.length ? ` Dilangkau (tiada unit perlu Restock / tiada code): ${skipped.join(', ')}.` : ''),
     );
 }
 
 function applyStatus(status: string) {
     if (status === STATUS_REARRANGE) {
-        applyRearrange();
+        rearrangeConfirmOpen.value = true;
 
         return;
     }
@@ -1468,6 +1678,10 @@ function clearStaged(id: number) {
 
 const stagedEntries = computed<LogEntry[]>(() => [
     ...Object.entries(staged.value).flatMap(([id, s]) => {
+        if (!isPending(Number(id))) {
+            return [];
+        }
+
         const line = lines.value.find((l) => l.id === Number(id));
 
         return line
@@ -1477,10 +1691,16 @@ const stagedEntries = computed<LogEntry[]>(() => [
                 store: line.store_code,
                 from: labelOf(line.fulfillment_status),
                 to: describeStaged(line, s),
+                fromStatus: line.fulfillment_status,
+                isRearrange: s.status === STATUS_REARRANGE,
             }]
             : [];
     }),
     ...Object.entries(restockEdits.value).flatMap(([id, edit]) => {
+        if (!isRestockPending(Number(id))) {
+            return [];
+        }
+
         const item = restockItems.value.find((i) => i.id === Number(id));
 
         return item
@@ -1549,6 +1769,287 @@ function handleExport(kind: 'excel' | 'pdf') {
     }
 }
 
+// Simpan SEGERA perubahan status SATU skop line sahaja (Rearrange/Masuk Restock/status Tindakan) -
+// ciri "auto save": BO tak perlu scroll ke butang Simpan di bawah lagi utk tindakan di kad Tindakan.
+// Line LAIN yg masih "Menunggu simpan" (cth. suntingan Senarai Restock, atau design lain yg BO
+// belum simpan) TAK disentuh - cuma `changes` line dlm `targetLines` dihantar & dibuang dr `staged`
+// lepas berjaya. `restock_new` (qty/paras design restock BAHARU yg BO ubah sendiri SEBELUM save)
+// sengaja TAK dihantar di sini (nilai cadangan lalai server tetap betul - rujuk
+// BackOfficeActionsController::syncRestockItems() - cuma kes nadir BO sempat ubah qty dlm tempoh
+// amat singkat antara klik & confirm dialog yg terlepas, perlu Simpan biasa utk kemaskini tu).
+//
+// only:['flash'] - LANGKAU terus board()/restock() (berat, ~5-7s) dlm response ni. Paparan terus
+// pakai state optimistic sedia ada (`staged`/effectiveStatus/pendingRestock - dah betul & selamat
+// drpd sudut backend, rujuk rearrangePlan() yg sentiasa sahkan semula stok SEBENAR dlm transaksi,
+// bukan percaya data client), BUKAN tunggu board refresh - elak "macam refresh"/progress bar lama yg
+// melambatkan BO pilih item seterusnya. Baris ni settle (watcher reconcileStagedWithBoard di atas)
+// bila-bila SAHAJA board() betul2 refresh lain kali (Simpan/Simpan & Print bawah, atau load semula
+// page) - tiada risiko data silap sebab backend sentiasa sahkan semula, cuma paparan jadi "stale
+// sehingga refresh penuh seterusnya", bukan salah.
+function quickSave(targetLines: Line[]) {
+    const ids = new Set(targetLines.map((l) => l.id));
+    const changes = Object.entries(staged.value)
+        .filter(([id]) => ids.has(Number(id)))
+        .map(([id, s]) => ({
+            line_id: Number(id),
+            fulfillment_status: s.status,
+            moves: s.moves ?? null,
+            internal_code: s.internal_code ?? null,
+        }));
+
+    if (changes.length === 0) {
+        return;
+    }
+
+    const entries = stagedEntries.value.filter((e) => ids.has(Number(e.key)));
+
+    router.post('/back-office-actions', { changes, restock_items: null, restock_new: null }, {
+        preserveScroll: true,
+        preserveState: true,
+        only: ['flash'],
+        onStart: () => {
+            saving.value = true;
+        },
+        onSuccess: () => {
+            const at = new Date().toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit' });
+            savedLog.value = [...entries.map((e) => ({ ...e, at })), ...savedLog.value].slice(0, 50);
+            // `staged` entry ni SENGAJA tak dibuang di sini - rujuk watcher reconcileStagedWithBoard()
+            // (elak "double update": kalau dibuang serta-merta, baris/preview restock tu hilang dulu
+            // sebelum data SEBENAR drpd board() yg baru refresh sampai, nampak macam kelip). `confirming`
+            // tanda ia dah DIHANTAR (bukan lagi "menunggu simpan") sementara tunggu board sahkan.
+            ids.forEach((id) => {
+                confirming.value[id] = true;
+            });
+            checkedKeys.value = checkedKeys.value.filter((k) => !targetLines.some((l) => l.design_key === k));
+        },
+        onError: (errors) => {
+            toast.error(String(errors.changes ?? Object.values(errors)[0] ?? 'Gagal menyimpan perubahan.'));
+        },
+        onFinish: () => {
+            saving.value = false;
+        },
+    });
+}
+
+function confirmRearrange() {
+    rearrangeConfirmOpen.value = false;
+    const targets = scopeLines.value.filter((l) => l.moves.length > 0);
+    applyRearrange();
+    quickSave(targets);
+}
+
+function confirmRestock() {
+    restockConfirmOpen.value = false;
+    const targets = scopeLines.value.filter((l) => l.restock_qty > 0);
+    applyRestock();
+    quickSave(targets);
+}
+
+function saveScopeNow() {
+    quickSave(scopeStagedLines.value);
+}
+
+// "Undo" entry "Telah disimpan" - re-stage status SEBELUM perubahan tu & auto-save balik serta-merta.
+// TIADA utk entry Rearrange (dah cipta StockTransfer SEBENAR - pembatalan transfer di luar skop
+// papan ni) atau entry Senarai Restock (rujuk LogEntry.isRearrange / key `restock-*`).
+function undoSaved(entry: LogEntry) {
+    if (!entry.fromStatus) {
+        return;
+    }
+
+    const line = lines.value.find((l) => String(l.id) === entry.key);
+
+    if (!line) {
+        toast.error('Line ini sudah tiada - mungkin telah diuruskan di tempat lain.');
+
+        return;
+    }
+
+    stageStatus(line, entry.fromStatus);
+    quickSave([line]);
+}
+
+// Simpan SEGERA edit "Tanda Dah Order" / "Buang" SATU item Senarai Restock TERSIMPAN - only:['flash']
+// sama sebab/corak dgn quickSave() (langkau board()/restock() berat, elak "macam refresh"). Edit qty/
+// paras (NumberField/"Ikut cawangan") TIDAK pakai fungsi ni - kekal batch+Simpan biasa (rujuk
+// permintaan BO - cuma 2 butang Dah Order/Buang yg nak auto-save+confirm buat masa ini).
+function quickSaveRestock(ids: number[]) {
+    const restock_items = ids.flatMap((id) => {
+        const edit = restockEdits.value[id];
+        const item = restockItems.value.find((i) => i.id === id);
+
+        if (!edit || !item) {
+            return [];
+        }
+
+        const planChanged = edit.target !== undefined || edit.branchTargets !== undefined;
+
+        return [{
+            id,
+            qty: edit.qty ?? (planChanged || edit.ordered ? rowQty(item) : null),
+            remove: edit.remove ?? false,
+            ordered: edit.ordered ?? false,
+            ...(edit.target !== undefined ? { target_stock: edit.target } : {}),
+            ...(edit.branchTargets !== undefined ? { branch_targets: edit.branchTargets } : {}),
+        }];
+    });
+
+    if (restock_items.length === 0) {
+        return;
+    }
+
+    const entries = stagedEntries.value.filter((e) => ids.some((id) => e.key === `restock-${id}`));
+
+    router.post('/back-office-actions', { changes: null, restock_items, restock_new: null }, {
+        preserveScroll: true,
+        preserveState: true,
+        only: ['flash'],
+        onStart: () => {
+            saving.value = true;
+        },
+        onSuccess: () => {
+            const at = new Date().toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit' });
+            savedLog.value = [...entries.map((e) => ({ ...e, at })), ...savedLog.value].slice(0, 50);
+            // `restockEdits` entry SENGAJA tak dibuang di sini - rujuk watcher reconcileRestockWithServer
+            // (item ni kekal papar status "Dah Order"/"Buang" sehingga `restock.items` sahkan ia dah
+            // tiada drpd senarai draf, elak kelip/"double update" yg sama).
+            ids.forEach((id) => {
+                restockConfirming.value[id] = true;
+            });
+        },
+        onError: (errors) => {
+            toast.error(String(errors.changes ?? Object.values(errors)[0] ?? 'Gagal menyimpan perubahan.'));
+        },
+        onFinish: () => {
+            saving.value = false;
+        },
+    });
+}
+
+// "Batal" (nyahtanda edit yg masih staged, BELUM dihantar) - terus, tiada confirm/auto-save perlu
+// (rujuk isRestockPending - tiada apa utk disahkan). "Tanda Dah Order" (mula tindakan) - minta sahkan
+// dulu (auto-save serta-merta lepas confirm, rujuk quickSaveRestock).
+function askOrdered(item: RestockItem) {
+    if (isOrderedRow(item) && isRestockPending(item.id)) {
+        toggleOrdered(item);
+
+        return;
+    }
+
+    confirmTargetItem.value = item;
+    orderedConfirmOpen.value = true;
+}
+
+// Item "pending" (belum pernah disimpan) - buang terus (unstage line, tiada apa dihantar ke server).
+// Item tersimpan - minta sahkan dulu (dah masuk Senarai Restock SEBENAR, nak buang perlu confirm).
+function askRemove(item: RestockItem) {
+    if (item.pending) {
+        removeRow(item);
+
+        return;
+    }
+
+    confirmTargetItem.value = item;
+    removeConfirmOpen.value = true;
+}
+
+function confirmOrdered() {
+    const item = confirmTargetItem.value;
+    orderedConfirmOpen.value = false;
+    confirmTargetItem.value = null;
+
+    if (!item) {
+        return;
+    }
+
+    toggleOrdered(item);
+    quickSaveRestock([item.id]);
+}
+
+function confirmRemove() {
+    const item = confirmTargetItem.value;
+    removeConfirmOpen.value = false;
+    confirmTargetItem.value = null;
+
+    if (!item) {
+        return;
+    }
+
+    removeRestockItem(item);
+    quickSaveRestock([item.id]);
+}
+
+// Simpan SEGERA paras (lalai + pengecualian cawangan) SATU item Senarai Restock - rujuk butang
+// "Simpan Paras" dlm popover "Setting Paras". Item "pending" (belum pernah disimpan) guna
+// `restock_new` (kod design, bukan id - tiada id sebenar lagi di client); item tersimpan guna
+// `restock_items` macam biasa. Qty TAK disertakan (rujuk server - restockPlanFor() kira suggested_qty
+// semula drpd paras baharu secara automatik bila qty tak dihantar & qty semasa = cadangan lama).
+function quickSaveRestockPlan(item: RestockItem) {
+    const target = targetOf(item);
+    const branchTargets = branchTargetsOf(item);
+
+    if (!planEdited(item)) {
+        branchPopoverKey.value = null;
+
+        return;
+    }
+
+    const payload = item.pending
+        ? {
+            changes: null,
+            restock_items: null,
+            restock_new: [{
+                internal_code: item.internal_code,
+                qty: rowQty(item),
+                target_stock: target,
+                branch_targets: branchTargets,
+            }],
+        }
+        : {
+            changes: null,
+            restock_new: null,
+            restock_items: [{
+                id: item.id,
+                qty: isAutoQty(item) ? null : rowQty(item),
+                remove: false,
+                ordered: false,
+                target_stock: target,
+                branch_targets: branchTargets,
+            }],
+        };
+
+    router.post('/back-office-actions', payload, {
+        preserveScroll: true,
+        preserveState: true,
+        only: ['flash'],
+        onStart: () => {
+            saving.value = true;
+        },
+        onSuccess: () => {
+            toast.success(`Paras ${item.internal_code} disimpan.`);
+
+            // `pendingTarget`/`pendingBranchTargets` (item.pending) & `restockEdits` (item tersimpan)
+            // SENGAJA tak dibuang serta-merta di sini - sama sebab dgn quickSave()/quickSaveRestock()
+            // (elak kelip: nilai LAMA drpd board/restock yg stale akan terpapar sekejap kalau override
+            // dibuang sblm data SEBENAR sampai). Item "pending" akan digantikan senyap oleh baris
+            // SEBENAR (bukan preview) bila `restock.items` refresh & kod ni dikira "persisted"
+            // (rujuk pendingRestock computed) - tiada cleanup eksplisit diperlukan. Item tersimpan
+            // direconcile oleh watcher restockEditMatchesFresh() bila nilai segar dah padan.
+            if (!item.pending) {
+                restockConfirming.value[item.id] = true;
+            }
+
+            branchPopoverKey.value = null;
+        },
+        onError: (errors) => {
+            toast.error(String(errors.changes ?? Object.values(errors)[0] ?? 'Gagal menyimpan paras.'));
+        },
+        onFinish: () => {
+            saving.value = false;
+        },
+    });
+}
+
 function save(andPrint = false, afterSave?: () => void) {
     if (stagedCount.value === 0) {
         toast.info('Tiada perubahan untuk disimpan.');
@@ -1608,7 +2109,12 @@ function save(andPrint = false, afterSave?: () => void) {
         onSuccess: () => {
             const at = new Date().toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit' });
             savedLog.value = [...entries.map((e) => ({ ...e, at })), ...savedLog.value].slice(0, 50);
-            staged.value = {};
+            // `staged` (fulfillment_status) SENGAJA tak dibuang di sini - rujuk watcher
+            // reconcileStagedWithBoard() (elak "double update"/kelip - baris jatuh balik ke status
+            // LAMA sekejap sebelum board() yg baru refresh sampai dgn status BAHARU).
+            changes.forEach((c) => {
+                confirming.value[c.line_id] = true;
+            });
             restockEdits.value = {};
             pendingQty.value = {};
             pendingTarget.value = {};
@@ -1663,22 +2169,36 @@ function save(andPrint = false, afterSave?: () => void) {
             <div class="flex flex-wrap items-center gap-3 min-w-0 lg:col-span-2">
                 <div class="flex-1 text-base font-semibold gap-1">Senarai Permintaan Cawangan</div>
                 <div class="flex flex-wrap items-center gap-2">
-                    <InputGroup class="min-w-56 flex-1 bg-white h-8">
+                    <InputGroup class="min-w-36 flex-1 bg-white h-8">
                         <InputGroupInput v-model="search"
                             placeholder="Cari kod design, keterangan, no. permintaan..." />
                         <InputGroupAddon>
                             <Search />
+                        </InputGroupAddon>
+                        <InputGroupAddon v-if="search" align="inline-end">
+                            <InputGroupButton type="button" size="icon-xs" aria-label="Kosongkan carian"
+                                @click="search = ''">
+                                <X />
+                            </InputGroupButton>
                         </InputGroupAddon>
                     </InputGroup>
                     <FacetedFilter v-model="branchFilters" title="Cawangan" :options="branchOptions" />
                     <FacetedFilter v-model="categoryFilters" title="Kategori" :options="categoryOptions" />
                     <FacetedFilter v-model="actionFilters" title="Cadangan" :options="actionOptions" />
                     <FacetedFilter v-model="statusFilters" title="Status" :options="statusOptions" />
+                    <div class="flex items-center gap-1">
+                        <DateRangePicker :start="dateFrom" :end="dateTo" placeholder="Julat tarikh permintaan"
+                            class="h-8" @update:start="(v) => (dateFrom = v)" @update:end="(v) => (dateTo = v)" />
+                        <Button v-if="dateFrom || dateTo" type="button" size="icon" class="size-8"
+                            aria-label="Kosongkan julat tarikh" @click="dateFrom = null; dateTo = null">
+                            <X class="size-3.5" />
+                        </Button>
+                    </div>
                     <Button type="button" size="sm" :variant="onlyCritical ? 'default' : 'outline'" class="h-8"
                         @click="onlyCritical = !onlyCritical">
                         Critical
                     </Button>
-                    <Button v-if="isFiltered" type="button" variant="ghost" size="sm" class="h-8 px-2 lg:px-3"
+                    <Button v-if="isFiltered" type="button" variant="ghost" size="sm" class="h-8 px-2 lg:px-3 hover:underline"
                         @click="resetFilters">
                         Reset
                         <X class="size-4" />
@@ -1696,6 +2216,7 @@ function save(andPrint = false, afterSave?: () => void) {
                                         <TableHead class="w-10 pr-0">
                                             <Skeleton class="size-4 rounded-[4px]" />
                                         </TableHead>
+                                        <TableHead class="w-28">Tarikh Req</TableHead>
                                         <TableHead>Design</TableHead>
                                         <TableHead class="w-32">Permintaan</TableHead>
                                         <TableHead class="w-36">Cadangan</TableHead>
@@ -1706,6 +2227,9 @@ function save(andPrint = false, afterSave?: () => void) {
                                     <TableRow v-for="row in 6" :key="row" class="hover:bg-transparent">
                                         <TableCell class="w-10 pr-0">
                                             <Skeleton class="size-4 rounded-[4px]" />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Skeleton class="h-4 w-16" />
                                         </TableCell>
                                         <TableCell>
                                             <div class="flex min-w-0 items-center gap-3">
@@ -1781,6 +2305,10 @@ function save(andPrint = false, afterSave?: () => void) {
                                                 aria-label="Pilih semua design yang kelihatan"
                                                 @update:model-value="(v) => toggleAllVisible(v === true)" />
                                         </TableHead>
+                                        <TableHead class="w-28">
+                                            <SortableHeader title="Tarikh Req" :direction="sortDirection('date')"
+                                                @sort="toggleSort('date')" />
+                                        </TableHead>
                                         <TableHead>
                                             <SortableHeader title="Design" :direction="sortDirection('design')"
                                                 @sort="toggleSort('design')" />
@@ -1810,8 +2338,13 @@ function save(andPrint = false, afterSave?: () => void) {
                                         @keydown.space.prevent="selectedKey = group.key">
                                         <TableCell class="w-10 pr-0">
                                             <Checkbox :model-value="checkedKeys.includes(group.key)"
-                                                :aria-label="`Pilih ${group.title}`" @click.stop @keydown.stop
+                                                :disabled="isCheckDisabled(group)"
+                                                :aria-label="`Pilih ${group.title}`" :title="checkDisabledReason(group)"
+                                                @click.stop @keydown.stop
                                                 @update:model-value="(v) => toggleChecked(group, v === true)" />
+                                        </TableCell>
+                                        <TableCell class="text-sm text-muted-foreground">
+                                            {{ group.latest_requested_at ? formatDate(group.latest_requested_at) : '-' }}
                                         </TableCell>
                                         <TableCell>
                                             <div class="flex min-w-0 items-center gap-3">
@@ -1888,7 +2421,8 @@ function save(andPrint = false, afterSave?: () => void) {
                         </div>
 
                         <div class="flex flex-wrap items-center justify-end gap-2">
-                            <NativeSelect :model-value="scopeStatus" :aria-label="`Status penuhan ${scopeLabel}`"
+                            <NativeSelect class="w-full" :model-value="scopeStatus"
+                                :aria-label="`Status penuhan ${scopeLabel}`"
                                 @update:model-value="(v: unknown) => applyStatus(String(v))">
                                 <NativeSelectOption v-if="scopeStatus === ''" value="" disabled>Bercampur
                                 </NativeSelectOption>
@@ -1897,13 +2431,19 @@ function save(andPrint = false, afterSave?: () => void) {
                                     {{ o.label }}
                                 </NativeSelectOption>
                             </NativeSelect>
-                            <Button v-if="scopeRearrange > 0" type="button" size="sm" @click="applyRearrange()">
+                            <Button v-if="scopeRearrange > 0" type="button" size="sm"
+                                @click="rearrangeConfirmOpen = true">
                                 Rearrange {{ scopeRearrange }} unit
                             </Button>
                             <Button v-if="scopeRestock > 0 || isBulk" type="button" size="sm"
                                 :variant="scopeRearrange > 0 ? 'outline' : 'default'"
-                                @click="isBulk ? openRestockDialog() : applyRestock()">
+                                @click="isBulk ? openRestockDialog() : (restockConfirmOpen = true)">
                                 Masuk Restock
+                            </Button>
+                            <Button v-if="scopeStaged" type="button" size="sm" :disabled="saving"
+                                @click="saveScopeNow()">
+                                <Loader2 v-if="saving" class="size-4 animate-spin" />
+                                Save
                             </Button>
                             <Button v-if="scopeStaged" type="button" size="sm" variant="ghost"
                                 @click="clearScopeStaged()">
@@ -1920,7 +2460,9 @@ function save(andPrint = false, afterSave?: () => void) {
                                     class="font-medium">Override</span>
                                 untuk ubah satu cawangan sahaja.
                             </template>
-                            Perubahan disenaraikan di Log dan hanya dikemaskini bila tekan Simpan.
+                            Rearrange & Masuk Restock disimpan serta-merta (selepas sahkan). Status lain
+                            disenaraikan di Log - tekan <span class="font-medium">Save</span> di atas atau
+                            <span class="font-medium">Simpan</span> di bawah utk kemaskini.
                         </p>
                     </CardContent>
                 </Card>
@@ -2182,37 +2724,49 @@ function save(andPrint = false, afterSave?: () => void) {
                                         }"
                                         :title="activeGroup.lines.length > 1 ? 'Klik untuk override: tindakan di bawah hanya untuk cawangan ini' : undefined"
                                         @click="activeGroup.lines.length > 1 && (overrideLineId = l.id)">
-                                        <div class="flex flex-wrap items-center gap-2">
-                                            <Badge variant="secondary">{{ l.store_code }}</Badge>
-                                            <span class="font-medium">{{ l.qty_outstanding }} unit</span>
-                                            <span v-if="l.qty_outstanding !== l.qty_requested"
-                                                class="text-xs text-muted-foreground">/ {{ l.qty_requested }}</span>
-                                            <span v-if="l.is_critical"
-                                                class="text-xs font-medium text-destructive">Kritikal</span>
-                                            <span v-if="l.action"
-                                                :class="`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium ${ACTION_BADGE_CLASS[l.action]}`">
-                                                {{ ACTION_LABEL[l.action] }}
+                                        <div class="flex flex-wrap items-center justify-between gap-2">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <Badge variant="secondary">{{ l.store_code }}</Badge>
+                                                <span class="font-medium">{{ l.qty_outstanding }} unit</span>
+                                                <span v-if="l.qty_outstanding !== l.qty_requested"
+                                                    class="text-xs text-muted-foreground">/ {{ l.qty_requested }}</span>
+                                                <span v-if="l.is_critical"
+                                                    class="text-xs font-medium text-destructive">Kritikal</span>
+                                                <span v-if="l.action"
+                                                    :class="`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium ${ACTION_BADGE_CLASS[l.action]}`">
+                                                    {{ ACTION_LABEL[l.action] }}
+                                                </span>
+                                            </div>
+                                            <span
+                                                :class="`inline-flex w-fit items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE_CLASS[effectiveStatus(l)] ?? 'border-transparent bg-muted text-muted-foreground'}`">
+                                                {{ labelOf(effectiveStatus(l)) }}
                                             </span>
-                                            <span class="text-xs text-muted-foreground">{{ labelOf(effectiveStatus(l))
-                                                }}</span>
                                         </div>
-                                        <p class="mt-0.5 text-xs text-muted-foreground">
-                                            {{ l.request_number }}
-                                            <template v-if="l.requested_at"> &middot; {{ formatDate(l.requested_at)
-                                                }}</template>
-                                            <template v-if="l.size"> &middot; Saiz {{ l.size }}</template>
-                                            <template v-if="l.weight"> &middot; {{ l.weight }}g</template>
+                                        <p v-if="l.requested_at" class="mt-1 text-xs text-muted-foreground">
+                                            Tarikh: {{ formatDate(l.requested_at) }}
                                         </p>
-                                        <p v-if="l.moves.length" class="mt-0.5 text-xs">
+                                        <div v-if="l.size || l.weight"
+                                            class="mt-1 flex flex-wrap items-center gap-1.5">
+                                            <span v-if="l.size"
+                                                class="inline-flex items-center rounded-md border bg-card px-2 py-0.5 text-xs">
+                                                Saiz: {{ l.size }}
+                                            </span>
+                                            <span v-if="l.weight"
+                                                class="inline-flex items-center rounded-md border bg-card px-2 py-0.5 text-xs">
+                                                Berat: {{ l.weight }}g
+                                            </span>
+                                        </div>
+                                        <p v-if="l.moves.length" class="mt-1 text-xs">
                                             Rearrange: {{ describeMoves(l.moves, l.store_code) }}<template
                                                 v-if="l.restock_qty">, selebihnya {{ l.restock_qty }} unit
                                                 Restock</template>
                                         </p>
-                                        <p v-else-if="l.restock_qty" class="mt-0.5 text-xs">Restock: {{ l.restock_qty }}
+                                        <p v-else-if="l.restock_qty" class="mt-1 text-xs">Restock: {{ l.restock_qty }}
                                             unit</p>
-                                        <p v-if="l.remark" class="mt-0.5 text-xs italic text-muted-foreground">Nota: {{
-                                            l.remark }}
-                                        </p>
+                                        <span v-if="l.remark"
+                                            class="mt-1 inline-flex items-center rounded-md border bg-card px-2 py-0.5 text-xs italic">
+                                            Nota: {{ l.remark }}
+                                        </span>
                                     </li>
                                 </ul>
                             </section>
@@ -2303,19 +2857,20 @@ function save(andPrint = false, afterSave?: () => void) {
                                 {{ supplierData ? 'Muat semula supplier' : 'Load supplier' }}
                             </Button>
                         </template>
+
+                        <NativeSelect v-model="restockGroup" aria-label="Kumpul ikut">
+                            <NativeSelectOption value="category">Ikut Kategori</NativeSelectOption>
+                            <NativeSelectOption value="branch">Ikut Cawangan</NativeSelectOption>
+                            <NativeSelectOption v-if="canSeeSuppliers" value="supplier">Ikut Supplier
+                            </NativeSelectOption>
+                        </NativeSelect>
                     </div>
                 </div>
                 <p v-if="Object.keys(restockEdits).length || pendingRestock.length" class="text-xs text-primary">
                     Ada suntingan belum disimpan &mdash; Excel / PDF membaca versi yang telah disimpan, tekan Simpan
                     dahulu.
                 </p>
-                <CardAction class="gap-2">
-                    <NativeSelect v-model="restockGroup" aria-label="Kumpul ikut">
-                        <NativeSelectOption value="category">Ikut Kategori</NativeSelectOption>
-                        <NativeSelectOption value="branch">Ikut Cawangan</NativeSelectOption>
-                        <NativeSelectOption v-if="canSeeSuppliers" value="supplier">Ikut Supplier
-                        </NativeSelectOption>
-                    </NativeSelect>
+                <CardAction>
                     <Popover v-model:open="exportOpen">
                         <PopoverTrigger as-child>
                             <Button type="button" variant="outline" size="sm" :disabled="restockItems.length === 0">
@@ -2367,7 +2922,7 @@ function save(andPrint = false, afterSave?: () => void) {
                                         <th class="py-2 px-1.5 pr-3 font-medium">Design</th>
                                         <th class="py-2 px-1.5 pr-3 font-medium">Cawangan request (saiz / berat)</th>
                                         <th class="py-2 px-1.5 pr-3 font-medium">Stok semua cawangan</th>
-                                        <th class="py-2 px-1.5 pr-3 font-medium">Jualan terkini</th>
+                                        <th v-if="canSeeLatestSales" class="py-2 px-1.5 pr-3 font-medium">Jualan terkini</th>
                                         <th v-if="canSeeSuppliers" class="py-2 px-1.5 pr-3 font-medium">Kod supplier
                                             teratas
                                             <span v-if="supplierData" class="block font-normal normal-case">terjual {{
@@ -2401,13 +2956,9 @@ function save(andPrint = false, afterSave?: () => void) {
                                                                 &middot; belum disimpan</span>
                                                         </p>
                                                         <p class="text-xs text-muted-foreground">
-                                                            <template v-if="item.nickname">
-                                                                &quot;{{ item.nickname }}&quot;</template>
+                                                            <template v-if="item.nickname">{{ item.nickname }}</template>
                                                             <template v-else>{{ item.description }}</template>
                                                         </p>
-                                                        <Badge v-if="item.category_name" variant="outline" class="mt-1">
-                                                            {{
-                                                                item.category_name }}</Badge>
                                                     </div>
                                                 </div>
                                             </td>
@@ -2474,29 +3025,39 @@ function save(andPrint = false, afterSave?: () => void) {
                                                     </p>
                                                 </div>
                                                 <div class="mt-1.5 flex flex-wrap items-center gap-2">
-                                                    <span class="text-xs text-muted-foreground">Paras</span>
-                                                    <NumberField class="w-24" :model-value="targetOf(item)" :min="1"
-                                                        :max="50" :disabled="isRemovedRow(item)"
-                                                        @update:model-value="(v: number) => setTarget(item, v)">
-                                                        <NumberFieldContent>
-                                                            <NumberFieldDecrement />
-                                                            <NumberFieldInput class="h-7 bg-card"
-                                                                :aria-label="`Paras ${item.internal_code}`" />
-                                                            <NumberFieldIncrement />
-                                                        </NumberFieldContent>
-                                                    </NumberField>
                                                     <Popover :open="branchPopoverKey === rowKey(item)"
                                                         @update:open="(o: boolean) => (branchPopoverKey = o ? rowKey(item) : null)">
                                                         <PopoverTrigger as-child>
                                                             <Button type="button" size="sm" variant="outline"
                                                                 class="h-7 px-2 text-xs" :disabled="isRemovedRow(item)">
-                                                                Ikut cawangan
+                                                                Setting Paras
+                                                                <span
+                                                                    class="rounded-sm bg-muted px-1 text-[10px]">{{
+                                                                        targetOf(item) }}</span>
                                                                 <span v-if="Object.keys(branchTargetsOf(item)).length"
                                                                     class="rounded-sm bg-primary px-1 text-[10px] text-primary-foreground">{{
                                                                         Object.keys(branchTargetsOf(item)).length }}</span>
                                                             </Button>
                                                         </PopoverTrigger>
                                                         <PopoverContent class="w-72" align="start">
+                                                            <p
+                                                                class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                                                Paras lalai
+                                                            </p>
+                                                            <div class="mb-3 mt-1 flex items-center gap-2">
+                                                                <NumberField class="w-24" :model-value="targetOf(item)"
+                                                                    :min="1" :max="50" :disabled="isRemovedRow(item)"
+                                                                    @update:model-value="(v: number) => setTarget(item, v)">
+                                                                    <NumberFieldContent>
+                                                                        <NumberFieldDecrement />
+                                                                        <NumberFieldInput class="h-7 bg-card"
+                                                                            :aria-label="`Paras ${item.internal_code}`" />
+                                                                        <NumberFieldIncrement />
+                                                                    </NumberFieldContent>
+                                                                </NumberField>
+                                                                <span class="text-xs text-muted-foreground">setiap
+                                                                    cawangan jualan</span>
+                                                            </div>
                                                             <p
                                                                 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                                                                 Paras setiap cawangan
@@ -2520,9 +3081,25 @@ function save(andPrint = false, afterSave?: () => void) {
                                                                             {{ b.stock }}<template v-if="b.requested">
                                                                                 &middot; request {{ b.requested
                                                                                 }}</template></span>
+                                                                        <button type="button"
+                                                                            class="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors"
+                                                                            :class="b.target === 0 ? 'bg-warning text-warning-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/70'"
+                                                                            :title="b.target === 0 ? 'Dikecualikan - klik utk aktifkan semula' : 'Klik utk kecualikan cawangan ini (tak perlu restock)'"
+                                                                            @click="setBranchTarget(item, b.store_code, b.target === 0 ? targetOf(item) : 0)">
+                                                                            <Check v-if="b.target === 0" class="size-3" />
+                                                                            <X v-else class="size-3" />
+                                                                            Kecualikan
+                                                                        </button>
+                                                                        <p v-if="b.target === 0 && b.requested"
+                                                                            class="text-xs text-warning">
+                                                                            Masih dapat {{ b.requested }} unit -
+                                                                            permintaan cawangan sedia ada tetap
+                                                                            dipenuhi
+                                                                        </p>
                                                                     </div>
                                                                     <NumberField class="w-24 shrink-0"
-                                                                        :model-value="b.target" :min="1" :max="50"
+                                                                        :model-value="b.target" :min="0" :max="50"
+                                                                        :disabled="isRemovedRow(item) || b.target === 0"
                                                                         @update:model-value="(v: number) => setBranchTarget(item, b.store_code, v)">
                                                                         <NumberFieldContent>
                                                                             <NumberFieldDecrement />
@@ -2538,11 +3115,17 @@ function save(andPrint = false, afterSave?: () => void) {
                                                                 class="mt-2 h-7 w-full"
                                                                 @click="resetBranchTargets(item)">Set semula
                                                                 ikut paras lalai</Button>
+                                                            <Button type="button" size="sm" class="mt-2 h-7 w-full"
+                                                                :disabled="saving || !planEdited(item)"
+                                                                @click="quickSaveRestockPlan(item)">
+                                                                <Loader2 v-if="saving" class="size-4 animate-spin" />
+                                                                Simpan Paras
+                                                            </Button>
                                                         </PopoverContent>
                                                     </Popover>
                                                 </div>
                                             </td>
-                                            <td class="py-2 px-1.5 pr-3 whitespace-nowrap">
+                                            <td v-if="canSeeLatestSales" class="py-2 px-1.5 pr-3 whitespace-nowrap">
                                                 <Skeleton v-if="lastSaleOf(item) === undefined"
                                                     class="h-4 w-20 bg-muted" />
                                                 <template v-else-if="lastSaleOf(item)">
@@ -2585,30 +3168,44 @@ function save(andPrint = false, afterSave?: () => void) {
                                                     <Button v-if="!item.pending && !isRemovedRow(item)" type="button"
                                                         size="icon" :variant="isOrderedRow(item) ? 'default' : 'ghost'"
                                                         :class="isOrderedRow(item) ? 'bg-success text-success-foreground hover:bg-success/90' : 'text-success hover:text-success'"
-                                                        :title="isOrderedRow(item) ? 'Batal tanda Dah Order' : 'Tanda Dah Order (selepas order dengan supplier)'"
+                                                        :title="isOrderedRow(item) ? 'Batal tanda Dah Order' : 'Tanda Dah Order (selepas order dengan supplier) - disimpan serta-merta'"
                                                         :aria-label="`Tanda ${item.internal_code} Dah Order`"
-                                                        @click="toggleOrdered(item)">
+                                                        @click="askOrdered(item)">
                                                         <Check class="size-4" />
                                                     </Button>
                                                     <Button v-if="!isRemovedRow(item) && !isOrderedRow(item)"
                                                         type="button" size="icon" variant="ghost"
+                                                        class="text-destructive hover:text-destructive"
+                                                        :title="item.pending ? 'Buang' : 'Buang dari senarai - disimpan serta-merta'"
                                                         :aria-label="`Buang ${item.internal_code} dari senarai`"
-                                                        @click="removeRow(item)">
-                                                        <X class="size-4" />
+                                                        @click="askRemove(item)">
+                                                        <Trash2 class="size-4" />
                                                     </Button>
-                                                    <Button v-else type="button" size="sm" variant="ghost"
+                                                    <Button
+                                                        v-else-if="(isRemovedRow(item) || isOrderedRow(item)) && isRestockPending(item.id)"
+                                                        type="button" size="sm" variant="ghost"
                                                         @click="undoRestockEdit(item.id)">Batal</Button>
                                                 </div>
-                                                <p v-if="isOrderedRow(item)"
+                                                <!-- "Buang"/"Dah Order" dah AUTO-SAVE lepas confirm (rujuk quickSaveRestock) - teks ni
+                                                     bezakan "baru dihantar, tunggu respons" drpd "dah disahkan server" (isRestockPending),
+                                                     bukan tunggu butang Simpan bawah lagi macam dulu. -->
+                                                <p v-if="isRemovedRow(item)"
+                                                    class="mt-1 text-xs font-medium text-destructive">
+                                                    Dibuang &mdash;
+                                                    <template v-if="isRestockPending(item.id)">menyimpan...</template>
+                                                    <template v-else>disimpan, akan hilang drpd senarai</template>
+                                                </p>
+                                                <p v-else-if="isOrderedRow(item)"
                                                     class="mt-1 text-xs font-medium text-success">
-                                                    Dah Order &mdash; disimpan bila tekan Simpan
+                                                    Dah Order &mdash;
+                                                    <template v-if="isRestockPending(item.id)">menyimpan...</template>
+                                                    <template v-else>disimpan</template>
                                                 </p>
                                                 <p v-else class="mt-1 text-xs text-muted-foreground"
                                                     :title="planHint(item)">
                                                     cadangan {{ suggestedLive(item) }}
-                                                    <button
-                                                        v-if="rowQty(item) !== suggestedLive(item) && !isRemovedRow(item)"
-                                                        type="button" class="ml-1 text-primary underline"
+                                                    <button v-if="rowQty(item) !== suggestedLive(item)" type="button"
+                                                        class="ml-1 text-primary underline"
                                                         @click="setRowQty(item, String(suggestedLive(item)))">guna</button>
                                                 </p>
                                             </td>
@@ -2693,18 +3290,29 @@ function save(andPrint = false, afterSave?: () => void) {
                     <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Telah disimpan</h3>
                     <ul class="flex max-h-48 flex-col gap-1 overflow-auto">
                         <li v-for="(e, i) in savedLog" :key="`${e.key}-${i}`"
-                            class="rounded-md bg-muted/40 px-3 py-1.5 text-muted-foreground">
-                            <span class="mr-2 text-xs">{{ e.at }}</span>
-                            <span class="font-medium text-foreground">{{ e.design }}</span>
-                            <Badge variant="secondary" class="mx-2">{{ e.store }}</Badge>
-                            {{ e.from }} &rarr; {{ e.to }}
+                            class="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-1.5 text-muted-foreground">
+                            <span>
+                                <span class="mr-2 text-xs">{{ e.at }}</span>
+                                <span class="font-medium text-foreground">{{ e.design }}</span>
+                                <Badge variant="secondary" class="mx-2">{{ e.store }}</Badge>
+                                {{ e.from }} &rarr; {{ e.to }}
+                            </span>
+                            <Button v-if="e.fromStatus && !e.isRearrange" type="button" size="sm" variant="ghost"
+                                class="h-6 shrink-0 px-2 text-xs" :disabled="saving"
+                                @click="undoSaved(e)">
+                                Undo
+                            </Button>
+                            <span v-else-if="e.isRearrange" class="shrink-0 text-xs italic"
+                                title="Rearrange sudah mencipta transfer stok sebenar - pembatalan transfer kena diuruskan berasingan, bukan di sini.">
+                                Tak boleh undo
+                            </span>
                         </li>
                     </ul>
                 </section>
             </CardContent>
         </Card>
 
-        <div class="flex justify-end gap-3">
+        <div class="flex justify-end gap-3" hidden>
             <Button type="button" variant="outline" :disabled="saving || stagedCount === 0" @click="save(false)">
                 <Loader2 v-if="saving" class="size-4 animate-spin" />
                 <Save v-else class="size-4" />
@@ -2906,6 +3514,92 @@ function save(andPrint = false, afterSave?: () => void) {
                     </AlertDialogAction>
                     <AlertDialogAction :disabled="saving" @click="saveThenLoadSuppliers">
                         Load supplier &amp; simpan
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+
+        <!-- ===== Sahkan Rearrange - transfer stok dicipta & disimpan SERTA-MERTA selepas sahkan ===== -->
+        <AlertDialog v-model:open="rearrangeConfirmOpen">
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Sahkan Rearrange {{ scopeRearrange }} unit</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        {{ scopeLabel }} - transfer stok akan dicipta drpd cawangan donor & <span
+                            class="font-medium text-primary">disimpan serta-merta</span>, tiada langkah Simpan
+                        berasingan selepas ni.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Batal</AlertDialogCancel>
+                    <AlertDialogAction :disabled="saving" @click="confirmRearrange">
+                        <Loader2 v-if="saving" class="size-4 animate-spin" />
+                        Sahkan Rearrange
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+
+        <!-- ===== Sahkan Masuk Restock (SATU design/override) - disimpan SERTA-MERTA selepas sahkan.
+                Masuk Restock PUKAL guna dialog "Masuk Restock pukal" sedia ada di bawah, bukan ni. ===== -->
+        <AlertDialog v-model:open="restockConfirmOpen">
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Sahkan Masuk Restock</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        {{ scopeLabel }} akan dimasukkan ke Senarai Restock & <span
+                            class="font-medium text-primary">disimpan serta-merta</span>, tiada langkah Simpan
+                        berasingan selepas ni.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Batal</AlertDialogCancel>
+                    <AlertDialogAction :disabled="saving" @click="confirmRestock">
+                        <Loader2 v-if="saving" class="size-4 animate-spin" />
+                        Sahkan
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+
+        <!-- ===== Sahkan "Tanda Dah Order" (Senarai Restock) - disimpan SERTA-MERTA selepas sahkan ===== -->
+        <AlertDialog v-model:open="orderedConfirmOpen">
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Sahkan Dah Order</AlertDialogTitle>
+                    <AlertDialogDescription>image.png
+                        <span class="font-medium">{{ confirmTargetItem?.internal_code }}</span> akan ditanda Dah
+                        Order & <span class="font-medium text-primary">disimpan serta-merta</span> - line cawangan
+                        yang masih berstatus Order untuk design ini turut bertukar ke Dah Order.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Batal</AlertDialogCancel>
+                    <AlertDialogAction :disabled="saving" @click="confirmOrdered">
+                        <Loader2 v-if="saving" class="size-4 animate-spin" />
+                        Sahkan Dah Order
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
+
+        <!-- ===== Sahkan "Buang" item Senarai Restock TERSIMPAN - disimpan SERTA-MERTA selepas sahkan ===== -->
+        <AlertDialog v-model:open="removeConfirmOpen">
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Sahkan Buang dari Senarai Restock</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        <span class="font-medium">{{ confirmTargetItem?.internal_code }}</span> akan dibuang drpd
+                        Senarai Restock & <span class="font-medium text-primary">disimpan serta-merta</span>.
+                        Tindakan ini tak boleh dibatalkan selepas disahkan.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Batal</AlertDialogCancel>
+                    <AlertDialogAction :class="buttonVariants({ variant: 'destructive' })" :disabled="saving"
+                        @click="confirmRemove">
+                        <Loader2 v-if="saving" class="size-4 animate-spin" />
+                        Sahkan Buang
                     </AlertDialogAction>
                 </AlertDialogFooter>
             </AlertDialogContent>

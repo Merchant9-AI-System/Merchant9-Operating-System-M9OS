@@ -161,7 +161,7 @@ watch(
                             </p>
                         </div>
                         <Button size="icon" variant="ghost" @click="emit('add', item)">
-                            <Plus class="size-2" />
+                            <Plus />
                             <span class="sr-only">Tambah ke senarai</span>
                         </Button>
                     </div>

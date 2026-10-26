@@ -73,6 +73,7 @@ class BackOfficeActionsController extends Controller
             }, ), // 'low'),
 
             'canSeeSuppliers' => $this->canSeeSuppliers(),
+            'canSeeLatestSales' => $this->canSeeLatestSales(),
             'fulfillmentOptions' => collect(BranchDemandRequestLine::FULFILLMENT_LABELS)
                 ->map(fn (string $label, string $value) => ['value' => $value, 'label' => $label])
                 ->values(),
@@ -414,6 +415,7 @@ class BackOfficeActionsController extends Controller
         $this->authorizeBackOffice();
 
         $withSuppliers = $this->canSeeSuppliers();
+        $withLatestSales = $this->canSeeLatestSales();
         $group = $this->exportGroup($request, $withSuppliers);
         $supplierDays = RestockListBuilder::clampSupplierDays($request->query('days'));
         $data = $restock->build($withSuppliers, $supplierDays);
@@ -421,14 +423,18 @@ class BackOfficeActionsController extends Controller
 
         $filename = 'Senarai-Restock-'.now()->format('Ymd-His').'.xlsx';
 
-        return response()->streamDownload(function () use ($data, $sections, $withSuppliers, $group, $supplierDays) {
+        return response()->streamDownload(function () use ($data, $sections, $withSuppliers, $withLatestSales, $group, $supplierDays) {
             $writer = new Writer;
             $writer->openToFile('php://output');
             $bold = (new Style)->setFontBold();
 
             $writer->getCurrentSheet()->setName('Senarai Restock');
             $writer->addRow(Row::fromValues(['Senarai Restock - '.now()->format('d/m/Y H:i').' - ikut '.RestockListBuilder::GROUP_LABELS[$group]], $bold));
-            $header = ['Kod Design', 'Keterangan', 'Nickname', 'Kategori', 'Permintaan Cawangan (saiz / berat / qty)', 'Jumlah Diminta', $group === RestockListBuilder::GROUP_BRANCH ? 'Stok Cawangan Ini → Selepas Order' : 'Stok Semasa → Selepas Order', 'Paras', 'Request Belum Dipenuhi', 'Jualan Terkini', 'Cawangan Jualan Terkini', 'Hari Lepas', 'Qty Terjual (30 Hari)', 'Kuantiti Order'];
+            $header = ['Kod Design', 'Keterangan', 'Nickname', 'Kategori', 'Permintaan Cawangan (saiz / berat / qty)', 'Jumlah Diminta', $group === RestockListBuilder::GROUP_BRANCH ? 'Stok Cawangan Ini → Selepas Order' : 'Stok Semasa → Selepas Order', 'Paras', 'Request Belum Dipenuhi'];
+            if ($withLatestSales) {
+                array_push($header, 'Jualan Terkini', 'Cawangan Jualan Terkini', 'Hari Lepas', 'Qty Terjual (30 Hari)');
+            }
+            $header[] = 'Kuantiti Order';
             if ($group === RestockListBuilder::GROUP_BRANCH) {
                 $header[] = 'Cawangan Ini Dapat';
             }
@@ -452,12 +458,17 @@ class BackOfficeActionsController extends Controller
                         $group === RestockListBuilder::GROUP_BRANCH ? RestockListBuilder::describeSectionStock($item) : RestockListBuilder::describeStock($item),
                         RestockListBuilder::describeParas($item),
                         RestockListBuilder::describeShort($item),
-                        isset($item['last_sale']) ? Carbon::parse($item['last_sale']['date'])->format('d/m/Y') : 'Belum pernah terjual',
-                        $item['last_sale']['store'] ?? '',
-                        $item['last_sale']['days_ago'] ?? '',
-                        $item['last_sale']['sold_30d'] ?? 0,
-                        $item['qty_to_order'],
                     ];
+                    if ($withLatestSales) {
+                        array_push(
+                            $values,
+                            isset($item['last_sale']) ? Carbon::parse($item['last_sale']['date'])->format('d/m/Y') : 'Belum pernah terjual',
+                            $item['last_sale']['store'] ?? '',
+                            $item['last_sale']['days_ago'] ?? '',
+                            $item['last_sale']['sold_30d'] ?? 0,
+                        );
+                    }
+                    $values[] = $item['qty_to_order'];
                     if ($group === RestockListBuilder::GROUP_BRANCH) {
                         $values[] = (int) ($item['section_alloc'] ?? 0);
                     }
@@ -543,6 +554,7 @@ class BackOfficeActionsController extends Controller
             'sections' => $restock->sections($data['items'], $group),
             'suppliers' => $data['suppliers'],
             'withSuppliers' => $withSuppliers,
+            'withLatestSales' => $this->canSeeLatestSales(),
             'supplierDays' => $supplierDays,
             'group' => $group,
             'groupLabel' => RestockListBuilder::GROUP_LABELS[$group],
@@ -565,6 +577,13 @@ class BackOfficeActionsController extends Controller
     protected function canSeeSuppliers(): bool
     {
         return (bool) Auth::user()?->hasRole(['super_admin', 'ceo', 'manager']);
+    }
+
+    /** Lajur "Jualan terkini" Senarai Restock - super_admin & ceo sahaja (keputusan eksplisit
+     * pengguna, manager tak perlu). */
+    protected function canSeeLatestSales(): bool
+    {
+        return (bool) Auth::user()?->hasRole(['super_admin', 'ceo']);
     }
 
     protected function authorizeBackOffice(): void
