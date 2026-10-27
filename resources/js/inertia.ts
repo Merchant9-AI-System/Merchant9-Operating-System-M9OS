@@ -24,13 +24,16 @@ function bridgeFlashToToast(initialFlash: unknown) {
 }
 
 createInertiaApp({
-    title: (title) => (title ? `${title} - m9os` : 'm9os'),
+    title: (title) => (title ? `${title} - M9OS` : 'M9OS'),
+    progress: {
+        color: '#f59e0b', // contoh: amber, tukar ikut warna brand
+    },
     resolve: (name) =>
         resolvePageComponent(`./Pages/${name}.vue`, import.meta.glob<DefineComponent>('./Pages/**/*.vue')),
     setup({ el, App, props, plugin }) {
         bridgeFlashToToast((props.initialPage.props as { flash?: unknown }).flash);
 
-        createApp({ render: () => h(Fragment, [h(App, props), h(Toaster, { richColors: true })]) })
+        createApp({ render: () => h(Fragment, [h(App, props), h(Toaster, { richColors: false })]) })
             .use(plugin)
             .mount(el);
     },
