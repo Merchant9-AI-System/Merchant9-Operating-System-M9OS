@@ -1,0 +1,21 @@
+<script setup lang="ts">
+import type { HTMLAttributes } from "vue"
+import { cn } from "@/lib/utils"
+import { SelectLabel } from "reka-ui"
+
+const props = defineProps<{
+  asChild?: boolean
+  as?: string | object
+  for?: string
+  class?: HTMLAttributes["class"]
+}>()
+</script>
+
+<template>
+  <SelectLabel
+    data-slot="select-label"
+    :class="cn('text-muted-foreground px-2 py-1.5 text-xs', props.class)"
+  >
+    <slot />
+  </SelectLabel>
+</template>

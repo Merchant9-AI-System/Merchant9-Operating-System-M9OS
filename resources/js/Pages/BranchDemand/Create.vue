@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NumberField, NumberFieldContent, NumberFieldDecrement, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { SelectNative } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import ActiveFilterBadges from './ActiveFilterBadges.vue';
 import ProductFilters from './ProductFilters.vue';
@@ -750,12 +750,16 @@ function submit() {
                                 <Store class="size-4" />
                                 Cawangan
                             </Label>
-                            <SelectNative v-model="form.store_code" :disabled="isStoreLocked">
-                                <option value="" disabled>Pilih cawangan...</option>
-                                <option v-for="store in stores" :key="store.code" :value="store.code">
-                                    {{ store.label }}
-                                </option>
-                            </SelectNative>
+                            <Select v-model="form.store_code" :disabled="isStoreLocked">
+                                <SelectTrigger class="w-full">
+                                    <SelectValue placeholder="Pilih cawangan..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem v-for="store in stores" :key="store.code" :value="store.code">
+                                        {{ store.label }}
+                                    </SelectItem>
+                                </SelectContent>
+                            </Select>
                             <p v-if="isStoreLocked" class="mt-1 text-xs text-muted-foreground">
                                 Cawangan anda ditetapkan HQ - tak boleh ditukar di sini.
                             </p>

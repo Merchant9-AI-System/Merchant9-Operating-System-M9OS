@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Deferred, Head, router } from '@inertiajs/vue3';
-import { Check, ChevronDown, CircleDot, Download, FileSpreadsheet, Loader2, MousePointerClick, Printer, Save, Search, Trash2, X } from '@lucide/vue';
+import { Check, ChevronDown, CircleDot, Download, FileSpreadsheet, Loader2, MousePointerClick, Printer, Save, Search, Trash2, X, Plus } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import FacetedFilter from '@/components/FacetedFilter.vue';
@@ -22,6 +22,7 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from '@/co
 import { Spinner } from '@/components/ui/spinner';
 import { NumberField, NumberFieldContent, NumberFieldDecrement, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -33,6 +34,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 interface Move {
     from_store: string;
     qty: number;
+    // Nota setiap transfer (lajur `notes` sedia ada di stock_transfers, dipaparkan sbg "Nota" di
+    // StockTransferResource Filament) - pilihan, BO isi di dialog sahkan Rearrange.
+    remark?: string;
+}
+
+// Baris boleh edit dlm dialog "Sahkan Rearrange" - donor/qty cadangan server (line.moves) BOLEH
+// ditukar BO sebelum sahkan (donor lain, qty lain) - rujuk perbincangan "boleh tukar cawangan
+// donor". Server (BackOfficeActionsAdvisor::rearrangePlan()) sahkan SEMULA donor+qty yg dihantar,
+// jadi override di sini cuma cadangan awal - bukan dipercayai buta.
+interface EditableMove extends Move {
+    remark: string;
 }
 
 interface Line {
@@ -273,7 +285,15 @@ const DEFAULT_HIDDEN_STATUSES = ['dah_restock', 'rearrange', 'item_not_available
 
 const search = ref('');
 // Penapis senarai (berbilang pilihan). Cawangan = tapis line; Kategori/Cadangan/Status = tapis design.
-const branchFilters = ref<string[]>([]);
+// Prapenuh drpd ?branch=... (cth. pautan "Semak" notifikasi permintaan baharu - rujuk
+// BranchDemandRequest::notifyReviewers()) supaya reviewer terus nampak cawangan berkenaan.
+const branchFilters = ref<string[]>(
+    (() => {
+        const branch = new URLSearchParams(window.location.search).get('branch');
+
+        return branch ? [branch] : [];
+    })(),
+);
 const categoryFilters = ref<string[]>([]);
 const actionFilters = ref<string[]>([]);
 const statusFilters = ref<string[]>(
@@ -307,6 +327,9 @@ const saving = ref(false);
 // Confirm dialog SEBELUM auto-save Rearrange/Masuk Restock (satu design/override) - rujuk quickSave().
 // Masuk Restock PUKAL guna dialog sedia ada (restockDialogOpen/submitRestock) - bukan ni.
 const rearrangeConfirmOpen = ref(false);
+// Baris boleh edit (donor/qty/nota) bagi dialog Rearrange - kunci = line.id, diisi semula setiap
+// kali dialog dibuka drpd line.moves (cadangan server), BO boleh tukar sebelum sahkan.
+const rearrangeEdits = ref<Record<number, EditableMove[]>>({});
 const restockConfirmOpen = ref(false);
 // Confirm dialog SEBELUM auto-save "Tanda Dah Order" / "Buang" (SATU item Senarai Restock TERSIMPAN -
 // rujuk askOrdered()/askRemove()/quickSaveRestock()). Item "pending" (belum disimpan langsung) tak
@@ -1884,10 +1907,121 @@ function quickSave(targetLines: Line[]) {
     });
 }
 
+// Data design (stok semua cawangan) utk SATU line - guna pratonton (kod BO pilih) kalau ada,
+// jatuh balik ke data papan asal. Sama corak dgn designOf(group) tapi per-line (skop Rearrange
+// pukal boleh merentas >1 design serentak, bukan cuma design aktif).
+function designForLine(line: Line): Design | null {
+    const preview = line.internal_code ? previews.value[line.internal_code] : undefined;
+
+    return preview?.design ?? props.board?.designs?.[line.design_key] ?? null;
+}
+
+// Calon donor utk SATU line - cawangan lain (bukan line.store_code sendiri) dgn stok tersedia
+// (`stock - reserved`) > 0, disusun menurun. Anggaran sahaja (TIADA ambang DONOR_MIN_STOCK/HQ
+// macam server) - server (rearrangePlan()) sahkan SEMULA & pulangkan ralat jelas kalau BO pilih
+// cawangan yg sebenarnya tak layak.
+function donorOptionsForLine(line: Line): { store_code: string; available: number }[] {
+    const design = designForLine(line);
+
+    if (!design) {
+        return [];
+    }
+
+    return design.stock
+        .filter((s) => s.store_code !== line.store_code && s.stock - s.reserved > 0)
+        .map((s) => ({ store_code: s.store_code, available: s.stock - s.reserved }))
+        .sort((a, b) => b.available - a.available);
+}
+
+// Buka dialog Rearrange - isi semula rearrangeEdits drpd cadangan server (line.moves) SETIAP kali
+// dibuka (buang edit lama kalau user buka-tutup-buka semula dgn skop berlainan).
+function openRearrangeDialog() {
+    const targets = scopeLines.value.filter((l) => l.moves.length > 0);
+
+    rearrangeEdits.value = Object.fromEntries(
+        targets.map((l) => [l.id, l.moves.map((m) => ({ ...m, remark: m.remark ?? '' }))]),
+    );
+    rearrangeConfirmOpen.value = true;
+}
+
+function updateMoveDonor(lineId: number, index: number, store: string) {
+    const move = rearrangeEdits.value[lineId]?.[index];
+
+    if (move) {
+        move.from_store = store;
+    }
+}
+
+function updateMoveQty(lineId: number, index: number, value: unknown) {
+    const move = rearrangeEdits.value[lineId]?.[index];
+
+    if (move) {
+        move.qty = clampInt(value, 100000);
+    }
+}
+
+function updateMoveRemark(lineId: number, index: number, value: string) {
+    const move = rearrangeEdits.value[lineId]?.[index];
+
+    if (move) {
+        move.remark = value;
+    }
+}
+
+// Tambah baris donor TAMBAHAN utk line ni (pecahkan satu permintaan ke >1 donor) - cadangkan
+// cawangan belum dipakai lagi, pilihan pertama dgn stok terbanyak.
+function addMoveRow(lineId: number, line: Line) {
+    const used = new Set((rearrangeEdits.value[lineId] ?? []).map((m) => m.from_store));
+    const next = donorOptionsForLine(line).find((o) => !used.has(o.store_code));
+
+    if (!next) {
+        toast.info('Tiada lagi cawangan donor lain yang ada stok.');
+
+        return;
+    }
+
+    rearrangeEdits.value[lineId] = [...(rearrangeEdits.value[lineId] ?? []), { from_store: next.store_code, qty: 1, remark: '' }];
+}
+
+function removeMoveRow(lineId: number, index: number) {
+    rearrangeEdits.value[lineId]?.splice(index, 1);
+}
+
+// Sah utk hantar: setiap line perlu >=1 baris, setiap baris perlu donor dipilih & qty 1-max stok
+// tersedia cawangan tsb (anggaran client - server sahkan semula qty sebenar semasa Simpan).
+const rearrangeFormValid = computed(() => Object.entries(rearrangeEdits.value).every(([lineId, moves]) => {
+    const line = scopeLines.value.find((l) => l.id === Number(lineId));
+
+    if (!line || moves.length === 0) {
+        return false;
+    }
+
+    const options = donorOptionsForLine(line);
+
+    return moves.every((m) => {
+        const available = options.find((o) => o.store_code === m.from_store)?.available ?? 0;
+
+        return m.from_store && m.qty >= 1 && m.qty <= available;
+    });
+}));
+
 function confirmRearrange() {
     rearrangeConfirmOpen.value = false;
-    const targets = scopeLines.value.filter((l) => l.moves.length > 0);
-    applyRearrange();
+
+    const targets = scopeLines.value.filter((l) => (rearrangeEdits.value[l.id]?.length ?? 0) > 0);
+
+    targets.forEach((l) => {
+        staged.value[l.id] = {
+            status: STATUS_REARRANGE,
+            internal_code: staged.value[l.id]?.internal_code,
+            moves: rearrangeEdits.value[l.id].map((m) => ({
+                from_store: m.from_store,
+                qty: m.qty,
+                remark: m.remark.trim() || undefined,
+            })),
+        };
+    });
+
     quickSave(targets);
 }
 
@@ -2485,7 +2619,7 @@ function save(andPrint = false, afterSave?: () => void) {
                                 </NativeSelectOption>
                             </NativeSelect>
                             <Button v-if="scopeRearrange > 0" type="button" size="sm"
-                                @click="rearrangeConfirmOpen = true">
+                                @click="openRearrangeDialog">
                                 Rearrange {{ scopeRearrange }} unit
                             </Button>
                             <Button v-if="scopeRestock > 0 || isBulk" type="button" size="sm"
@@ -3628,26 +3762,79 @@ function save(andPrint = false, afterSave?: () => void) {
             </AlertDialogContent>
         </AlertDialog>
 
-        <!-- ===== Sahkan Rearrange - transfer stok dicipta & disimpan SERTA-MERTA selepas sahkan ===== -->
-        <AlertDialog v-model:open="rearrangeConfirmOpen">
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Sahkan Rearrange {{ scopeRearrange }} unit</AlertDialogTitle>
-                    <AlertDialogDescription>
+        <!-- ===== Sahkan Rearrange - BO boleh tukar donor/qty/nota setiap transfer sebelum sahkan.
+                Transfer stok dicipta & disimpan SERTA-MERTA selepas sahkan (server sahkan semula
+                donor+qty, rujuk BackOfficeActionsAdvisor::rearrangePlan()). ===== -->
+        <Dialog v-model:open="rearrangeConfirmOpen">
+            <DialogContent class="max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Sahkan Rearrange {{ scopeRearrange }} unit</DialogTitle>
+                    <DialogDescription>
                         {{ scopeLabel }} - transfer stok akan dicipta drpd cawangan donor & <span
                             class="font-medium text-primary">disimpan serta-merta</span>, tiada langkah Simpan
                         berasingan selepas ni.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Batal</AlertDialogCancel>
-                    <AlertDialogAction :disabled="saving" @click="confirmRearrange">
+                    </DialogDescription>
+                </DialogHeader>
+
+                <div class="flex max-h-[60vh] flex-col gap-3 overflow-y-auto pr-1">
+                    <div v-for="line in scopeLines.filter((l) => rearrangeEdits[l.id])" :key="line.id"
+                        class="flex flex-col gap-2 rounded-md border p-3">
+                        <p class="text-sm font-medium">
+                            {{ line.internal_code ?? line.item_desc ?? '-' }} &rarr; {{ line.store_code }}
+                        </p>
+
+                        <div v-for="(move, idx) in rearrangeEdits[line.id]" :key="idx"
+                            class="flex flex-col gap-2 rounded-md bg-muted/40 p-2">
+                            <div class="flex items-center gap-2">
+                                <Select :model-value="move.from_store"
+                                    @update:model-value="(v) => updateMoveDonor(line.id, idx, String(v))">
+                                    <SelectTrigger class="flex-1" :aria-label="`Cawangan donor baris ${idx + 1}`">
+                                        <SelectValue placeholder="Pilih cawangan" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem v-for="opt in donorOptionsForLine(line)" :key="opt.store_code"
+                                            :value="opt.store_code">
+                                            {{ opt.store_code }} (tersedia {{ opt.available }})
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <NumberField :model-value="move.qty" class="w-28" :min="1"
+                                    :max="donorOptionsForLine(line).find((o) => o.store_code === move.from_store)?.available ?? 1"
+                                    @update:model-value="(v: number) => updateMoveQty(line.id, idx, v)">
+                                    <NumberFieldContent>
+                                        <NumberFieldDecrement />
+                                        <NumberFieldInput :aria-label="`Kuantiti baris ${idx + 1}`" />
+                                        <NumberFieldIncrement />
+                                    </NumberFieldContent>
+                                </NumberField>
+                                <Button v-if="rearrangeEdits[line.id].length > 1" type="button" variant="ghost"
+                                    size="icon" :aria-label="`Buang baris ${idx + 1}`"
+                                    @click="removeMoveRow(line.id, idx)">
+                                    <X class="size-4" />
+                                </Button>
+                            </div>
+                            <Input :model-value="move.remark" placeholder="Nota (pilihan)"
+                                :aria-label="`Nota baris ${idx + 1}`"
+                                @update:model-value="(v) => updateMoveRemark(line.id, idx, String(v))" />
+                        </div>
+
+                        <Button type="button" variant="outline" size="sm" class="self-start"
+                        @click="addMoveRow(line.id, line)">
+                            <Plus />
+                            Tambah
+                        </Button>
+                    </div>
+                </div>
+
+                <DialogFooter>
+                    <Button type="button" variant="outline" @click="rearrangeConfirmOpen = false">Batal</Button>
+                    <Button type="button" :disabled="saving || !rearrangeFormValid" @click="confirmRearrange">
                         <Loader2 v-if="saving" class="size-4 animate-spin" />
                         Sahkan Rearrange
-                    </AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
 
         <!-- ===== Sahkan Masuk Restock (SATU design/override) - disimpan SERTA-MERTA selepas sahkan.
                 Masuk Restock PUKAL guna dialog "Masuk Restock pukal" sedia ada di bawah, bukan ni. ===== -->

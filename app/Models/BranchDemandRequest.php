@@ -101,7 +101,7 @@ class BranchDemandRequest extends Model
         $title = $isFirstEver
             ? "Permintaan cawangan baharu: {$this->request_number}"
             : "Item baharu ditambah: {$this->request_number}";
-        $body = trim((string) $this->store_code).' - '.($newLineCount ?: $this->lines()->count()).' item diminta oleh '. auth()->user()->name;
+        $body = trim((string) $this->store_code).' - '.($newLineCount ?: $this->lines()->count()).' item diminta oleh '.auth()->user()->name;
 
         Notification::make()
             ->title($title)
@@ -110,7 +110,7 @@ class BranchDemandRequest extends Model
             ->actions([
                 Action::make('gotoPage')
                     ->label('Semak')
-                    ->url(route('filament.admin.resources.branch-demand-requests.view', ['record' => $this->getKey()]))
+                    ->url(route('back-office-actions.index')) // , ['branch' => $this->store_code]
                     ->button(),
             ])
             ->sendToDatabase($reviewers);

@@ -339,7 +339,11 @@ class BackOfficeActionsAdvisor
                 'id' => $line->id,
                 'design_key' => $summary->groupKeyFor($line),
                 'request_number' => $line->request->request_number,
-                'requested_at' => ($line->request->submitted_at ?? $line->request->created_at)?->toIso8601String(),
+                // Tarikh LINE ni sendiri dicipta - BUKAN submitted_at parent BranchDemandRequest
+                // (satu rekod kekal selama-lamanya per cawangan, rujuk dokblok model), yg akan
+                // sentiasa papar tarikh permintaan PERTAMA cawangan tsb walaupun line baharu
+                // ditambah kemudian.
+                'requested_at' => $line->created_at?->toIso8601String(),
                 'store_code' => $own,
                 'internal_code' => $code,
                 'item_desc' => $line->item_desc,
@@ -417,7 +421,7 @@ class BackOfficeActionsAdvisor
     }
 
     /** @param  array{from_store: string, to_store: string, qty: int}  $plan */
-    public function createRearrangeTransfer(BranchDemandRequestLine $line, array $plan, string $actor): StockTransfer
+    public function createRearrangeTransfer(BranchDemandRequestLine $line, array $plan, string $actor, ?string $remark = null): StockTransfer
     {
         return StockTransfer::create([
             'branch_demand_request_line_id' => $line->id,
@@ -428,6 +432,7 @@ class BackOfficeActionsAdvisor
             'to_store' => $plan['to_store'],
             'qty' => $plan['qty'],
             'requested_by' => $actor,
+            'notes' => $remark,
         ]);
     }
 

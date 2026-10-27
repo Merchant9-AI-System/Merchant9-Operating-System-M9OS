@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Label } from '@/components/ui/label';
-import { SelectNative } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 
 interface ClaimSummary {
@@ -78,10 +78,14 @@ function createClaim() {
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <Label for="user_id">Claim untuk</Label>
-                        <SelectNative id="user_id" v-model="createForm.user_id">
-                            <option value="" disabled>Pilih claimant...</option>
-                            <option v-for="c in claimants" :key="c.id" :value="c.id">{{ c.name }}</option>
-                        </SelectNative>
+                        <Select v-model="createForm.user_id">
+                            <SelectTrigger id="user_id" class="w-full">
+                                <SelectValue placeholder="Pilih claimant..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem v-for="c in claimants" :key="c.id" :value="c.id">{{ c.name }}</SelectItem>
+                            </SelectContent>
+                        </Select>
                         <p v-if="createForm.errors.user_id" class="mt-1 text-xs text-destructive">{{ createForm.errors.user_id }}</p>
                     </div>
                     <div>

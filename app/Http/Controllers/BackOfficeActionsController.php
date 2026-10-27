@@ -138,6 +138,7 @@ class BackOfficeActionsController extends Controller
             'changes.*.moves' => ['nullable', 'array', 'max:10'],
             'changes.*.moves.*.from_store' => ['required', 'string', 'max:20'],
             'changes.*.moves.*.qty' => ['required', 'integer', 'min:1'],
+            'changes.*.moves.*.remark' => ['nullable', 'string', 'max:500'],
             'changes.*.internal_code' => ['nullable', 'string', 'max:50'],
         ]);
 
@@ -186,7 +187,7 @@ class BackOfficeActionsController extends Controller
 
                     foreach ($moves as $move) {
                         $plan = $advisor->rearrangePlan($line, $move['from_store'] ?? null, isset($move['qty']) ? (int) $move['qty'] : null);
-                        $advisor->createRearrangeTransfer($line, $plan, $actor);
+                        $advisor->createRearrangeTransfer($line, $plan, $actor, $move['remark'] ?? null);
                         $transfers++;
                     }
                 }

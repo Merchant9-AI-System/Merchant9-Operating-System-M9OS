@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { SelectNative } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export interface RestockSuggestion {
     internal_code: string;
@@ -106,11 +106,16 @@ watch(
                 <Badge class="h-5 min-w-5 rounded-full px-1 tabular-nums">{{ restockSuggestions.data.length }}</Badge>
             </CardAction>
             <CardDescription>Item paling banyak terjual di cawangan ini (ikut Tapis Carian di atas).</CardDescription>
-            <SelectNative v-model="period" class="mt-2 w-full h-8 text-xs">
-                <option v-for="p in PERIODS" :key="p.value" :value="p.value">
-                    {{ p.label }}
-                </option>
-            </SelectNative>
+            <Select v-model="period">
+                <SelectTrigger class="mt-2 h-8 w-full text-xs" size="sm">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem v-for="p in PERIODS" :key="p.value" :value="p.value">
+                        {{ p.label }}
+                    </SelectItem>
+                </SelectContent>
+            </Select>
         </CardHeader>
         <CardContent class="flex flex-col gap-2">
             <p v-if="!storeCode" class="text-sm text-muted-foreground">Pilih cawangan dahulu.</p>
