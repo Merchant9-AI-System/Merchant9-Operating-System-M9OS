@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, useForm, usePage } from '@inertiajs/vue3';
-import { AlertTriangle, ClipboardList, Loader2, Paperclip, Pencil, Plus, Search, Store, Trash2, Upload, User, X } from '@lucide/vue';
+import { AlertTriangle, ClipboardList, Loader2, Pencil, Plus, Search, Store, Trash2, Upload, User, X } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import ImagePreview from '@/components/ImagePreview.vue';
 import { Badge } from '@/components/ui/badge';
@@ -9,11 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { Label } from '@/components/ui/label';
 import { NumberField, NumberFieldContent, NumberFieldDecrement, NumberFieldIncrement, NumberFieldInput } from '@/components/ui/number-field';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import ActiveFilterBadges from './ActiveFilterBadges.vue';
 import ProductFilters from './ProductFilters.vue';
 // import ProductPickerOld, { type ProductSearchResult, type WebSearchResult } from './ProductPickerOld.vue';
@@ -726,12 +726,39 @@ function submit() {
     <Head title="Form Permintaan Stok" />
 
     <div class="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-8">
-        <div class="flex items-start justify-between gap-3">
+        <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
                 <h1 class="text-xl font-semibold tracking-tight">Permintaan Stok Cawangan Kepada HQ</h1>
                 <p class="text-sm text-muted-foreground">
                     Cari item yang diperlukan untuk permintaan stok.
                 </p>
+            </div>
+
+            <!-- Cawangan + Nama PIC dipindah ke sini (bukan Card berasingan) supaya seksyen
+                 "Cari & Tambah Item" naik ke atas - InputGroup + icon sahaja (tiada label teks). -->
+            <div class="flex flex-wrap items-start gap-3">
+                <InputGroup class="w-38 bg-input/50">
+                    <InputGroupAddon>
+                        <Store class="size-4" />
+                    </InputGroupAddon>
+                    <Select v-model="form.store_code" :disabled="isStoreLocked">
+                        <SelectTrigger
+                            class="w-full flex-1 rounded-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent">
+                            <SelectValue placeholder="Pilih cawangan..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem v-for="store in stores" :key="store.code" :value="store.code">
+                                {{ store.label }}
+                            </SelectItem>
+                        </SelectContent>
+                    </Select>
+                </InputGroup>
+                <InputGroup class="w-48 bg-input/50">
+                    <InputGroupAddon>
+                        <User class="size-4" />
+                    </InputGroupAddon>
+                    <InputGroupInput v-model="form.submitted_by_name" placeholder="Nama anda" autocomplete="off" />
+                </InputGroup>
             </div>
         </div>
 
@@ -742,44 +769,6 @@ function submit() {
 
         <div class="grid lg:grid-cols-3 grid-cols-1 gap-4">
             <form class="flex flex-col gap-4 lg:col-span-2" @submit.prevent="openConfirm">
-                <!-- Basic Details -->
-                <Card>
-                    <CardContent class="grid gap-3 sm:grid-cols-2 space-y-3">
-                        <div>
-                            <Label class="mb-1.5 block flex items-center gap-2">
-                                <Store class="size-4" />
-                                Cawangan
-                            </Label>
-                            <Select v-model="form.store_code" :disabled="isStoreLocked">
-                                <SelectTrigger class="w-full">
-                                    <SelectValue placeholder="Pilih cawangan..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem v-for="store in stores" :key="store.code" :value="store.code">
-                                        {{ store.label }}
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <p v-if="isStoreLocked" class="mt-1 text-xs text-muted-foreground">
-                                Cawangan anda ditetapkan HQ - tak boleh ditukar di sini.
-                            </p>
-                            <p v-if="form.errors.store_code" class="mt-1 text-xs text-destructive">
-                                {{ form.errors.store_code }}
-                            </p>
-                        </div>
-                        <div>
-                            <Label class="mb-1.5 block flex items-center gap-2">
-                                <User class="size-4" />
-                                Nama PIC
-                            </Label>
-                            <Input v-model="form.submitted_by_name" placeholder="Nama anda" autocomplete="off" />
-                            <p v-if="form.errors.submitted_by_name" class="mt-1 text-xs text-destructive">
-                                {{ form.errors.submitted_by_name }}
-                            </p>
-                        </div>
-                    </CardContent>
-                </Card>
-
                 <!-- Seksyen 1: Cari & Tambah Item -->
                 <Card class="py-4">
                     <CardContent class="flex flex-col gap-3">
@@ -897,18 +886,14 @@ function submit() {
                     </CardContent>
                 </Card>
 
-                <!-- Seksyen 2: Senarai Item -->
-                <Card>
+                <!-- Seksyen 2a: Item Baharu -->
+                <Card v-if="form.lines.length > 0">
                     <CardHeader>
                         <CardTitle class="flex items-center gap-2 text-base">
-                            <ClipboardList class="size-4" />Senarai Item ({{ form.lines.length }})
+                            <ClipboardList class="size-4" />Item Baharu ({{ form.lines.length }})
                         </CardTitle>
                     </CardHeader>
                     <CardContent class="flex flex-col gap-4">
-                        <p v-if="form.lines.length === 0 && existingLines.length === 0"
-                            class="text-sm text-muted-foreground">
-                            Belum ada item ditambah - cari &amp; tambah item di Seksyen 1, atau guna Cadangan Restock.
-                        </p>
                         <p v-if="form.errors.lines" class="text-xs text-destructive">
                             {{ form.errors.lines }}
                         </p>
@@ -917,15 +902,10 @@ function submit() {
                              RestockSuggestions.vue) supaya senarai TIDAK PERNAH lebih tinggi drpd
                              skrin yg boleh nampak - skrol DALAM panel sahaja bila item banyak. -->
                         <div class="overflow-hidden">
-                            <ScrollArea v-if="form.lines.length > 0 || existingLines.length > 0"
-                                class="h-[min(500px,calc(100vh-14rem))]">
-                                <div class="flex flex-col gap-1 pr-3">
-                                    <p v-if="existingLines.length > 0 && form.lines.length > 0"
-                                        class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                        Item Baharu
-                                    </p>
+                            <ScrollArea class="max-h-[min(500px,calc(100vh-14rem))]">
+                                <div class="flex flex-col gap-3 pr-3">
                                     <div v-for="(line, index) in form.lines" :key="index"
-                                        class="flex flex-col gap-3 bg-muted rounded-xl border p-3 mt-2"
+                                        class="flex flex-col gap-3 bg-muted rounded-xl border p-3"
                                         :class="lineErrorKeys(index).length ? 'border-destructive' : ''">
                                         <div class="flex items-center gap-3">
                                             <ImagePreview :src="line.image_url" :reference="line.image_reference" :alt="line.item_desc"
@@ -1043,13 +1023,38 @@ function submit() {
                                                 lineImageError }}</p>
                                         </div>
                                     </div>
+                                </div>
+                            </ScrollArea>
+                        </div>
 
-                                    <p v-if="existingLines.length > 0 && form.lines.length > 0"
-                                        class="text-xs font-medium uppercase tracking-wide text-muted-foreground mt-2">
-                                        Item Sedia Ada{{ existingRequestNumber ? ` (${existingRequestNumber})` : '' }}
-                                    </p>
+                        <div v-if="errorSummary.length" role="alert"
+                            class="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                            <p class="font-medium">Permintaan tidak dapat dihantar. Sila betulkan:</p>
+                            <ul class="mt-1 list-disc pl-5">
+                                <li v-for="e in errorSummary" :key="e.key">{{ e.text }}</li>
+                            </ul>
+                        </div>
+                    </CardContent>
+                    <CardFooter class="justify-end">
+                        <Button type="submit" :disabled="!canSubmit || form.processing">
+                            {{ submitTriggerLabel }}
+                        </Button>
+                    </CardFooter>
+                </Card>
+
+                <!-- Seksyen 2b: Item Sedia Ada -->
+                <Card v-if="existingLines.length > 0">
+                    <CardHeader>
+                        <CardTitle class="flex items-center gap-2 text-base">
+                            <ClipboardList class="size-4" />Item Sedia Ada{{ existingRequestNumber ? ` (${existingRequestNumber})` : '' }}
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent class="flex flex-col gap-4">
+                        <div class="overflow-hidden">
+                            <ScrollArea class="max-h-[min(500px,calc(100vh-14rem))]">
+                                <div class="flex flex-col gap-3 pr-3">
                                     <div v-for="line in existingLines" :key="`existing-${line.id}`"
-                                        class="flex items-center gap-4 rounded-xl border border-dashed border-muted-background p-3 mt-2"
+                                        class="flex items-center gap-4 rounded-xl border border-dashed border-muted-background p-3"
                                         :class="isTerminal(line.fulfillment_status) ? 'opacity-50' : 'bg-muted/50'">
                                         <ImagePreview :src="line.image_url" :reference="line.image_reference" :alt="line.item_desc"
                                             class="size-11 rounded-lg" />
@@ -1102,27 +1107,13 @@ function submit() {
                     </CardContent>
                 </Card>
 
-                <!-- Nota -->
-                <Card class="py-4">
-                    <CardContent class="flex flex-col gap-3">
-                        <div class="flex items-center gap-2 text-sm font-bold">
-                            <Paperclip class="size-4" />
-                            Nota
-                        </div>
-                        <Textarea v-model="form.notes" placeholder="Nota tambahan (optional)" :rows="2" />
-                        <div v-if="errorSummary.length" role="alert"
-                            class="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                            <p class="font-medium">Permintaan tidak dapat dihantar. Sila betulkan:</p>
-                            <ul class="mt-1 list-disc pl-5">
-                                <li v-for="e in errorSummary" :key="e.key">{{ e.text }}</li>
-                            </ul>
-                        </div>
+                <!-- Takde item baharu & takde item sedia ada langsung -->
+                <Card v-if="form.lines.length === 0 && existingLines.length === 0">
+                    <CardContent>
+                        <p class="text-sm text-muted-foreground">
+                            Belum ada item ditambah - cari &amp; tambah item di Seksyen 1, atau guna Cadangan Restock.
+                        </p>
                     </CardContent>
-                    <CardFooter class="justify-end">
-                        <Button type="submit" :disabled="!canSubmit || form.processing">
-                            {{ submitTriggerLabel }}
-                        </Button>
-                    </CardFooter>
                 </Card>
             </form>
 
@@ -1171,10 +1162,6 @@ function submit() {
                             </li>
                         </ul>
                     </div>
-
-                    <p v-if="form.notes" class="text-muted-foreground">
-                        Nota: <span class="text-foreground">{{ form.notes }}</span>
-                    </p>
                 </div>
 
                 <DialogFooter>
