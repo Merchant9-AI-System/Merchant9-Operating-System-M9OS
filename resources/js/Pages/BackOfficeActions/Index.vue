@@ -2854,7 +2854,7 @@ function save(andPrint = false, afterSave?: () => void) {
                                                 class="flex flex-col gap-1 text-xs">
                                                 <li v-for="(p, i) in branchPiecesFor(activeDesign.internal_code, st.store_code)"
                                                     :key="i"
-                                                    class="flex items-center justify-between rounded-md bg-muted/40 px-2 py-1">
+                                                    class="flex items-center justify-between rounded-md bg-accent/60 px-2 py-1">
                                                     <span>{{ p.size ? `Saiz ${p.size}` : 'Saiz -' }}</span>
                                                     <span v-if="p.weight">{{ p.weight }}g</span>
                                                 </li>
@@ -3093,7 +3093,7 @@ function save(andPrint = false, afterSave?: () => void) {
                                                                     class="flex flex-col gap-1 text-xs">
                                                                     <li v-for="(p, i) in branchPiecesFor(item.internal_code, s.store_code)"
                                                                         :key="i"
-                                                                        class="flex items-center justify-between rounded-md bg-muted/40 px-2 py-1">
+                                                                        class="flex items-center justify-between rounded-md bg-accent/60 px-2 py-1">
                                                                         <span>{{ p.size ? `Saiz ${p.size}` : 'Saiz -' }}</span>
                                                                         <span v-if="p.weight">{{ p.weight }}g</span>
                                                                     </li>
