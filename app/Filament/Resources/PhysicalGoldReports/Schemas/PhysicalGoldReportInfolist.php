@@ -272,16 +272,16 @@ class PhysicalGoldReportInfolist
                             ->table([
                                 TableColumn::make('Supplier'),
                                 TableColumn::make('Payable Kasar (g)'),
-                                TableColumn::make('Payable Tulen (g)'),
+                                // TableColumn::make('Payable Tulen (g)'),
                                 TableColumn::make('Receivable Kasar (g)'),
-                                TableColumn::make('Receivable Tulen (g)'),
+                                // TableColumn::make('Receivable Tulen (g)'),
                             ])
                             ->schema([
                                 TextEntry::make('vendor.VendorCode')->label('Supplier')->placeholder(fn ($record) => $record->vendor_code),
                                 TextEntry::make('payable_gross_weight')->label('Payable Kasar')->numeric(2)->placeholder('-'),
-                                TextEntry::make('payable_pure_weight')->label('Payable Tulen')->numeric(2)->placeholder('-')->color('danger'),
+                                // TextEntry::make('payable_pure_weight')->label('Payable Tulen')->numeric(2)->placeholder('-')->color('danger'),
                                 TextEntry::make('receivable_gross_weight')->label('Receivable Kasar')->numeric(2)->placeholder('-'),
-                                TextEntry::make('receivable_pure_weight')->label('Receivable Tulen')->numeric(2)->placeholder('-')->color('success'),
+                                // TextEntry::make('receivable_pure_weight')->label('Receivable Tulen')->numeric(2)->placeholder('-')->color('success'),
                             ]),
                     ])
                     ->columnSpanFull(),
