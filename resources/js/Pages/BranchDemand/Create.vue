@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, useForm, usePage } from '@inertiajs/vue3';
-import { AlertTriangle, ClipboardList, Loader2, Pencil, Plus, Search, Store, Trash2, Upload, User, X } from '@lucide/vue';
+import { AlertTriangle, CheckCircle2, ClipboardList, Loader2, Pencil, Plus, Search, Store, Trash2, Upload, User, X } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import ImagePreview from '@/components/ImagePreview.vue';
 import { Badge } from '@/components/ui/badge';
@@ -763,7 +763,8 @@ function submit() {
         </div>
 
         <div v-if="page.props.flash.success"
-            class="rounded-md border border-success/30 bg-success/10 px-4 py-3 text-sm text-success-700">
+            class="flex items-center gap-2 rounded-md border border-success/30 bg-success/10 px-4 py-3 text-sm font-medium text-success-700">
+            <CheckCircle2 class="size-4 shrink-0" />
             {{ page.props.flash.success }}
         </div>
 

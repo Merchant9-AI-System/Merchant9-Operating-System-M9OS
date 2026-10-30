@@ -6,6 +6,7 @@ use App\Models\PhysicalGoldReport;
 use App\Models\User;
 use App\Support\PhysicalGoldReportCalculator;
 use Filament\Actions\Action;
+use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -16,6 +17,7 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 
 class PhysicalGoldReportsTable
@@ -129,6 +131,72 @@ class PhysicalGoldReportsTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
+                    BulkAction::make('bulkSubmit')
+                        ->label('Hantar')
+                        ->icon(Heroicon::OutlinedPaperAirplane)
+                        ->color('warning')
+                        ->requiresConfirmation()
+                        ->modalDescription('Hantar laporan fizikal emas yang dipilih utk kelulusan? Laporan yang bukan Draft akan dilangkau.')
+                        ->schema([
+                            Select::make('recipient_user_ids')
+                                ->label('Notify Users')
+                                ->multiple()
+                                ->searchable()
+                                ->options(fn () => User::query()->orderBy('name')->pluck('name', 'id'))
+                                ->required(),
+                        ])
+                        ->deselectRecordsAfterCompletion()
+                        ->action(function (Collection $records, array $data) {
+                            $eligible = $records->filter(fn (PhysicalGoldReport $record) => $record->status === PhysicalGoldReport::STATUS_DRAFT);
+                            $skipped = $records->count() - $eligible->count();
+
+                            $eligible->each(fn (PhysicalGoldReport $record) => $record->submit(Auth::user()));
+
+                            if ($eligible->isNotEmpty()) {
+                                $recipients = User::whereIn('id', $data['recipient_user_ids'])->get()->all();
+
+                                Notification::make()
+                                    ->title('Pemberitahuan laporan fizikal emas')
+                                    ->body($eligible->count().' laporan telah dihantar oleh '.Auth::user()->name.'.')
+                                    ->info()
+                                    ->actions([
+                                        Action::make('gotoPage')->label('View')
+                                            ->url(route('filament.admin.resources.physical-gold-reports.index'))
+                                            ->button(),
+                                    ])
+                                    ->sendToDatabase($recipients);
+                            }
+
+                            Notification::make()
+                                ->title($eligible->count().' laporan dihantar utk kelulusan.'.($skipped > 0 ? " {$skipped} dilangkau (bukan Draft)." : ''))
+                                ->success()
+                                ->send();
+                        }),
+
+                    // Sama gerbang permission dgn row action 'approve' (rujuk dokblok di atas) -
+                    // button hanya visible utk role yg ada kebenaran Approve, & laporan sendiri
+                    // sentiasa dilangkau dlm action() di bawah (maker-checker).
+                    BulkAction::make('bulkApprove')
+                        ->label('Lulus')
+                        ->icon(Heroicon::OutlinedCheckCircle)
+                        ->color('success')
+                        ->requiresConfirmation()
+                        ->modalDescription('Luluskan laporan fizikal emas yang dipilih? Laporan yang bukan Submitted atau disediakan sendiri akan dilangkau.')
+                        ->visible(fn () => (bool) Auth::user()?->can('Approve:PhysicalGoldReport'))
+                        ->deselectRecordsAfterCompletion()
+                        ->action(function (Collection $records) {
+                            $eligible = $records->filter(fn (PhysicalGoldReport $record) => $record->status === PhysicalGoldReport::STATUS_SUBMITTED
+                                && $record->prepared_by_id !== Auth::id());
+                            $skipped = $records->count() - $eligible->count();
+
+                            $eligible->each(fn (PhysicalGoldReport $record) => $record->approve(Auth::user()));
+
+                            Notification::make()
+                                ->title($eligible->count().' laporan diluluskan.'.($skipped > 0 ? " {$skipped} dilangkau (bukan Submitted atau laporan sendiri)." : ''))
+                                ->success()
+                                ->send();
+                        }),
+
                     DeleteBulkAction::make(),
                 ]),
             ])
