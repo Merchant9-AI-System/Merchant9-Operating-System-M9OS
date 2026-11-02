@@ -38,6 +38,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/back-office-actions/restock/suppliers', [BackOfficeActionsController::class, 'restockSuppliers'])->name('back-office-actions.restock.suppliers');
     Route::get('/back-office-actions/restock/latest-sales', [BackOfficeActionsController::class, 'restockLatestSales'])->name('back-office-actions.restock.latest-sales');
     Route::get('/back-office-actions/restock/branch-pieces', [BackOfficeActionsController::class, 'restockBranchPieces'])->name('back-office-actions.restock.branch-pieces');
+    Route::get('/back-office-actions/restock/branch-pieces-detail', [BackOfficeActionsController::class, 'restockBranchPiecesDetailed'])->name('back-office-actions.restock.branch-pieces-detail');
     Route::get('/back-office-actions/restock/export', [BackOfficeActionsController::class, 'restockExport'])->name('back-office-actions.restock.export');
     Route::get('/back-office-actions/restock/print', [BackOfficeActionsController::class, 'restockPrint'])->name('back-office-actions.restock.print');
     Route::get('/back-office-actions/preview', [BackOfficeActionsController::class, 'preview'])->name('back-office-actions.preview');

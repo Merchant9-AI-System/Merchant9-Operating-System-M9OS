@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Enums\JemisysInventoryStatus;
 use App\Models\BranchDemandRequest;
 use App\Models\BranchDemandRequestLine;
 use App\Models\Jemisys\InventoryPiece;
@@ -822,6 +823,50 @@ class BackOfficeActionsAdvisor
                 ->map(fn ($r) => [
                     'size' => filled($r->JewelSize) ? trim((string) $r->JewelSize) : null,
                     'weight' => $r->GoldWeight !== null ? (float) $r->GoldWeight : null,
+                ])
+                ->values()
+                ->all())
+            ->all();
+    }
+
+    /**
+     * Piece individu (saiz/berat/status) GABUNGAN stok on-hand semasa (Status=Available) DGN
+     * piece yg SOLD dlm tempoh $days - kolum "Stok & Jualan Cawangan" Senarai Restock. Ikut
+     * tempoh yg SAMA dgn filter "Jualan supplier" sedia ada (rujuk RestockListBuilder::
+     * clampSupplierDays()). Dimuat ATAS PERMINTAAN bila baris nampak dlm viewport (bukan
+     * sebahagian build() - sebab sama dgn piecesByCode(): query per-piece berat utk semua
+     * design sekali gus).
+     *
+     * @return array<string, array<int, array{size: ?string, weight: ?float, status: string}>>
+     */
+    public function piecesWithSalesByCode(string $code, int $days): array
+    {
+        $code = trim($code);
+
+        if ($code === '') {
+            return [];
+        }
+
+        $cutoff = now()->subDays(max(1, $days))->startOfDay();
+
+        return InventoryPiece::query()
+            ->realVendor()
+            ->physicalStore()
+            ->whereNotIn('StoreCode', ['SECURITY', 'security'])
+            ->where('InternalCode', $code)
+            ->where(fn ($q) => $q->onHand()->orWhere(fn ($q2) => $q2
+                ->whereIn('Status', [JemisysInventoryStatus::Sold->value, JemisysInventoryStatus::SoldClosed->value])
+                ->where('SalesDate', '>=', $cutoff)))
+            ->select(['StoreCode', 'JewelSize', 'GoldWeight', 'Status'])
+            ->toBase()
+            ->get()
+            ->reject(fn ($r) => $this->isExcludedStore((string) $r->StoreCode))
+            ->groupBy(fn ($r) => trim((string) $r->StoreCode))
+            ->map(fn (Collection $rows) => $rows
+                ->map(fn ($r) => [
+                    'size' => filled($r->JewelSize) ? trim((string) $r->JewelSize) : null,
+                    'weight' => $r->GoldWeight !== null ? (float) $r->GoldWeight : null,
+                    'status' => JemisysInventoryStatus::labelFor($r->Status),
                 ])
                 ->values()
                 ->all())

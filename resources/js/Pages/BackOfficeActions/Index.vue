@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Deferred, Head, router } from '@inertiajs/vue3';
 import { Check, ChevronDown, CircleDot, Download, FileSpreadsheet, Loader2, MousePointerClick, Printer, Save, Search, Trash2, X, Plus } from '@lucide/vue';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import FacetedFilter from '@/components/FacetedFilter.vue';
 import ImagePreview from '@/components/ImagePreview.vue';
@@ -27,6 +27,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
 
 // Satu design = satu baris di senarai & satu tindakan utk SEMUA cawangan yg minta design tsb
 // (rujuk App\Support\BackOfficeActionsAdvisor). Data asas masih per-line (satu line = permintaan
@@ -187,6 +188,8 @@ interface RestockItem {
     target_stock: number;
     branch_targets: Record<string, number>;
     allocation: Record<string, number> | null;
+    // Nota bebas BO (cth. alasan qty/paras diubah, arahan khas utk supplier) - null utk design baharu.
+    remark?: string | null;
     plan: {
         target: number;
         branches: { store_code: string; stock: number; requested: number; target: number; need: number }[];
@@ -359,6 +362,7 @@ interface RestockEdit {
     ordered?: boolean;
     target?: number;
     branchTargets?: Record<string, number>;
+    remark?: string;
 }
 
 const restockEdits = ref<Record<number, RestockEdit>>({});
@@ -372,6 +376,8 @@ const pendingQty = ref<Record<string, number>>({});
 // Paras design BARU (belum disimpan) - kunci = kod design.
 const pendingTarget = ref<Record<string, number>>({});
 const pendingBranchTargets = ref<Record<string, Record<string, number>>>({});
+// Remark design BARU (belum disimpan) - kunci = kod design.
+const pendingRemark = ref<Record<string, string>>({});
 
 function commitRestockEdit(id: number, edit: RestockEdit) {
     const hasValue = Object.values(edit).some((v) => v !== undefined && v !== false);
@@ -616,6 +622,24 @@ function resetBranchTargets(item: RestockItem) {
     storeBranchTargets(item, {});
 }
 
+function remarkOf(item: RestockItem): string {
+    return (item.pending ? pendingRemark.value[item.internal_code] : restockEdits.value[item.id]?.remark) ?? item.remark ?? '';
+}
+
+function setRemark(item: RestockItem, value: string) {
+    if (item.pending) {
+        if (value === (item.remark ?? '')) {
+            delete pendingRemark.value[item.internal_code];
+        } else {
+            pendingRemark.value[item.internal_code] = value;
+        }
+
+        return;
+    }
+
+    commitRestockEdit(item.id, { ...restockEdits.value[item.id], remark: value === (item.remark ?? '') ? undefined : value });
+}
+
 // Agihan Qty order ke cawangan (Restock sahaja) - SAMA persis dgn App\Support\RestockAllocator (ubah KEDUA-DUA):
 // 1) cawangan yg request dahulu, 2) isi ke paras, 3) lebihan diratakan bergilir ikut kod. Fasa 1 & 2: unit diberi
 // satu-satu bergilir, baki keperluan terbesar dahulu (kemudian kod).
@@ -761,6 +785,93 @@ function branchPiecesFor(code: string, store: string): BranchPiece[] {
     return branchPieces.value[code]?.[store] ?? [];
 }
 
+// Piece individu GABUNGAN on-hand + sold dlm tempoh "Jualan supplier" (supplierDays) - kolum
+// "Stok & Jualan Cawangan" Senarai Restock. BEZA drpd branchPieces (popover "Stok Semua Cawangan"
+// di atas, on-hand SAHAJA) - kolum ni sengaja endpoint/cache BERASINGAN supaya popover sedia ada
+// kekal tak terjejas. Dimuat AUTOMATIK bila baris nampak dlm viewport (IntersectionObserver di
+// bawah), bukan tunggu klik - rujuk restockDetailObserver.
+interface DetailedPiece {
+    size: string | null;
+    weight: number | null;
+    status: string;
+}
+
+const branchPiecesDetailed = ref<Record<string, Record<string, DetailedPiece[]>>>({});
+const branchPiecesDetailedLoading = ref<Record<string, boolean>>({});
+// Tempoh (hari) yg dipakai masa kod ni terakhir dimuat - cache miss bila supplierDays berbeza drpd
+// nilai ni, supaya tukar tempoh di dropdown "Jualan supplier" refresh baris yg dah dimuat.
+const branchPiecesDetailedLoadedDays = ref<Record<string, number>>({});
+
+async function loadBranchPiecesDetailed(code: string, force = false) {
+    if (!force && (branchPiecesDetailedLoadedDays.value[code] === supplierDays.value || branchPiecesDetailedLoading.value[code])) {
+        return;
+    }
+
+    branchPiecesDetailedLoading.value[code] = true;
+
+    try {
+        const res = await getJson<{ pieces: Record<string, DetailedPiece[]> }>(
+            `/back-office-actions/restock/branch-pieces-detail?code=${encodeURIComponent(code)}&days=${supplierDays.value}`,
+        );
+        branchPiecesDetailed.value[code] = res.pieces ?? {};
+        branchPiecesDetailedLoadedDays.value[code] = supplierDays.value;
+    } catch (e) {
+        toast.error((e as Error).message);
+    } finally {
+        delete branchPiecesDetailedLoading.value[code];
+    }
+}
+
+function detailedPiecesFor(code: string, store: string): DetailedPiece[] {
+    return branchPiecesDetailed.value[code]?.[store] ?? [];
+}
+
+// false = belum dimuat (baris belum/baru nampak dlm viewport) ATAU sedang dimuat - kedua2 kes
+// papar Skeleton (rujuk template), elak papar "Tiada piece" palsu sebelum fetch sempat selesai.
+function isRestockDetailLoaded(code: string): boolean {
+    return branchPiecesDetailedLoadedDays.value[code] !== undefined && !branchPiecesDetailedLoading.value[code];
+}
+
+// SATU IntersectionObserver dikongsi utk semua baris (bukan satu per baris) - lebih jimat memori
+// drpd ratusan instance individu. Target disimpan dlm Map(elemen -> kod design) sebab callback
+// IntersectionObserver cuma bagi balik elemen DOM, bukan data Vue terus.
+let restockDetailObserver: IntersectionObserver | null = null;
+const restockDetailTargets = new Map<Element, string>();
+
+function observeRestockDetailCell(code: string, el: Element | null) {
+    if (!el) {
+        return;
+    }
+
+    restockDetailTargets.set(el, code);
+    restockDetailObserver?.observe(el);
+}
+
+onMounted(() => {
+    restockDetailObserver = new IntersectionObserver(
+        (entries) => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) {
+                    continue;
+                }
+
+                const code = restockDetailTargets.get(entry.target);
+
+                if (code) {
+                    loadBranchPiecesDetailed(code);
+                }
+            }
+        },
+        // rootMargin positif - mula muat SEBELUM baris betul2 nampak (scroll terasa lancar, tiada
+        // jeda tunggu loading lepas baris dah masuk viewport).
+        { rootMargin: '300px 0px' },
+    );
+});
+
+onBeforeUnmount(() => {
+    restockDetailObserver?.disconnect();
+});
+
 const branchPopoverKey = ref<string | null>(null);
 // Popover piece per cawangan (hover card reka-ui tak boleh dipercayai dlm app ni - tukar ke
 // Popover, pattern yg dah terbukti berfungsi, rujuk "Setting Paras"). Kunci = design + cawangan,
@@ -811,7 +922,10 @@ function branchStockOf(item: RestockItem, store: string): number {
     return item.stock.find((s) => s.store_code === store)?.stock ?? 0;
 }
 
-const restockColumnCount = computed(() => 4 + (props.canSeeLatestSales ? 1 : 0) + (props.canSeeSuppliers ? 1 : 0));
+// +1 asas (kolum "Remark" baharu, unconditional). +2 bila canSeeSuppliers: kolum "Kod Supplier
+// Teratas" SEDIA ADA + kolum "Stok & Jualan Cawangan" (sama gate - kedua2 bergantung dropdown
+// "Jualan supplier"/supplierDays).
+const restockColumnCount = computed(() => 5 + (props.canSeeLatestSales ? 1 : 0) + (props.canSeeSuppliers ? 2 : 0));
 
 // ===== Jualan terkini: baris tersimpan dibawa dlm data Senarai Restock; baris BELUM disimpan dimuat berasingan =====
 // undefined = sedang dimuat, null = tak pernah terjual.
@@ -878,6 +992,15 @@ const supplierDays = ref(30);
 const supplierData = ref<SupplierData | null>(null);
 const supplierLoading = ref(false);
 const supplierDialogOpen = ref(false);
+
+// Tukar tempoh "Jualan supplier" -> muat semula SEGERA baris yg dah pernah nampak (tak tunggu
+// scroll keluar-masuk viewport semula, sebab IntersectionObserver cuma fire bila status
+// intersecting BERUBAH, bukan tiap kali cache dikosongkan).
+watch(supplierDays, () => {
+    for (const code of Object.keys(branchPiecesDetailedLoadedDays.value)) {
+        loadBranchPiecesDetailed(code, true);
+    }
+});
 
 function supplierRows(item: RestockItem): SupplierVendor[] {
     return supplierData.value?.items?.[item.internal_code] ?? [];
@@ -1005,6 +1128,9 @@ function restockEditMatchesFresh(edit: RestockEdit, fresh: RestockItem): boolean
         return false;
     }
     if (edit.branchTargets !== undefined && !sameTargets(edit.branchTargets, fresh.branch_targets)) {
+        return false;
+    }
+    if (edit.remark !== undefined && edit.remark !== (fresh.remark ?? '')) {
         return false;
     }
 
@@ -2263,16 +2389,18 @@ function save(andPrint = false, afterSave?: () => void) {
             ordered: e.ordered ?? false,
             ...(e.target !== undefined ? { target_stock: e.target } : {}),
             ...(e.branchTargets !== undefined ? { branch_targets: e.branchTargets } : {}),
+            ...(e.remark !== undefined ? { remark: e.remark } : {}),
         };
     });
 
     const restock_new = pendingRestock.value
-        .filter((i) => pendingQty.value[i.internal_code] !== undefined || planEdited(i))
+        .filter((i) => pendingQty.value[i.internal_code] !== undefined || planEdited(i) || pendingRemark.value[i.internal_code] !== undefined)
         .map((i) => ({
             internal_code: i.internal_code,
             qty: rowQty(i),
             target_stock: targetOf(i),
             branch_targets: branchTargetsOf(i),
+            ...(pendingRemark.value[i.internal_code] !== undefined ? { remark: pendingRemark.value[i.internal_code] } : {}),
         }));
 
     // Partial reload Senarai Restock SAHAJA bila SATU-SATUNYA perubahan ialah Senarai Restock (qty/paras/buang) -
@@ -3137,12 +3265,16 @@ function save(andPrint = false, afterSave?: () => void) {
                                         <th class="py-2 px-1.5 pr-3 font-medium">Design</th>
                                         <th class="py-2 px-1.5 pr-3 font-medium">Cawangan request (saiz / berat)</th>
                                         <th class="py-2 px-1.5 pr-3 font-medium">Stok semua cawangan</th>
+                                        <th v-if="canSeeSuppliers" class="py-2 px-1.5 pr-3 font-medium">Stok &amp; jualan cawangan
+                                            <span class="block font-normal normal-case">ikut saiz/berat/status</span>
+                                        </th>
                                         <th v-if="canSeeLatestSales" class="py-2 px-1.5 pr-3 font-medium">Jualan terkini</th>
                                         <th v-if="canSeeSuppliers" class="py-2 px-1.5 pr-3 font-medium">Kod supplier
                                             teratas
                                             <span v-if="supplierData" class="block font-normal normal-case">terjual {{
                                                 supplierData.days }} hari</span>
                                         </th>
+                                        <th class="py-2 px-1.5 pr-3 font-medium">Remark</th>
                                         <th class="py-2 px-1.5 font-medium">Qty order</th>
                                     </tr>
                                 </thead>
@@ -3368,6 +3500,29 @@ function save(andPrint = false, afterSave?: () => void) {
                                                     </Popover>
                                                 </div>
                                             </td>
+                                            <td v-if="canSeeSuppliers" class="py-2 px-1.5 pr-3 align-top"
+                                                :ref="(el) => observeRestockDetailCell(item.internal_code, el as Element | null)">
+                                                <ScrollArea class="max-h-40 w-56 rounded-md border bg-muted/20 p-2">
+                                                    <div class="flex flex-col gap-2 pr-2 text-xs">
+                                                        <div v-for="s in item.stock" :key="s.store_code">
+                                                            <p class="font-medium">{{ s.store_code }}:</p>
+                                                            <template v-if="isRestockDetailLoaded(item.internal_code)">
+                                                                <ul v-if="detailedPiecesFor(item.internal_code, s.store_code).length"
+                                                                    class="mt-0.5 flex flex-col gap-0.5 text-muted-foreground">
+                                                                    <li v-for="(p, i) in detailedPiecesFor(item.internal_code, s.store_code)"
+                                                                        :key="i">
+                                                                        {{ p.size ? `Saiz ${p.size}` : 'Saiz -' }}<template
+                                                                            v-if="p.weight"> &middot; {{ p.weight }}g</template>
+                                                                        &middot; {{ p.status }}
+                                                                    </li>
+                                                                </ul>
+                                                                <p v-else class="mt-0.5 text-muted-foreground">Tiada piece.</p>
+                                                            </template>
+                                                            <Skeleton v-else class="mt-1 h-3 w-28" />
+                                                        </div>
+                                                    </div>
+                                                </ScrollArea>
+                                            </td>
                                             <td v-if="canSeeLatestSales" class="py-2 px-1.5 pr-3 whitespace-nowrap">
                                                 <Skeleton v-if="lastSaleOf(item) === undefined"
                                                     class="h-4 w-20 bg-muted" />
@@ -3401,6 +3556,12 @@ function save(andPrint = false, afterSave?: () => void) {
                                                         </Badge>
                                                     </div>
                                                 </div>
+                                            </td>
+                                            <td class="py-2 px-1.5 pr-3 align-top">
+                                                <Textarea :model-value="remarkOf(item)" :disabled="isRemovedRow(item)"
+                                                    :aria-label="`Remark ${item.internal_code}`" class="h-16 w-40 resize-none text-xs"
+                                                    placeholder="Nota (optional)"
+                                                    @update:model-value="(v: string | number) => setRemark(item, String(v))" />
                                             </td>
                                             <td class="py-2 px-1.5">
                                                 <div class="flex items-center gap-2">

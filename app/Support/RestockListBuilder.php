@@ -12,9 +12,10 @@ use Illuminate\Support\Collection;
  * Data Senarai Restock leader BO (rujuk halaman Back Office Actions) utk paparan, Excel & cetakan:
  * setiap design dlm senarai (RestockListItem draf) + cawangan yg request (saiz/berat/qty drpd line
  * berstatus Order - cawangan lain yg stok rendah tapi TAK request tiada maklumat saiz/berat),
- * stok semua cawangan kecuali Security, jualan 7/30 hari, & (super_admin sahaja) 3 supplier teratas
- * berdasarkan JUALAN KESELURUHAN design tsb (VendorCode piece yg terjual) - KOD supplier sahaja,
- * nama penuh supplier sengaja tidak didedahkan.
+ * stok semua cawangan kecuali Security, jualan 7/30 hari, & (super_admin/ceo/manager - rujuk
+ * BackOfficeActionsController::canSeeSuppliers()) 3 supplier teratas berdasarkan JUALAN
+ * KESELURUHAN design tsb (VendorCode piece yg terjual) - KOD supplier sahaja, nama penuh
+ * supplier sengaja tidak didedahkan.
  */
 class RestockListBuilder
 {
@@ -362,6 +363,7 @@ class RestockListBuilder
                 'suggested_qty' => (int) $item->suggested_qty,
                 'target_stock' => $targetStock,
                 'branch_targets' => (object) $branchTargets,
+                'remark' => $item->remark,
                 'allocation' => $item->allocation ?? RestockAllocator::allocate($plan['branches'], (int) $item->qty_to_order),
                 'plan' => $plan,
                 'requests' => $requests->all(),
@@ -444,10 +446,15 @@ class RestockListBuilder
 
     /**
      * "Best supplier to meet": supplier yg muncul di 3 teratas paling banyak design dlm senarai
-     * (seri -> jualan lebih tinggi), dgn jumlah unit order design-design tsb.
+     * (seri -> jualan lebih tinggi, seri lagi -> pieces yg pernah kita amik drpd supplier tsb lebih
+     * banyak), dgn jumlah unit order design-design tsb. Supplier dgn sold=0 utk sesuatu design
+     * (tiada jualan langsung dlm tempoh - termasuk fallback topVendors() ikut pieces semata2 bila
+     * design tu memang tak pernah terjual) SENGAJA tak dikira di sini - "Best Supplier to Meet"
+     * patut cadangkan supplier yg jualan TERBUKTI, bukan sekadar yg paling banyak kita order
+     * sebelum ni (pieces kekal relevan sbg tiebreaker, bukan syarat kelayakan).
      *
      * @param  Collection<int, array<string, mixed>>  $rows
-     * @return array<int, array{vendor_code: string, designs: int, sold: int, qty_to_order: int, codes: array<int, string>}>
+     * @return array<int, array{vendor_code: string, designs: int, sold: int, pieces: int, qty_to_order: int, codes: array<int, string>}>
      */
     protected function bestSuppliers(Collection $rows): array
     {
@@ -455,16 +462,21 @@ class RestockListBuilder
 
         foreach ($rows as $row) {
             foreach ($row['suppliers'] as $v) {
-                $agg[$v['vendor_code']] ??= ['vendor_code' => $v['vendor_code'], 'designs' => 0, 'sold' => 0, 'qty_to_order' => 0, 'codes' => []];
+                if ($v['sold'] <= 0) {
+                    continue;
+                }
+
+                $agg[$v['vendor_code']] ??= ['vendor_code' => $v['vendor_code'], 'designs' => 0, 'sold' => 0, 'pieces' => 0, 'qty_to_order' => 0, 'codes' => []];
                 $agg[$v['vendor_code']]['designs']++;
                 $agg[$v['vendor_code']]['sold'] += $v['sold'];
+                $agg[$v['vendor_code']]['pieces'] += $v['pieces'];
                 $agg[$v['vendor_code']]['qty_to_order'] += $row['qty_to_order'];
                 $agg[$v['vendor_code']]['codes'][] = $row['internal_code'];
             }
         }
 
         return collect($agg)
-            ->sortBy([['designs', 'desc'], ['sold', 'desc']])
+            ->sortBy([['designs', 'desc'], ['sold', 'desc'], ['pieces', 'desc']])
             ->values()
             ->all();
     }

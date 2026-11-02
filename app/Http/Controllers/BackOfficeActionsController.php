@@ -116,19 +116,25 @@ class BackOfficeActionsController extends Controller
         $this->authorizeBackOffice();
 
         $data = $request->validate([
-            'changes' => ['required_without:restock_items', 'nullable', 'array', 'max:500'],
+            // required_without_all (bukan required_without:restock_items sahaja) - "Simpan Paras"
+            // utk design PENDING (blm disimpan) hantar restock_new SAHAJA (changes & restock_items
+            // explicit null), required_without:restock_items tersilap anggap null "tak present" (PHP
+            // empty()) lalu gagal validation senyap setiap kali - rujuk RestockListPlanTest.
+            'changes' => ['required_without_all:restock_items,restock_new', 'nullable', 'array', 'max:500'],
             'restock_new' => ['nullable', 'array', 'max:500'],
             'restock_new.*.internal_code' => ['required', 'string', 'max:50'],
             'restock_new.*.qty' => ['required', 'integer', 'min:0', 'max:100000'],
             'restock_new.*.target_stock' => ['nullable', 'integer', 'min:0', 'max:50'],
             'restock_new.*.branch_targets' => ['nullable', 'array', 'max:100'],
             'restock_new.*.branch_targets.*' => ['integer', 'min:0', 'max:50'],
+            'restock_new.*.remark' => ['nullable', 'string', 'max:1000'],
             'restock_items' => ['nullable', 'array', 'max:500'],
             'restock_items.*.id' => ['required', 'integer', 'distinct', 'exists:restock_list_items,id'],
             'restock_items.*.qty' => ['nullable', 'integer', 'min:0', 'max:100000'],
             'restock_items.*.target_stock' => ['nullable', 'integer', 'min:0', 'max:50'],
             'restock_items.*.branch_targets' => ['nullable', 'array', 'max:100'],
             'restock_items.*.branch_targets.*' => ['integer', 'min:0', 'max:50'],
+            'restock_items.*.remark' => ['nullable', 'string', 'max:1000'],
             'restock_items.*.remove' => ['nullable', 'boolean'],
             'restock_items.*.ordered' => ['nullable', 'boolean'],
             'changes.*.line_id' => ['required', 'integer', 'distinct', 'exists:branch_demand_request_lines,id'],
@@ -213,7 +219,7 @@ class BackOfficeActionsController extends Controller
                     ->first();
 
                 if ($item) {
-                    $this->applyRestockPlan($item, $advisor, $actor, (int) $new['qty'], $new['target_stock'] ?? null, $new['branch_targets'] ?? null);
+                    $this->applyRestockPlan($item, $advisor, $actor, (int) $new['qty'], $new['target_stock'] ?? null, $new['branch_targets'] ?? null, $new['remark'] ?? null, array_key_exists('remark', $new));
                 }
             }
 
@@ -244,7 +250,7 @@ class BackOfficeActionsController extends Controller
                     continue;
                 }
 
-                $planEdited = array_key_exists('target_stock', $edit) || array_key_exists('branch_targets', $edit);
+                $planEdited = array_key_exists('target_stock', $edit) || array_key_exists('branch_targets', $edit) || array_key_exists('remark', $edit);
 
                 if (isset($edit['qty']) || $planEdited) {
                     $restockChanged += $this->applyRestockPlan(
@@ -254,6 +260,8 @@ class BackOfficeActionsController extends Controller
                         isset($edit['qty']) ? (int) $edit['qty'] : null,
                         $edit['target_stock'] ?? null,
                         $edit['branch_targets'] ?? null,
+                        $edit['remark'] ?? null,
+                        array_key_exists('remark', $edit),
                     ) ? 1 : 0;
                 }
             }
@@ -343,9 +351,13 @@ class BackOfficeActionsController extends Controller
      * kalau selama ni sama dgn cadangan lama).
      *
      * @param  array<string, int>|null  $branchTargets  null = kekalkan
+     * @param  ?string  $remark  nilai remark baharu (abaikan bila $remarkProvided=false)
+     * @param  bool  $remarkProvided  true = field remark MEMANG dihantar client (walaupun kosong -
+     *                                middleware ConvertEmptyStringsToNull tukar '' jadi null sebelum sampai sini, jadi TAK boleh
+     *                                pakai $remark===null utk bezakan "tak dihantar" drpd "dihantar kosong utk kosongkan")
      * @return bool ada perubahan disimpan
      */
-    protected function applyRestockPlan(RestockListItem $item, BackOfficeActionsAdvisor $advisor, string $actor, ?int $qty, ?int $target, ?array $branchTargets): bool
+    protected function applyRestockPlan(RestockListItem $item, BackOfficeActionsAdvisor $advisor, string $actor, ?int $qty, ?int $target, ?array $branchTargets, ?string $remark = null, bool $remarkProvided = false): bool
     {
         $target ??= (int) $item->target_stock;
         $branchTargets = $this->cleanBranchTargets($branchTargets ?? (array) ($item->branch_targets ?? []), $target, $advisor);
@@ -361,6 +373,10 @@ class BackOfficeActionsController extends Controller
             'qty_to_order' => $qty,
             'allocation' => RestockAllocator::allocate($plan['branches'], $qty),
         ]);
+
+        if ($remarkProvided) {
+            $item->remark = filled($remark) ? trim($remark) : null;
+        }
 
         if (! $item->isDirty()) {
             return false;
@@ -557,6 +573,26 @@ class BackOfficeActionsController extends Controller
         }
 
         return response()->json(['pieces' => (object) $advisor->piecesByCode($code)]);
+    }
+
+    /**
+     * Piece individu (saiz/berat/status) GABUNGAN on-hand + sold dlm tempoh - kolum "Stok &
+     * Jualan Cawangan" Senarai Restock (lazy-load bila baris nampak dlm viewport - rujuk nota
+     * BackOfficeActionsAdvisor::piecesWithSalesByCode()). `days` ikut filter "Jualan supplier"
+     * sedia ada (clampSupplierDays - 1 hingga 730).
+     */
+    public function restockBranchPiecesDetailed(Request $request, BackOfficeActionsAdvisor $advisor): JsonResponse
+    {
+        $this->authorizeBackOffice();
+
+        $code = trim((string) $request->query('code', ''));
+        $days = RestockListBuilder::clampSupplierDays($request->query('days'));
+
+        if ($code === '' || mb_strlen($code) > 50) {
+            return response()->json(['pieces' => (object) []]);
+        }
+
+        return response()->json(['pieces' => (object) $advisor->piecesWithSalesByCode($code, $days)]);
     }
 
     /** Paparan cetak Senarai Restock (Cetak / Simpan sebagai PDF melalui pelayar). */
