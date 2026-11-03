@@ -32,7 +32,7 @@ class PhysicalGoldReport extends Model
     protected static function booted(): void
     {
         static::creating(function (PhysicalGoldReport $report) {
-            $report->status ??= self::STATUS_DRAFT;
+            $report->status ??= self::STATUS_SUBMITTED; // STATUS_DRAFT
         });
     }
 
