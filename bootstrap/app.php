@@ -6,6 +6,8 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Laravel\Sanctum\Http\Middleware\CheckAbilities;
+use Laravel\Sanctum\Http\Middleware\CheckForAnyAbility;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -27,6 +29,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // ada di /admin/login (filament.admin.auth.login), bukan laluan 'login' lalai Laravel
         // yg dijangka oleh middleware auth default.
         $middleware->redirectGuestsTo(fn () => route('filament.admin.auth.login'));
+
+        // Sanctum TIDAK auto-daftar alias ni (disahkan baca source SanctumServiceProvider) -
+        // wajib daftar sendiri utk guna 'ability:...'/'abilities:...' pd laluan (rujuk
+        // routes/api.php, POST /api/internal/members/lookup).
+        $middleware->alias([
+            'ability' => CheckForAnyAbility::class,
+            'abilities' => CheckAbilities::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // 'mcp/*' turut disertakan - TANPA ni, kegagalan auth:sanctum di laluan Mcp::web()

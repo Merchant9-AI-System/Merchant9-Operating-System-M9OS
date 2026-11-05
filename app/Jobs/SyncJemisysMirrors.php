@@ -4,9 +4,11 @@ namespace App\Jobs;
 
 use App\Models\InventoryMirror;
 use App\Models\Jemisys\Category;
+use App\Models\Jemisys\Member;
 use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
 use App\Models\User;
+use App\Support\MemberLookup;
 use App\Support\StockoutReorderMaterializer;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -115,6 +117,7 @@ class SyncJemisysMirrors implements ShouldQueue
             $this->syncSmallTable('TblCategory', (new Category)->getTable());
             $this->syncSmallTable('TblVendor', (new Vendor)->getTable());
             $this->syncSmallTable('TblStore', (new Store)->getTable());
+            $memberTotal = $this->syncMembers();
 
             $total = $this->resume ? $this->resumeInventory() : $this->syncInventory();
 
@@ -134,7 +137,7 @@ class SyncJemisysMirrors implements ShouldQueue
 
             $ms = round((microtime(true) - $start) * 1000);
             $mode = $this->resume ? 'resume' : 'penuh';
-            Log::info("SyncJemisysMirrors: selesai ({$mode}) - {$total} baris TblInventory + Category/Vendor/Store, ".
+            Log::info("SyncJemisysMirrors: selesai ({$mode}) - {$total} baris TblInventory + Category/Vendor/Store + {$memberTotal} ahli Member, ".
                 "{$stockoutCandidateCount} calon StockoutReorder ({$ms}ms).");
         } catch (Throwable $e) {
             Log::error('SyncJemisysMirrors gagal: '.$e->getMessage());
@@ -173,6 +176,114 @@ class SyncJemisysMirrors implements ShouldQueue
         }
 
         Log::info('SyncJemisysMirrors: '.$sourceTable.' -> '.$localTable.' ('.count($rows).' baris).');
+    }
+
+    /**
+     * Member (~193K baris) -> jemisys_member_mirror (App\Models\Jemisys\Member, rujuk
+     * App\Support\MemberLookup - QMS kiosk). Disahkan 2026-11-05: query per-request terhadap
+     * Member SQL Server (carian NRIC/telefon utk satu ahli) timeout >65s - box sama dikongsi
+     * dgn sync TblInventory malam ni, RAM-starved + tiada index sesuai utk carian tu. Cermin
+     * harian (bukan per-request) selesaikan isu tu - MemberLookup baca jadual tempatan selepas ni.
+     *
+     * TIADA partition StoreCode spt TblInventory (tiada clustered index berguna di sini, belum
+     * pernah nampak isu bacaan separa pd jadual ni) - satu cursor() + chunk, retry(3) sekeliling
+     * KESELURUHAN (truncate+insert semula dari kosong setiap percubaan, bukan dipartition spt
+     * syncStoreBatchWithRetry() - jadual ni jauh lebih kecil drpd TblInventory, redo penuh selamat).
+     *
+     * CancelledDate TIDAK dicermin - dikecualikan di query SUMBER sendiri (WHERE CancelledDate
+     * IS NULL), sama spt live lookup asal sebelum ni (rujuk git history MemberLookup).
+     *
+     * Semakan kewarasan SATU kali (bukan per-store spt TblInventory - tiada pecahan store
+     * bermakna di sini) lepas insert: kiraan disegerak vs kiraan SUMBER, ambang 2% sama dgn
+     * TblInventory di atas.
+     *
+     * nric_normalized/hand_phone(2)_normalized/whatsapp_normalized dikira DI SINI (sync time)
+     * guna App\Support\MemberLookup::normaliseIc()/normalisePhone() SAMA - satu sumber kebenaran
+     * normalisasi dikongsi tulis (sync) & baca (MemberLookup::find()), elak drift. Rujuk dokblok
+     * migration utk sebab lajur ni wujud (index boleh guna vs whereRaw(REPLACE(...)) full scan).
+     */
+    private function syncMembers(): int
+    {
+        return retry(3, function (int $attempt) {
+            if ($attempt > 1) {
+                Log::warning("SyncJemisysMirrors: cubaan #{$attempt} segerak Member (percubaan sebelum gagal - cuba semula dgn sambungan segar)...");
+            }
+
+            DB::connection('jemisys')->reconnect();
+
+            $sourceCount = DB::connection('jemisys')->table('Member')->whereNull('CancelledDate')->count();
+
+            DB::table('jemisys_member_mirror')->truncate();
+
+            $chunkSize = $this->chunkSizeFor('jemisys_member_mirror');
+            $total = 0;
+            $buffer = [];
+
+            DB::beginTransaction();
+
+            try {
+                DB::connection('jemisys')
+                    ->table('Member')
+                    ->whereNull('CancelledDate')
+                    ->select(['VIPNo', 'NricNo', 'Name', 'MemberType', 'StoreCode', 'MemberSince', 'DiscountPer', 'HandPhone', 'HandPhone2', 'WhatsApp'])
+                    ->cursor()
+                    ->each(function ($row) use (&$buffer, &$total, $chunkSize) {
+                        $buffer[] = (array) $row + [
+                            'synced_at' => now(),
+                            'nric_normalized' => MemberLookup::normaliseIc($row->NricNo),
+                            'hand_phone_normalized' => MemberLookup::normalisePhone($row->HandPhone),
+                            'hand_phone2_normalized' => MemberLookup::normalisePhone($row->HandPhone2),
+                            'whatsapp_normalized' => MemberLookup::normalisePhone($row->WhatsApp),
+                        ];
+
+                        if (count($buffer) >= $chunkSize) {
+                            DB::table('jemisys_member_mirror')->insert($buffer);
+                            $total += count($buffer);
+                            $buffer = [];
+                        }
+                    });
+
+                if ($buffer !== []) {
+                    DB::table('jemisys_member_mirror')->insert($buffer);
+                    $total += count($buffer);
+                }
+
+                DB::commit();
+            } catch (Throwable $e) {
+                try {
+                    if (DB::transactionLevel() > 0) {
+                        DB::rollBack();
+                    }
+                } catch (Throwable) {
+                    // diabaikan sengaja - lihat nota syncStoreBatch().
+                }
+
+                throw $e;
+            }
+
+            if ($sourceCount > 0 && $total < $sourceCount * 0.98) {
+                $shortPercent = round((($sourceCount - $total) / $sourceCount) * 100, 1);
+
+                throw new RuntimeException("Member nampak x lengkap - jangka {$sourceCount} baris, dapat {$total} sahaja ({$shortPercent}% pincang). Kemungkinan sambungan Tailscale/VPN terputus tengah proses.");
+            }
+
+            Log::info("SyncJemisysMirrors: Member -> jemisys_member_mirror ({$total} baris).");
+
+            return $total;
+        }, 5000);
+    }
+
+    /**
+     * Saiz batch ikut bilangan lajur jadual tempatan (bukan angka tetap) - rujuk nota
+     * prepareInventorySyncContext() asal: angka tetap yg selamat utk MySQL/Postgres pecah kat
+     * SQLite (hadkan ~999 parameter berikat setiap statement).
+     */
+    private function chunkSizeFor(string $localTable): int
+    {
+        $columnCount = count(Schema::getColumnListing($localTable));
+        $maxParams = DB::connection()->getDriverName() === 'sqlite' ? 900 : 20000;
+
+        return max(1, intdiv($maxParams, $columnCount));
     }
 
     /** TblInventory (481K baris) - batch per StoreCode, commit berkala. Rujuk nota asal di bawah. */
@@ -317,12 +428,9 @@ class SyncJemisysMirrors implements ShouldQueue
      */
     private function prepareInventorySyncContext(): array
     {
-        // TblInventory ada 146 lajur - SQLite hadkan ~999 parameter berikat setiap statement,
-        // jadi saiz batch kena dikira ikut bilangan lajur, bukan angka tetap (angka tetap yg
-        // selamat utk MySQL/Postgres akan pecah kat SQLite).
-        $columnCount = count(Schema::getColumnListing('jemisys_inventory_mirror'));
-        $maxParams = DB::connection()->getDriverName() === 'sqlite' ? 900 : 20000;
-        $chunkSize = max(1, intdiv($maxParams, $columnCount));
+        // Saiz batch ikut bilangan lajur (rujuk chunkSizeFor()) - TblInventory ada 146 lajur,
+        // SQLite hadkan ~999 parameter berikat setiap statement.
+        $chunkSize = $this->chunkSizeFor('jemisys_inventory_mirror');
 
         // nickname/image_url/merchant_synced_at BUKAN drpd TblInventory - diisi BERASINGAN
         // oleh App\Jobs\SyncMerchantNicknamesAndImages (scrape merchant9.com, rujuk dokblok job

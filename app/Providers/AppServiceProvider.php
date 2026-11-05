@@ -27,6 +27,10 @@ class AppServiceProvider extends ServiceProvider
         // null dlm amalan).
         RateLimiter::for('mcp', fn ($request) => Limit::perMinute(60)->by($request->user()?->id ?: $request->ip()));
 
+        // POST /api/internal/members/lookup (rujuk routes/api.php) - carian sempit satu ahli per
+        // panggilan (QMS kiosk), bukan API pukal - had lebih ketat drpd 'mcp' di atas.
+        RateLimiter::for('member-lookup', fn ($request) => Limit::perMinute(20)->by($request->user()?->id ?: $request->ip()));
+
         // Skrin kelulusan OAuth (Passport /oauth/authorize) - TANPA ni, AuthorizationController
         // throw "Target [AuthorizationViewResponse] is not instantiable" (disahkan 500 sebenar
         // semasa ujian) - Passport TIADA default, WAJIB daftar eksplisit. View "mcp.authorize"
