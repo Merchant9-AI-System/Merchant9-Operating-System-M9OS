@@ -26,6 +26,7 @@ class DailyAssetPositionsTable
                 TextColumn::make('total_stock_out')->label('Out (g)')->numeric(2)->color('danger')->toggleable(),
                 TextColumn::make('closing_stock')->label('Closing (g)')->numeric(2)->sortable(),
                 TextColumn::make('net_weight')->label('Net Weight (g)')->numeric(2)->sortable(),
+                TextColumn::make('total_cash')->label('Total Cash')->money('MYR')->toggleable(),
                 TextColumn::make('available_cash')->label('Available Cash')->money('MYR')->sortable(),
                 TextColumn::make('cash_for_gb')->label('Cash For GB')->money('MYR')->sortable()->toggleable(),
                 TextColumn::make('supplier_hutang')->label('Hutang (g)')->numeric(2)->toggleable(),

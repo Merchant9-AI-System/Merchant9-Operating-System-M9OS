@@ -38,6 +38,73 @@ class PhysicalGoldReportCalculator
     }
 
     /**
+     * Berat tulen (pure) Used Gold at HQ TANPA baris YS/KIV - utk graf Used Gold tersedia vs Hutang Supplier.
+     * Baris YS/KIV = (a) ketulenan varian bernama "... YS" / "... KIV" (cth. "916 - YS", "916 - KIV") dan (b) baris tambahan bagi
+     * ketulenan asas yg sama selepas slot asas pertama (cth. baris kedua "9999" - set tetap borang cuma satu
+     * slot per ketulenan asas, selebihnya baris istimewa, rujuk PhysicalGoldReportLineMapper::mergeGradedRows()).
+     * TIDAK menjejaskan netPureWeight() (jumlah rasmi laporan masih termasuk YS).
+     */
+    public static function usedGoldPureWeightExcludingYs(PhysicalGoldReport $report): float
+    {
+        $seenBaseSlots = [];
+        $total = 0.0;
+
+        foreach ($report->lines->sortBy('id') as $line) {
+            if ($line->category?->code !== 'USED_GOLD_HQ') {
+                continue;
+            }
+
+            $purity = $line->purity;
+
+            if ($purity && preg_match('/\b(YS|KIV)\b/i', (string) $purity->code)) {
+                continue;
+            }
+
+            if ($purity?->is_base_purity) {
+                if (isset($seenBaseSlots[$purity->id])) {
+                    continue;
+                }
+
+                $seenBaseSlots[$purity->id] = true;
+            }
+
+            $total += (float) ($line->pure_weight ?? 0);
+        }
+
+        return round($total, 2);
+    }
+
+    /**
+     * Sumbangan bersih (pure) setiap kategori kpd netPureWeight() - formula SAMA (include_in_physical_total,
+     * payable/receivable, is_deduction), jadi jumlah semua nilai === netPureWeight(). Kunci = nama kategori.
+     *
+     * @return array<string, float>
+     */
+    public static function categoryContributions(PhysicalGoldReport $report): array
+    {
+        $contributions = [];
+
+        foreach ($report->lines as $line) {
+            $category = $line->category;
+
+            if (! $category || ! $category->include_in_physical_total) {
+                continue;
+            }
+
+            if ($category->value_mode === PhysicalGoldCategory::VALUE_MODE_PAYABLE_RECEIVABLE) {
+                $value = (float) ($line->receivable_pure_weight ?? 0) - (float) ($line->payable_pure_weight ?? 0);
+            } else {
+                $pure = (float) ($line->pure_weight ?? 0);
+                $value = $category->is_deduction ? -$pure : $pure;
+            }
+
+            $contributions[$category->name] = ($contributions[$category->name] ?? 0.0) + $value;
+        }
+
+        return array_map(fn (float $v) => round($v, 2), $contributions);
+    }
+
+    /**
      * Kategori mod "payable_receivable" (Outstanding Gold Due to Suppliers) TIDAK PERNAH isi
      * gross_weight/pure_weight generik (baris tsb simpan payable_gross_weight/
      * receivable_gross_weight sebaliknya, rujuk PhysicalGoldReportLineMapper::

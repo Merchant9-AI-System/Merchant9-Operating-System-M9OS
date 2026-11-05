@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    // Used gold balance daripada kedaiemas (App\Support\UsedGoldBalanceProvider). Token = nilai yang sama
+    // dengan INTERNAL_BO_SHARED_SECRET di .env kedaiemas.
+    'kedaiemas' => [
+        'used_gold_balance_url' => env('KEDAIEMAS_USED_GOLD_BALANCE_URL', 'https://uat.kedaiemas.my/api/used-gold-balance'),
+        'internal_token' => env('KEDAIEMAS_INTERNAL_TOKEN'),
+    ],
+
 ];

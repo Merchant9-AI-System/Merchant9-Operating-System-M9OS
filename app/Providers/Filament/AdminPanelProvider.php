@@ -14,13 +14,19 @@ use App\Filament\Widgets\CapitalAgingChart;
 use App\Filament\Widgets\CapitalAgingSummary;
 use App\Filament\Widgets\CeoActionCentre;
 use App\Filament\Widgets\DailyAssetPositionCashChart;
+use App\Filament\Widgets\DailyAssetPositionOpeningNetChart;
 use App\Filament\Widgets\DailyAssetPositionReconciliation;
 use App\Filament\Widgets\DailyAssetPositionStockChart;
 use App\Filament\Widgets\DailyAssetPositionSummary;
 use App\Filament\Widgets\DailyAssetPositionSupplierChart;
+use App\Filament\Widgets\DailyAssetPositionTotalValueChart;
+use App\Filament\Widgets\DailyAssetPositionUsedGoldVsHutangChart;
+use App\Filament\Widgets\DailyHedgeChart;
 use App\Filament\Widgets\GoldVsIdealByBranch;
 use App\Filament\Widgets\InventoryKpiStats;
 use App\Filament\Widgets\PhysicalGoldBalanceSummary;
+use App\Filament\Widgets\PhysicalGoldCategoryChangeChart;
+use App\Filament\Widgets\PhysicalGoldDifferenceFromOpeningChart;
 use App\Filament\Widgets\StockVsOptimumChart;
 use App\Filament\Widgets\UserWidget;
 use App\Http\Controllers\BackOfficeActionsController;
@@ -146,12 +152,18 @@ class AdminPanelProvider extends PanelProvider
                 DailyAssetPositionSummary::class,
                 DailyAssetPositionStockChart::class,
                 DailyAssetPositionCashChart::class,
+                DailyAssetPositionTotalValueChart::class,
+                DailyAssetPositionUsedGoldVsHutangChart::class,
+                DailyHedgeChart::class,
+                DailyAssetPositionOpeningNetChart::class,
                 DailyAssetPositionSupplierChart::class,
                 DailyAssetPositionReconciliation::class,
                 // Physical Gold Balance (Gold Control) - boleh dimatikan via .env
                 // CEO_PHYSICAL_GOLD_BALANCE_ENABLED=false (config/dashboard.php).
                 PhysicalGoldBalanceSummary::class,
                 BookVsPhysicalGoldChart::class,
+                PhysicalGoldDifferenceFromOpeningChart::class,
+                PhysicalGoldCategoryChangeChart::class,
             ])
             ->middleware([
                 EncryptCookies::class,

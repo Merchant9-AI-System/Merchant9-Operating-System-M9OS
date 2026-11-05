@@ -124,6 +124,10 @@ class DailyAssetPositionForm
                                 ->live(onBlur: true)
                                 ->dehydrateStateUsing(fn ($state) => filled($state) ? $state : 0),
                         ]),
+                        Placeholder::make('total_cash_preview')
+                            ->label('Total Cash / Bank (auto = Ambank + Affin + Cash + Affin FD, sebelum tolakan)')
+                            ->live()
+                            ->content(fn (Get $get) => 'RM '.number_format(static::totalCash($get), 2)),
                         Placeholder::make('available_cash_preview')
                             ->label('Available Cash (auto = Amb + afb balance + cash - afb FD - OD - unpaid - reserved fund)') // Ambank Balance + Affin Balance + Cash - Affin FD - OD - Unpaid Gold Bar - Reserved Fund
                             ->live()
@@ -208,6 +212,15 @@ class DailyAssetPositionForm
     private static function sum(Get $get, array $fields): float
     {
         return array_sum(array_map(fn ($f) => (float) ($get($f) ?? 0), $fields));
+    }
+
+    /** Sepadan App\Models\DailyAssetPosition::calculateTotalCash() - KEKALKAN selari. */
+    private static function totalCash(Get $get): float
+    {
+        return (float) ($get('ambank_balance') ?? 0)
+            + (float) ($get('affin_balance') ?? 0)
+            + (float) ($get('cash') ?? 0)
+            + (float) ($get('affin_rm') ?? 0);
     }
 
     /**

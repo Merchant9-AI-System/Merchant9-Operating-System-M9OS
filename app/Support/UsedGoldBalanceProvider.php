@@ -7,16 +7,15 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Baki "Used Gold" drpd sistem LUARAN berasingan (endpoint PHP legasi di
- * merchant9.kedaiemas.my - BUKAN sebahagian m9os, backend MySQL + n8n/Google Drive sendiri).
+ * Baki "Used Gold" drpd sistem LUARAN berasingan (API kedaiemas, URL dlm config services.kedaiemas -
+ * BUKAN sebahagian m9os; dikira drpd jadual transactions/transaction_items mereka, bukan lagi
+ * Google Sheet/n8n). Endpoint perlukan header X-Internal-Token (config services.kedaiemas).
  * "Total Closing" = jumlah baki tutup semua karat bulan berkenaan, guna 916_net (bukan
  * 916_gross/916_batu - net dah netkan berat batu drpd gross, elak kira karat 916 dua kali) -
  * disahkan pengguna.
  */
 class UsedGoldBalanceProvider
 {
-    protected const ENDPOINT = 'https://merchant9.kedaiemas.my/internal/ApiUsedGoldBalance.php';
-
     /** 916_gross & 916_batu SENGAJA tak masuk - 916_net dah wakili karat 916 (gross - batu). */
     protected const KARATS_FOR_TOTAL = ['9999', '999', '950', '916_net', '800', '750', '585', '375'];
 
@@ -88,10 +87,30 @@ class UsedGoldBalanceProvider
     /** @return array<string, float>|null */
     protected static function fetchClosing(string $month): ?array
     {
+        $url = (string) config('services.kedaiemas.used_gold_balance_url');
+        $token = (string) config('services.kedaiemas.internal_token');
+
+        if ($url === '' || $token === '') {
+            Log::warning('UsedGoldBalanceProvider: KEDAIEMAS_USED_GOLD_BALANCE_URL / KEDAIEMAS_INTERNAL_TOKEN belum diset.');
+
+            return null;
+        }
+
         try {
-            $response = Http::timeout(15)->get(self::ENDPOINT, ['month' => $month]);
+            $response = Http::timeout(15)
+                ->withHeaders(['X-Internal-Token' => $token])
+                ->acceptJson()
+                ->get($url, ['month' => $month]);
 
             if (! $response->successful() || ! $response->json('success')) {
+                return null;
+            }
+
+            // Tiada baris opening utk bulan tsb di kedaiemas (ug_records) -> baki closing tak boleh dipercayai
+            // (opening dikira 0), jadi layan sbg "tiada data" (null), bukan papar angka salah.
+            if ($response->json('opening_found') === false) {
+                Log::warning("UsedGoldBalanceProvider: kedaiemas tiada baris opening (ug_records) utk {$month}.");
+
                 return null;
             }
 

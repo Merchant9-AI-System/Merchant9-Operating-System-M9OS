@@ -233,6 +233,32 @@ class PhysicalGoldReportLineMapper
     }
 
     /**
+     * Tulis baki closing Used Gold ("Tarik Data Used Gold") ke baris form. Hanya baris ASAS ditimpa: remarks
+     * kosong DAN baris PERTAMA bagi setiap ketulenan - baris tambahan utk ketulenan yg sama (cth. baris kedua
+     * "9999" tanpa remarks) dan baris variant ("916 - YS") TIDAK disentuh, kalau tak baki yg sama akan terisi
+     * dua kali dan jumlah jadi dua kali ganda.
+     *
+     * @param  array<int|string, array<string, mixed>>  $rows
+     * @param  array<string, float>  $closing  kod ketulenan => baki closing (g)
+     * @return array<int|string, array<string, mixed>>
+     */
+    public static function applyUsedGoldClosing(array $rows, array $closing): array
+    {
+        $filled = [];
+
+        return array_map(function (array $row) use ($closing, &$filled) {
+            $code = $row['purity_code'] ?? null;
+
+            if ($code !== null && blank($row['remarks'] ?? null) && array_key_exists($code, $closing) && ! isset($filled[$code])) {
+                $row['gross_weight'] = $closing[$code];
+                $filled[$code] = true;
+            }
+
+            return $row;
+        }, $rows);
+    }
+
+    /**
      * Padankan baris sedia ada dgn set ketulenan tetap (base slot pertama tanpa remarks utk
      * setiap ketulenan), lebihan (cth. "916 - YS"/"916 - KIV") ditambah selepas sbg baris extra -
      * supaya set tetap sentiasa terpapar walau kosong, TANPA hilang baris istimewa yg dicipta.

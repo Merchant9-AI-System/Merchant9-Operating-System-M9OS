@@ -78,7 +78,7 @@ class PhysicalGoldReportForm
                     ->iconColor('primary')
                     ->collapsible()
                     ->schema([
-                        // Tarik drpd sistem Used Gold LUARAN (merchant9.kedaiemas.my, rujuk
+                        // Tarik drpd sistem Used Gold LUARAN (API kedaiemas, config services.kedaiemas, rujuk
                         // App\Support\UsedGoldBalanceProvider) - eksplisit atas permintaan
                         // pengguna, BUKAN default senyap (endpoint luar boleh lambat/turun,
                         // jangan block create/edit laporan). Hanya baris ASAS (remarks kosong)
@@ -103,17 +103,10 @@ class PhysicalGoldReportForm
                                         return;
                                     }
 
-                                    $rows = collect($get('used_gold_hq_lines'))
-                                        ->map(function (array $row) use ($closing) {
-                                            if (blank($row['remarks'] ?? null) && array_key_exists($row['purity_code'], $closing)) {
-                                                $row['gross_weight'] = $closing[$row['purity_code']];
-                                            }
-
-                                            return $row;
-                                        })
-                                        ->all();
-
-                                    $set('used_gold_hq_lines', $rows);
+                                    $set('used_gold_hq_lines', PhysicalGoldReportLineMapper::applyUsedGoldClosing(
+                                        (array) $get('used_gold_hq_lines'),
+                                        $closing,
+                                    ));
 
                                     Notification::make()
                                         ->title('Data Used Gold ditarik - sila semak sebelum simpan.')

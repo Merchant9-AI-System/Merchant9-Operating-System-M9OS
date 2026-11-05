@@ -56,13 +56,14 @@ class DailyAssetPositionInfolist
                         Grid::make(4)->schema([
                             TextEntry::make('supplier_hutang')->label('Supplier Hutang')->numeric(2)->suffix(' g'),
                             TextEntry::make('supplier_overpaid')->label('Supplier Overpaid')->numeric(2)->suffix(' g'),
-                            TextEntry::make('locked_gold_bar')->label('Locked Gold Bar')->numeric(2)->suffix(' g'),
+                            TextEntry::make('locked_gold_bar')->label('Unpaid Gold Bar')->money('MYR'),
                             TextEntry::make('ambank_balance')->label('Ambank Balance')->money('MYR'),
                             TextEntry::make('affin_balance')->label('Affin Balance')->money('MYR'),
                             TextEntry::make('cash')->label('Cash')->money('MYR'),
                             TextEntry::make('affin_rm')->label('Affin RM')->money('MYR'),
                             TextEntry::make('od_affin')->label('OD Affin')->money('MYR'),
                             TextEntry::make('reserved_fund')->label('Reserved Fund')->money('MYR'),
+                            TextEntry::make('total_cash')->label('Total Cash / Bank')->money('MYR'),
                         ]),
                     ]),
 

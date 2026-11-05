@@ -18,6 +18,13 @@ return [
     'daily_asset_position' => [
         'reconciliation_yellow_pct' => (float) env('DAP_RECON_YELLOW_PCT', 2.0),
         'reconciliation_red_pct' => (float) env('DAP_RECON_RED_PCT', 5.0),
+
+        // Harga emas TETAP (RM per gram, emas tulen 999) utk nilaikan Net Weight/Hutang Supplier dlm RM
+        // pada graf "Total Asset Value" - SENGAJA malar supaya jumlah hanya bergerak bila stok/cash
+        // berubah, bukan sebab harga pasaran. Nilai awal = median 12 bulan kadar beli kelas 999
+        // (GoldRateByHolderHist, penutup bulanan Nov 2025 - Okt 2026, dikira 5 Nov 2026; purata RM540.17,
+        // julat RM480-632). Semak semula & tukar ikut keputusan pengurusan (cth. awal setiap suku tahun).
+        'gold_reference_price_per_gram' => (float) env('DAP_GOLD_REFERENCE_PRICE', 538.50),
     ],
 
     // Threshold % beza (Physical Net Pure Gold vs Book Net Weight) utk status Gold Reconciliation -
@@ -25,5 +32,14 @@ return [
     'physical_gold_balance' => [
         'reconciliation_yellow_pct' => (float) env('PGB_RECON_YELLOW_PCT', 2.0),
         'reconciliation_red_pct' => (float) env('PGB_RECON_RED_PCT', 5.0),
+    ],
+
+    // Formula hedge harian Finance: (berat jualan x sales_purity) - (berat buyback x buyback_purity)
+    // = gram tulen bersih. Faktor ialah andaian tetap Finance (mesej harian "SALES - BUYBACK"), bukan
+    // purata sebenar - rujuk App\Support\DailyHedgeFigure. buyback_doc_types = DocType TblTradeIn.
+    'hedge' => [
+        'sales_purity' => (float) env('HEDGE_SALES_PURITY', 0.935),
+        'buyback_purity' => (float) env('HEDGE_BUYBACK_PURITY', 0.900),
+        'buyback_doc_types' => ['TI', 'TC'],
     ],
 ];

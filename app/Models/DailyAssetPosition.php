@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
@@ -178,6 +179,25 @@ class DailyAssetPosition extends Model
     public function calculateNetWeight(): float
     {
         return round((float) $this->closing_stock - (float) $this->supplier_hutang + (float) $this->supplier_overpaid, 2);
+    }
+
+    /**
+     * Total Cash / Bank KASAR (Ambank + Affin + Cash + Affin FD) sebelum sebarang tolakan (OD, unpaid
+     * gold bar, reserved fund) - sama dgn kad "Total Cash / Bank" CEO Dashboard. Dikira masa baca
+     * (bukan lajur disimpan) supaya sentiasa selari dgn medan sumber.
+     */
+    public function calculateTotalCash(): float
+    {
+        return round(
+            (float) $this->ambank_balance + (float) $this->affin_balance
+            + (float) $this->cash + (float) $this->affin_rm,
+            2
+        );
+    }
+
+    protected function totalCash(): Attribute
+    {
+        return Attribute::get(fn (): float => $this->calculateTotalCash());
     }
 
     public function calculateAvailableCash(): float

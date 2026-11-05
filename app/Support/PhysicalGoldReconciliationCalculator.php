@@ -115,6 +115,65 @@ class PhysicalGoldReconciliationCalculator
             ]);
     }
 
+    /**
+     * Perubahan setiap kategori physical gold berbanding laporan Approved PERTAMA dlm tempoh (opening)
+     * - utk lihat KATEGORI MANA yg turun. Satu baris per laporan Approved (menaik ikut tarikh).
+     *
+     * @return Collection<int, array{date: string, total: float, total_change: float, categories: array<string, float>, changes: array<string, float>}>
+     */
+    public static function categoryTrend(int $days): Collection
+    {
+        $since = now()->subDays($days)->startOfDay();
+
+        $rows = PhysicalGoldReport::query()
+            ->where('status', PhysicalGoldReport::STATUS_APPROVED)
+            ->where('report_date', '>=', $since)
+            ->orderBy('report_date')
+            ->with('lines.category')
+            ->get()
+            ->map(fn (PhysicalGoldReport $r) => [
+                'date' => $r->report_date->toDateString(),
+                'total' => PhysicalGoldReportCalculator::netPureWeight($r),
+                'categories' => PhysicalGoldReportCalculator::categoryContributions($r),
+            ])
+            ->values();
+
+        $opening = $rows->first();
+
+        return $rows->map(function (array $row) use ($opening) {
+            $changes = [];
+            foreach ($row['categories'] as $name => $value) {
+                $changes[$name] = round($value - ($opening['categories'][$name] ?? 0.0), 2);
+            }
+            foreach ($opening['categories'] as $name => $value) {
+                $changes[$name] ??= round(0.0 - $value, 2);
+            }
+
+            return $row + ['total_change' => round($row['total'] - $opening['total'], 2), 'changes' => $changes];
+        });
+    }
+
+    /**
+     * Beza Physical & Book berbanding opening (nilai pertama yg ADA dlm tempoh utk setiap siri - tarikh
+     * opening boleh berbeza sbb laporan fizikal tak harian). Jurang kekal null.
+     *
+     * @return Collection<int, array{date: string, physical_change: float|null, book_change: float|null}>
+     */
+    public static function differenceFromOpening(int $days): Collection
+    {
+        $trend = static::bookVsPhysicalTrend($days);
+        $physicalOpening = $trend->pluck('physical_net_pure_gold')->first(fn ($v) => $v !== null);
+        $bookOpening = $trend->pluck('book_net_weight')->first(fn ($v) => $v !== null);
+
+        return $trend->map(fn (array $r) => [
+            'date' => $r['date'],
+            'physical_change' => $r['physical_net_pure_gold'] !== null && $physicalOpening !== null
+                ? round($r['physical_net_pure_gold'] - $physicalOpening, 2) : null,
+            'book_change' => $r['book_net_weight'] !== null && $bookOpening !== null
+                ? round($r['book_net_weight'] - $bookOpening, 2) : null,
+        ]);
+    }
+
     /** Peratusan bertanda (kekal arah surplus/kekurangan) - selamat drpd bahagi-dgn-sifar. */
     protected static function safePercentage(float $diff, float $bookValue, float $physicalValue): float
     {
