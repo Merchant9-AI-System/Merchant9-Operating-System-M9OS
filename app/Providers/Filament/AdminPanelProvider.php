@@ -105,6 +105,12 @@ class AdminPanelProvider extends PanelProvider
                     ->group('Procurement')
                     ->visible(fn () => Auth::user()->hasRole(BackOfficeActionsController::ROLES))
                     ->sort(0),
+                NavigationItem::make('Supplier Lookup')
+                    ->url('/supplier-lookup', shouldOpenInNewTab: true)
+                    ->icon(Heroicon::OutlinedTruck)
+                    ->group('Procurement')
+                    ->visible(fn () => Auth::user()->hasRole(BackOfficeActionsController::ROLES))
+                    ->sort(1),
                 NavigationItem::make('Jobsheet Lookup')
                     ->url('/jobsheet-lookup', shouldOpenInNewTab: true)
                     ->icon(Heroicon::OutlinedMagnifyingGlassCircle)

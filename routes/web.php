@@ -5,6 +5,7 @@ use App\Http\Controllers\BranchDemandEntryController;
 use App\Http\Controllers\ExpenseClaimController;
 use App\Http\Controllers\JobsheetLookupController;
 use App\Http\Controllers\ProductImagesController;
+use App\Http\Controllers\SupplierLookupController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -42,6 +43,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/back-office-actions/restock/export', [BackOfficeActionsController::class, 'restockExport'])->name('back-office-actions.restock.export');
     Route::get('/back-office-actions/restock/print', [BackOfficeActionsController::class, 'restockPrint'])->name('back-office-actions.restock.print');
     Route::get('/back-office-actions/preview', [BackOfficeActionsController::class, 'preview'])->name('back-office-actions.preview');
+
+    // Supplier Lookup - sell-through setiap design drpd piece yg diambil dlm tempoh (Total Amik, Sold, Available, %), role sama
+    // dgn Back Office Actions (rujuk SupplierLookupController & App\Support\SupplierLookup dokblok).
+    Route::get('/supplier-lookup', [SupplierLookupController::class, 'index'])->name('supplier-lookup.index');
+    Route::get('/supplier-lookup/suggestions', [SupplierLookupController::class, 'suggestions'])->middleware('throttle:120,1')->name('supplier-lookup.suggestions');
+    Route::get('/supplier-lookup/details', [SupplierLookupController::class, 'details'])->middleware('throttle:240,1')->name('supplier-lookup.details');
 
     // Senarai PENUH imej produk (bukan 1 thumbnail sahaja) bagi satu InternalCode - dibuka drpd
     // lajur imej ImageColumn di Filament (rujuk ProductImagesController dokblok).

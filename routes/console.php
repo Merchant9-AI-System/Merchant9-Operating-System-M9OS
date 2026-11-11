@@ -42,3 +42,8 @@ Schedule::command('app:warm-jemisys-diagnostics')->daily()->withoutOverlapping()
 // 2026-09-07) - larian terjadual ni kini auto cuba semula blip sambungan sementara, bukan
 // terus gagal & perlukan campur tangan manusia spt sebelum ni.
 Schedule::job(new SyncJemisysMirrors)->dailyAt('08:30')->timezone('Asia/Kuala_Lumpur')->withoutOverlapping();
+
+// Supplier Lookup: agregat design x cawangan setiap tempoh dikira SEKALI (~0.3-10 saat cold, ikut tempoh) & di-cache - kunci cache mengandungi masa
+// segerak cermin terakhir, jadi cache lama tak dipakai selepas segerak 08:30. Panaskan SETIAP JAM (murah bila cache sudah ada, mengira semula
+// dlm sejam selepas segerak) supaya pengguna jarang terkena kiraan cold. Rujuk App\Support\SupplierLookup & WarmSupplierLookup.
+Schedule::command('supplier-lookup:warm')->hourly()->withoutOverlapping();
