@@ -30,6 +30,7 @@ use App\Filament\Widgets\PhysicalGoldDifferenceFromOpeningChart;
 use App\Filament\Widgets\StockVsOptimumChart;
 use App\Filament\Widgets\UserWidget;
 use App\Http\Controllers\BackOfficeActionsController;
+use App\Support\DomainNotice;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -43,6 +44,7 @@ use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
 use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
+use Filament\View\PanelsRenderHook;
 use Guava\FilamentMcp\McpPlugin;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
@@ -76,6 +78,12 @@ class AdminPanelProvider extends PanelProvider
             ->simplePageMaxContentWidth(Width::Medium)
             ->sidebarCollapsibleOnDesktop()
             ->spa()
+            // Modal "domain telah bertukar" - dihidupkan melalui .env (rujuk config/domain_notice.php); tiada output
+            // bila dimatikan atau hos semasa sudah domain baharu.
+            ->renderHook(
+                PanelsRenderHook::BODY_END,
+                fn (): string => DomainNotice::shouldShow(request()) ? view('filament.hooks.domain-notice')->render() : '',
+            )
             ->databaseNotifications()
             ->databaseNotificationsPolling('20s')
             ->globalSearch(false)
