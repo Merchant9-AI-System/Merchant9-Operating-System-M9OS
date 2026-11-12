@@ -4,6 +4,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Download, FileSpreadsheet, Pack
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import BranchBreakdown from '@/components/BranchBreakdown.vue';
 import FacetedFilter from '@/components/FacetedFilter.vue';
+import { Frame, FrameFooter, FrameHeader, FramePanel } from '@/components/ui/frame';
 import ImagePreview from '@/components/ImagePreview.vue';
 import SearchAutocomplete from '@/components/SearchAutocomplete.vue';
 import SortableHeader from '@/components/SortableHeader.vue';
@@ -60,6 +61,25 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = (['code', 'requested', '
     key,
     label: COLUMN_LABELS[key],
 }));
+
+// Template (chip): satu klik menetapkan susunan berbilang (& kadang-kadang tempoh). Susunan sahaja - tiada tapisan baharu. `days` hanya
+// ditetapkan bila template memerlukannya (mesti salah satu pilihan tempoh server). Klik chip aktif = kosongkan susunan.
+interface SortTemplate {
+    key: string;
+    label: string;
+    hint: string;
+    sorts: SortSpec[];
+    days?: string;
+}
+
+const SORT_TEMPLATES: SortTemplate[] = [
+    { key: 'restock', label: 'Laris, stok tinggal sikit', hint: 'Percentage tinggi, Available sikit - patut direstock', sorts: [{ key: 'percent', dir: 'desc' }, { key: 'available', dir: 'asc' }] },
+    { key: 'slow', label: 'Slow', hint: 'Percentage rendah, Available banyak - 180 hari', sorts: [{ key: 'percent', dir: 'asc' }, { key: 'available', dir: 'desc' }], days: '180' },
+    { key: 'demand', label: 'Demand cawangan tinggi', hint: 'Branch Requested banyak, Available sikit', sorts: [{ key: 'requested', dir: 'desc' }, { key: 'available', dir: 'asc' }] },
+    { key: 'fresh', label: 'Baru diambil, belum laku', hint: 'Total Ambil banyak, Sold sikit - 30 hari', sorts: [{ key: 'buy', dir: 'desc' }, { key: 'sold', dir: 'asc' }], days: '30' },
+    { key: 'best', label: 'Paling banyak terjual', hint: 'Total Sold banyak, kemudian Percentage', sorts: [{ key: 'sold', dir: 'desc' }, { key: 'percent', dir: 'desc' }] },
+    { key: 'soldout', label: 'Stok habis', hint: 'Available paling sikit dahulu, Sold banyak', sorts: [{ key: 'available', dir: 'asc' }, { key: 'sold', dir: 'desc' }] },
+];
 
 // Skrin < sm (640px): keenam-enam lajur mesti muat tanpa tatal ufuk, jadi tajuk nombor dipendekkan (nama penuh kekal sbg nama
 // aksesibel & tooltip), padding sel dikecilkan & ikon susunan hanya pd lajur aktif. Selaras dgn breakpoint `sm` Tailwind.
@@ -359,6 +379,32 @@ function headerPriority(key: SortKey): number | null {
     return sorts.value.length > 1 && index !== -1 ? index + 1 : null;
 }
 
+// Template aktif = susunan semasa sama (kunci & arah, ikut urutan) dan tempoh sama (jika template menetapkannya). Ubah susunan/tempoh
+// sendiri = tiada chip aktif ("tersuai").
+const activeTemplate = computed(
+    () =>
+        SORT_TEMPLATES.find(
+            (template) =>
+                (template.days === undefined || template.days === days.value) &&
+                template.sorts.length === sorts.value.length &&
+                template.sorts.every((spec, index) => spec.key === sorts.value[index].key && spec.dir === sorts.value[index].dir),
+        )?.key ?? null,
+);
+
+function applyTemplate(template: SortTemplate) {
+    if (activeTemplate.value === template.key) {
+        sorts.value = [...DEFAULT_SORTS];
+
+        return;
+    }
+
+    sorts.value = template.sorts.map((spec) => ({ ...spec }));
+
+    if (template.days !== undefined) {
+        days.value = template.days;
+    }
+}
+
 function resetFilters() {
     skipNextSuggest = inputText.value !== '';
     inputText.value = '';
@@ -542,162 +588,214 @@ function formatNumber(value: number): string {
                 </Empty>
 
                 <template v-else>
-                    <!-- Jadual: pada skrin >= sm bingkai bertinggi tetap (data bertatal, pengepala melekat, butang halaman sentiasa
+                    <!-- Frame: pengepala = template (chip), panel = jadual, pengaki = halaman. -->
+                    <!-- Mudah alih: Frame sampai tepi skrin (-mx-3 = gutter halaman) supaya semua lajur muat tanpa tatal ufuk. -->
+                    <Frame dense class="-mx-3 rounded-none border-x-0 sm:mx-0 sm:rounded-2xl sm:border-x">
+                        <!-- Template (chip): satu klik = susunan berbilang (+ tempoh). Satu baris bertatal ufuk pada skrin kecil. -->
+                        <FrameHeader class="py-2">
+                            <div class="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0"
+                                role="group" aria-label="Template susunan">
+                                <Button v-for="template in SORT_TEMPLATES" :key="template.key" type="button" size="sm"
+                                    :variant="activeTemplate === template.key ? 'default' : 'outline'"
+                                    class="h-7 shrink-0 rounded-full px-3 text-xs font-medium"
+                                    :class="activeTemplate === template.key ? '' : 'bg-card'"
+                                    :aria-pressed="activeTemplate === template.key" :title="template.hint"
+                                    @click="applyTemplate(template)">
+                                    {{ template.label }}
+                                </Button>
+                            </div>
+                        </FrameHeader>
+
+                        <!-- Jadual: pada skrin >= sm bingkai bertinggi tetap (data bertatal, pengepala melekat, butang halaman sentiasa
                          kelihatan). Pada mudah alih halaman itu sendiri yg bertatal supaya tiada tatal dalam tatal. -->
-                    <div ref="frame" class="relative overflow-hidden rounded-md border shadow-sm">
-                      <!-- [&_[data-slot=scroll-area-viewport]>div]:!block - pembungkus dalam viewport reka-ui asalnya display:table & melebar
+                        <FramePanel class="overflow-hidden border border-border shadow-xs p-0">
+                            <div ref="frame" class="relative">
+                                <!-- [&_[data-slot=scroll-area-viewport]>div]:!block - pembungkus dalam viewport reka-ui asalnya display:table & melebar
                            ikut kandungan (sama spt Back Office Actions). -->
-                      <ScrollArea horizontal
-                        class="rounded-[inherit] sm:max-h-[calc(100dvh-17rem)] sm:min-h-72 [&_[data-slot=scroll-area-viewport]>div]:!block">
-                        <Table :class="TABLE_COMPACT">
-                            <TableHeader class="sticky top-0 z-10 bg-card shadow-[0_1px_0_var(--border)]">
-                                <TableRow class="hover:bg-transparent">
-                                    <TableHead class="w-[3.25rem] sm:w-20">{{ COLUMN_LABELS.image }}</TableHead>
-                                    <TableHead>
-                                        <SortableHeader :title="COLUMN_LABELS.code" :direction="headerDirection('code')"
-                                            @sort="toggleSort('code')" :priority="headerPriority('code')" />
-                                    </TableHead>
-                                    <TableHead v-if="branchMode" class="w-28">{{ COLUMN_LABELS.store }}</TableHead>
-                                    <TableHead class="text-right">
-                                        <SortableHeader :title="compact ? 'Req.' : COLUMN_LABELS.requested" :full-title="COLUMN_LABELS.requested"
-                                            :direction="headerDirection('requested')" @sort="toggleSort('requested')" :priority="headerPriority('requested')" />
-                                    </TableHead>
-                                    <TableHead class="text-right">
-                                        <SortableHeader :title="compact ? 'Ambil' : COLUMN_LABELS.buy" :full-title="COLUMN_LABELS.buy"
-                                            :direction="headerDirection('buy')" @sort="toggleSort('buy')" :priority="headerPriority('buy')" />
-                                    </TableHead>
-                                    <TableHead class="text-right">
-                                        <SortableHeader :title="compact ? 'Sold' : COLUMN_LABELS.sold" :full-title="COLUMN_LABELS.sold"
-                                            :direction="headerDirection('sold')" @sort="toggleSort('sold')" :priority="headerPriority('sold')" />
-                                    </TableHead>
-                                    <TableHead class="text-right">
-                                        <SortableHeader :title="compact ? 'Avail.' : COLUMN_LABELS.available" :full-title="COLUMN_LABELS.available"
-                                            :direction="headerDirection('available')" @sort="toggleSort('available')" :priority="headerPriority('available')" />
-                                    </TableHead>
-                                    <TableHead class="text-right sm:w-44 sm:text-left">
-                                        <SortableHeader :title="compact ? '%' : COLUMN_LABELS.percent" :full-title="COLUMN_LABELS.percent"
-                                            :direction="headerDirection('percent')" @sort="toggleSort('percent')" :priority="headerPriority('percent')" />
-                                    </TableHead>
-                                </TableRow>
-                            </TableHeader>
+                                <ScrollArea horizontal
+                                    class="rounded-[inherit] sm:max-h-[calc(100dvh-21rem)] sm:min-h-72 [&_[data-slot=scroll-area-viewport]>div]:!block">
+                                    <Table :class="TABLE_COMPACT">
+                                        <TableHeader class="sticky top-0 z-10 bg-card shadow-[0_1px_0_var(--border)]">
+                                            <TableRow class="hover:bg-transparent">
+                                                <TableHead class="w-[3.25rem] sm:w-20">{{ COLUMN_LABELS.image }}
+                                                </TableHead>
+                                                <TableHead>
+                                                    <SortableHeader :title="COLUMN_LABELS.code"
+                                                        :direction="headerDirection('code')" @sort="toggleSort('code')"
+                                                        :priority="headerPriority('code')" />
+                                                </TableHead>
+                                                <TableHead v-if="branchMode" class="w-28">{{ COLUMN_LABELS.store }}
+                                                </TableHead>
+                                                <TableHead class="text-right">
+                                                    <SortableHeader :title="compact ? 'Req.' : COLUMN_LABELS.requested"
+                                                        :full-title="COLUMN_LABELS.requested"
+                                                        :direction="headerDirection('requested')"
+                                                        @sort="toggleSort('requested')"
+                                                        :priority="headerPriority('requested')" />
+                                                </TableHead>
+                                                <TableHead class="text-right">
+                                                    <SortableHeader :title="compact ? 'Ambil' : COLUMN_LABELS.buy"
+                                                        :full-title="COLUMN_LABELS.buy"
+                                                        :direction="headerDirection('buy')" @sort="toggleSort('buy')"
+                                                        :priority="headerPriority('buy')" />
+                                                </TableHead>
+                                                <TableHead class="text-right">
+                                                    <SortableHeader :title="compact ? 'Sold' : COLUMN_LABELS.sold"
+                                                        :full-title="COLUMN_LABELS.sold"
+                                                        :direction="headerDirection('sold')" @sort="toggleSort('sold')"
+                                                        :priority="headerPriority('sold')" />
+                                                </TableHead>
+                                                <TableHead class="text-right">
+                                                    <SortableHeader
+                                                        :title="compact ? 'Avail.' : COLUMN_LABELS.available"
+                                                        :full-title="COLUMN_LABELS.available"
+                                                        :direction="headerDirection('available')"
+                                                        @sort="toggleSort('available')"
+                                                        :priority="headerPriority('available')" />
+                                                </TableHead>
+                                                <TableHead class="text-right sm:w-44 sm:text-left">
+                                                    <SortableHeader :title="compact ? '%' : COLUMN_LABELS.percent"
+                                                        :full-title="COLUMN_LABELS.percent"
+                                                        :direction="headerDirection('percent')"
+                                                        @sort="toggleSort('percent')"
+                                                        :priority="headerPriority('percent')" />
+                                                </TableHead>
+                                            </TableRow>
+                                        </TableHeader>
 
-                            <TableBody>
-                                <!-- Skeleton: hanya semasa supplier / tempoh dimuatkan dari server -->
-                                <template v-if="showSkeleton">
-                                    <TableRow v-for="n in SKELETON_ROWS" :key="`sk-${n}`" class="hover:bg-transparent">
-                                        <TableCell>
-                                            <Skeleton class="size-10 rounded-md sm:size-12" />
-                                        </TableCell>
-                                        <TableCell>
-                                            <div class="flex flex-col gap-1.5">
-                                                <Skeleton class="h-4 w-32" />
-                                                <Skeleton class="h-3 w-44" />
-                                            </div>
-                                        </TableCell>
-                                        <TableCell v-if="branchMode">
-                                            <Skeleton class="h-4 w-16" />
-                                        </TableCell>
-                                        <TableCell v-for="c in 4" :key="`skn-${n}-${c}`">
-                                            <Skeleton class="ml-auto h-4 w-10" />
-                                        </TableCell>
-                                        <TableCell>
-                                            <Skeleton class="h-4 w-12 sm:w-28" />
-                                        </TableCell>
-                                    </TableRow>
-                                </template>
+                                        <TableBody>
+                                            <!-- Skeleton: hanya semasa supplier / tempoh dimuatkan dari server -->
+                                            <template v-if="showSkeleton">
+                                                <TableRow v-for="n in SKELETON_ROWS" :key="`sk-${n}`"
+                                                    class="hover:bg-transparent">
+                                                    <TableCell>
+                                                        <Skeleton class="size-10 rounded-md sm:size-12" />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div class="flex flex-col gap-1.5">
+                                                            <Skeleton class="h-4 w-32" />
+                                                            <Skeleton class="h-3 w-44" />
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell v-if="branchMode">
+                                                        <Skeleton class="h-4 w-16" />
+                                                    </TableCell>
+                                                    <TableCell v-for="c in 4" :key="`skn-${n}-${c}`">
+                                                        <Skeleton class="ml-auto h-4 w-10" />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Skeleton class="h-4 w-12 sm:w-28" />
+                                                    </TableCell>
+                                                </TableRow>
+                                            </template>
 
-                                <template v-else>
-                                    <TableRow v-for="row in pageData.rows" :key="`${row.code}|${row.store ?? ''}`">
-                                        <TableCell>
-                                            <!-- Imej/nickname dimuat utk baris sehalaman (sebentar sahaja) -->
-                                            <Skeleton v-if="!details[row.code]" class="size-10 rounded-md sm:size-12" />
-                                            <ImagePreview v-else :src="details[row.code].image_url"
-                                                :reference="details[row.code].image_reference"
-                                                :alt="details[row.code].nickname ?? row.code" class="size-10 rounded-md sm:size-12" />
-                                        </TableCell>
-                                        <TableCell>
-                                            <div class="break-all text-[13px] font-medium sm:break-normal sm:text-sm">{{ row.code }}</div>
-                                            <Skeleton v-if="!details[row.code]" class="mt-1 h-3 w-16 sm:w-40" />
-                                            <div v-else-if="details[row.code].nickname"
-                                                class="max-w-[4.5rem] truncate text-xs text-muted-foreground sm:max-w-72">
-                                                {{ details[row.code].nickname }}
-                                            </div>
-                                        </TableCell>
-                                        <TableCell v-if="branchMode" class="text-sm">{{ row.store }}</TableCell>
-                                        <!-- Branch Requested: tanpa tapisan cawangan = klik angka utk popover cawangan yg minta -->
-                                        <TableCell class="text-right tabular-nums">
-                                            <BranchBreakdown :value="row.requested" :figures="row.branches" field="requested"
-                                                :title="COLUMN_LABELS.requested" />
-                                        </TableCell>
-                                        <TableCell class="text-right tabular-nums">{{ formatNumber(row.buy) }}</TableCell>
-                                        <!-- Tanpa tapisan cawangan: klik angka = popover pecahan ikut cawangan -->
-                                        <TableCell class="text-right tabular-nums">
-                                            <BranchBreakdown :value="row.sold" :figures="row.branches" field="sold"
-                                                :title="COLUMN_LABELS.sold" />
-                                        </TableCell>
-                                        <TableCell class="text-right tabular-nums">
-                                            <BranchBreakdown :value="row.available" :figures="row.branches" field="available"
-                                                :title="COLUMN_LABELS.available" />
-                                        </TableCell>
-                                        <TableCell>
-                                            <div class="flex items-center justify-end gap-2 sm:justify-start">
-                                                <span class="text-right tabular-nums sm:w-12">{{ row.percent.toFixed(1)
-                                                }}%</span>
-                                                <div class="hidden h-1.5 w-20 overflow-hidden rounded-full bg-muted sm:block">
-                                                    <div class="h-full rounded-full bg-primary"
-                                                        :style="{ width: percentWidth(row.percent) }" />
-                                                </div>
-                                            </div>
-                                        </TableCell>
-                                    </TableRow>
-                                </template>
-                            </TableBody>
-                        </Table>
+                                            <template v-else>
+                                                <TableRow v-for="row in pageData.rows"
+                                                    :key="`${row.code}|${row.store ?? ''}`">
+                                                    <TableCell>
+                                                        <!-- Imej/nickname dimuat utk baris sehalaman (sebentar sahaja) -->
+                                                        <Skeleton v-if="!details[row.code]"
+                                                            class="size-10 rounded-md sm:size-12" />
+                                                        <ImagePreview v-else :src="details[row.code].image_url"
+                                                            :reference="details[row.code].image_reference"
+                                                            :alt="details[row.code].nickname ?? row.code"
+                                                            class="size-10 rounded-md sm:size-12" />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div
+                                                            class="break-all text-[13px] font-medium sm:break-normal sm:text-sm">
+                                                            {{ row.code }}</div>
+                                                        <Skeleton v-if="!details[row.code]"
+                                                            class="mt-1 h-3 w-16 sm:w-40" />
+                                                        <div v-else-if="details[row.code].nickname"
+                                                            class="max-w-[4.5rem] truncate text-xs text-muted-foreground sm:max-w-72">
+                                                            {{ details[row.code].nickname }}
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell v-if="branchMode" class="text-sm">{{ row.store }}
+                                                    </TableCell>
+                                                    <!-- Branch Requested: tanpa tapisan cawangan = klik angka utk popover cawangan yg minta -->
+                                                    <TableCell class="text-right tabular-nums">
+                                                        <BranchBreakdown :value="row.requested" :figures="row.branches"
+                                                            field="requested" :title="COLUMN_LABELS.requested" />
+                                                    </TableCell>
+                                                    <TableCell class="text-right tabular-nums">{{ formatNumber(row.buy)
+                                                        }}</TableCell>
+                                                    <!-- Tanpa tapisan cawangan: klik angka = popover pecahan ikut cawangan -->
+                                                    <TableCell class="text-right tabular-nums">
+                                                        <BranchBreakdown :value="row.sold" :figures="row.branches"
+                                                            field="sold" :title="COLUMN_LABELS.sold" />
+                                                    </TableCell>
+                                                    <TableCell class="text-right tabular-nums">
+                                                        <BranchBreakdown :value="row.available" :figures="row.branches"
+                                                            field="available" :title="COLUMN_LABELS.available" />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div
+                                                            class="flex items-center justify-end gap-2 sm:justify-start">
+                                                            <span class="text-right tabular-nums sm:w-12">{{
+                                                                row.percent.toFixed(1)
+                                                                }}%</span>
+                                                            <div
+                                                                class="hidden h-1.5 w-20 overflow-hidden rounded-full bg-muted sm:block">
+                                                                <div class="h-full rounded-full bg-primary"
+                                                                    :style="{ width: percentWidth(row.percent) }" />
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            </template>
+                                        </TableBody>
+                                    </Table>
 
-                        <Empty v-if="!showSkeleton && pageData.total === 0" class="border-0 bg-card">
-                            <EmptyHeader>
-                                <EmptyMedia variant="icon">
-                                    <PackageSearch />
-                                </EmptyMedia>
-                                <EmptyTitle>Tiada design ditemui</EmptyTitle>
-                                <EmptyDescription>
-                                    Supplier ini tidak mengambil sebarang piece dalam tempoh atau cawangan yang dipilih.
-                                </EmptyDescription>
-                            </EmptyHeader>
-                        </Empty>
-                      </ScrollArea>
+                                    <Empty v-if="!showSkeleton && pageData.total === 0" class="border-0 bg-card">
+                                        <EmptyHeader>
+                                            <EmptyMedia variant="icon">
+                                                <PackageSearch />
+                                            </EmptyMedia>
+                                            <EmptyTitle>Tiada design ditemui</EmptyTitle>
+                                            <EmptyDescription>
+                                                Supplier ini tidak mengambil sebarang piece dalam tempoh atau cawangan
+                                                yang dipilih.
+                                            </EmptyDescription>
+                                        </EmptyHeader>
+                                    </Empty>
+                                </ScrollArea>
 
-                      <!-- Scroll-fade: pudar lembut menandakan ada baris lagi di atas/bawah (di bawah pengepala 2.5rem; tidak boleh diklik) -->
-                      <div aria-hidden="true"
-                        class="pointer-events-none absolute inset-x-0 top-10 h-8 bg-linear-to-b from-card to-transparent transition-opacity duration-200"
-                        :class="fadeTop ? 'opacity-100' : 'opacity-0'" />
-                      <div aria-hidden="true"
-                        class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-card to-transparent transition-opacity duration-200"
-                        :class="fadeBottom ? 'opacity-100' : 'opacity-0'" />
-                    </div>
+                                <!-- Scroll-fade: pudar lembut menandakan ada baris lagi di atas/bawah (di bawah pengepala 2.5rem; tidak boleh diklik) -->
+                                <div aria-hidden="true"
+                                    class="pointer-events-none absolute inset-x-0 top-10 h-8 bg-linear-to-b from-card to-transparent transition-opacity duration-200"
+                                    :class="fadeTop ? 'opacity-100' : 'opacity-0'" />
+                                <div aria-hidden="true"
+                                    class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-card to-transparent transition-opacity duration-200"
+                                    :class="fadeBottom ? 'opacity-100' : 'opacity-0'" />
+                            </div>
+                        </FramePanel>
 
-                    <!-- Halaman -->
-                    <div class="flex items-center justify-between gap-3">
-                        <div class="flex flex-col gap-0.5 text-sm text-muted-foreground">
-                            <Skeleton v-if="showSkeleton" class="h-4 w-40" />
-                            <template v-else>{{ rangeLabel }}</template>
-                            <span class="text-xs">Klik beberapa tajuk lajur berturutan untuk susunan berbilang (nombor = keutamaan).</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <Button type="button" variant="outline" size="icon-sm" aria-label="Halaman sebelum"
-                                :disabled="showSkeleton || pageData.page <= 1" @click="page = pageData.page - 1">
-                                <ChevronLeft class="size-4" />
-                            </Button>
-                            <span class="text-sm tabular-nums text-muted-foreground">
-                                {{ pageData.page }} / {{ pageData.lastPage }}
-                            </span>
-                            <Button type="button" variant="outline" size="icon-sm" aria-label="Halaman seterusnya"
-                                :disabled="showSkeleton || pageData.page >= pageData.lastPage"
-                                @click="page = pageData.page + 1">
-                                <ChevronRight class="size-4" />
-                            </Button>
-                        </div>
-                    </div>
+                        <!-- Halaman -->
+                        <FrameFooter class="justify-between gap-3">
+                            <div class="flex flex-col gap-0.5 text-sm text-muted-foreground">
+                                <Skeleton v-if="showSkeleton" class="h-4 w-40" />
+                                <template v-else>{{ rangeLabel }}</template>
+                                <span class="text-xs">Klik beberapa tajuk lajur berturutan untuk susunan berbilang
+                                    (nombor = keutamaan).</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <Button type="button" variant="outline" size="icon-sm" aria-label="Halaman sebelum"
+                                    :disabled="showSkeleton || pageData.page <= 1" @click="page = pageData.page - 1">
+                                    <ChevronLeft class="size-4" />
+                                </Button>
+                                <span class="text-sm tabular-nums text-muted-foreground">
+                                    {{ pageData.page }} / {{ pageData.lastPage }}
+                                </span>
+                                <Button type="button" variant="outline" size="icon-sm" aria-label="Halaman seterusnya"
+                                    :disabled="showSkeleton || pageData.page >= pageData.lastPage"
+                                    @click="page = pageData.page + 1">
+                                    <ChevronRight class="size-4" />
+                                </Button>
+                            </div>
+                        </FrameFooter>
+                    </Frame>
                 </template>
             </div>
         </div>
