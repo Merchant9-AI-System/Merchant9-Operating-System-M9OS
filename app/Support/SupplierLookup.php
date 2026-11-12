@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Models\BranchDemandRequest;
+use App\Models\BranchDemandRequestLine;
 use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Vendor;
 use Illuminate\Support\Carbon;
@@ -43,7 +45,10 @@ final class SupplierLookup
     public const SOLD_STATUSES = ['0', '9'];
 
     /** @var array<int, string> */
-    public const SORTS = ['code', 'buy', 'sold', 'available', 'percent'];
+    public const SORTS = ['code', 'requested', 'buy', 'sold', 'available', 'percent'];
+
+    /** Paling banyak kunci susunan serentak (salinan MAX_SORTS dlm resources/js/lib/supplierLookup.ts). */
+    public const MAX_SORTS = 5;
 
     /**
      * Tajuk lajur jadual - SALINAN COLUMN_LABELS dlm resources/js/lib/supplierLookup.ts (eksport memakai tajuk yg sebijik sama; ujian
@@ -55,6 +60,7 @@ final class SupplierLookup
         'image' => 'Image',
         'code' => 'Design Code',
         'store' => 'Cawangan',
+        'requested' => 'Branch Requested',
         'buy' => 'Total Ambil/Buy',
         'sold' => 'Total Sold',
         'available' => 'Total Available',
@@ -106,6 +112,28 @@ final class SupplierLookup
     public static function normalizeDirection(mixed $direction): string
     {
         return $direction === 'desc' ? 'desc' : 'asc';
+    }
+
+    /**
+     * Susunan berbilang drpd parameter eksport: "percent:desc,buy:desc" (kunci pertama paling utama). Bentuk lama sort=percent&dir=desc
+     * masih diterima. Kunci tak sah & berulang dibuang, dihadkan MAX_SORTS; kosong/tak sah = kod menaik.
+     *
+     * @return list<array{key: string, dir: string}>
+     */
+    public static function parseSorts(mixed $sort, mixed $direction = null): array
+    {
+        $sorts = [];
+
+        foreach (explode(',', is_string($sort) ? $sort : '') as $part) {
+            [$key, $dir] = array_pad(explode(':', trim($part), 2), 2, null);
+
+            if (in_array($key, self::SORTS, true) && ! isset($sorts[$key])) {
+                // Bentuk lama: arah datang dr parameter `dir` berasingan (kunci tunggal tanpa ":").
+                $sorts[$key] = ['key' => $key, 'dir' => self::normalizeDirection($dir ?? $direction)];
+            }
+        }
+
+        return $sorts === [] ? [['key' => 'code', 'dir' => 'asc']] : array_slice(array_values($sorts), 0, self::MAX_SORTS);
     }
 
     /**
@@ -212,38 +240,57 @@ final class SupplierLookup
      * dipilih), disusun, kemudian dilekatkan nickname/imej (semua baris, bukan satu halaman).
      *
      * @param  list<string>  $branches
-     * @return list<array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float, nickname: ?string, image_url: ?string, image_reference: bool}>
+     * @param  list<array{key: string, dir: string}>  $sorts  rujuk parseSorts()
+     * @return list<array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float, requested: int, branches: list<array{store: string, buy: int, sold: int, available: int, requested: int}>, nickname: ?string, image_url: ?string, image_reference: bool}>
      */
-    public function exportRows(string $supplier, array $branches, string $sort, string $direction): array
+    public function exportRows(string $supplier, array $branches, array $sorts): array
     {
-        $rows = self::sorted(self::rollUp($this->designs($supplier), $branches), $sort, $direction);
+        $designs = $this->designs($supplier);
+        $rows = self::sorted(self::rollUp($designs, $branches, self::demandFor($designs)), $sorts);
         $details = self::detailsFor(array_values(array_unique(array_column($rows, 'code'))), self::EXPORT_DETAIL_CHUNK);
 
         return array_map(fn (array $row): array => $row + ($details[$row['code']] ?? ['nickname' => null, 'image_url' => null, 'image_reference' => false]), $rows);
     }
 
     /**
-     * Salinan PHP bagi rollUp() dlm lib/supplierLookup.ts. Tanpa cawangan: satu baris setiap design (jumlah semua cawangan). Dgn cawangan:
-     * satu baris setiap design setiap cawangan yg dipilih, hanya yg ada piece diambil.
+     * Salinan PHP bagi rollUp() dlm lib/supplierLookup.ts. Tanpa cawangan: satu baris setiap design (jumlah semua cawangan) + `branches`
+     * (pecahan ikut cawangan utk popover di skrin). Dgn cawangan: satu baris setiap design setiap cawangan yg dipilih, hanya yg ada piece diambil.
+     *
+     * `requested` (Branch Requested) = permintaan cawangan yg belum selesai (rujuk demandFor()): tanpa cawangan = jumlah SEMUA cawangan yg
+     * minta (termasuk yg tak pernah ambil piece drpd supplier ini - muncul dlm `branches` utk popover); mod cawangan = permintaan
+     * cawangan baris itu sahaja (cawangan yg minta tapi tiada piece diambil tidak mendapat baris sendiri).
      *
      * @param  list<array{code: string, stores: array<string, array{0: int, 1: int}>}>  $designs
      * @param  list<string>  $branches
-     * @return list<array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float}>
+     * @param  array<string, array<string, int>>  $demand  kod => [cawangan => qty] (demandFor())
+     * @return list<array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float, requested: int, branches: list<array{store: string, buy: int, sold: int, available: int, requested: int}>}>
      */
-    public static function rollUp(array $designs, array $branches): array
+    public static function rollUp(array $designs, array $branches, array $demand = []): array
     {
         $rows = [];
 
         foreach ($designs as $design) {
+            $requested = $demand[$design['code']] ?? [];
+
             if ($branches === []) {
-                $rows[] = self::makeRow($design['code'], null, array_sum(array_column($design['stores'], 0)), array_sum(array_column($design['stores'], 1)));
+                $stores = array_keys($design['stores'] + $requested);
+                sort($stores, SORT_STRING);
+
+                $breakdown = [];
+
+                foreach ($stores as $store) {
+                    [$storeBuy, $storeSold] = $design['stores'][$store] ?? [0, 0];
+                    $breakdown[] = ['store' => (string) $store, 'buy' => $storeBuy, 'sold' => $storeSold, 'available' => $storeBuy - $storeSold, 'requested' => $requested[$store] ?? 0];
+                }
+
+                $rows[] = self::makeRow($design['code'], null, array_sum(array_column($design['stores'], 0)), array_sum(array_column($design['stores'], 1)), array_sum($requested), $breakdown);
 
                 continue;
             }
 
             foreach ($branches as $branch) {
                 if (isset($design['stores'][$branch])) {
-                    $rows[] = self::makeRow($design['code'], $branch, $design['stores'][$branch][0], $design['stores'][$branch][1]);
+                    $rows[] = self::makeRow($design['code'], $branch, $design['stores'][$branch][0], $design['stores'][$branch][1], $requested[$branch] ?? 0);
                 }
             }
         }
@@ -252,30 +299,77 @@ final class SupplierLookup
     }
 
     /**
-     * Salinan PHP bagi sortRows() dlm lib/supplierLookup.ts: seri dipecahkan ikut kod kemudian cawangan (perbandingan bait).
+     * Branch Requested: baki permintaan cawangan (jadual branch_demand_request_lines) bagi design supplier ini - SATU query kecil, SENTIASA
+     * segar (tidak dicache bersama agregat berat) supaya mengikut status BO semasa. Definisi SAMA dgn Back Office Actions (rujuk
+     * BackOfficeActionsAdvisor::RESTOCK_REQUEST_STATUSES): peringkat yg BELUM selesai sahaja (Requested, Stok Kritikal, Special Request,
+     * Listed/Noted, Order, Rearrange) - Dah Order/Restock/Delivery & Item Not Available tak dikira; line berstatus done_at, Rejected atau
+     * request Cancelled juga tak dikira. Kuantiti = qty_requested; cawangan = store_code request (termasuk WEB). Line tanpa internal_code
+     * (web/upload yg belum dipadankan) tak boleh dipadankan dgn design.
+     *
+     * @param  list<array{code: string, stores: array<string, array{0: int, 1: int}>}>  $designs
+     * @return array<string, array<string, int>> kod design => [cawangan => qty]
+     */
+    public static function demandFor(array $designs): array
+    {
+        if ($designs === []) {
+            return [];
+        }
+
+        $rows = DB::table('branch_demand_request_lines as lines')
+            ->join('branch_demand_requests as requests', 'requests.id', '=', 'lines.branch_demand_request_id')
+            ->whereIn('lines.fulfillment_status', BackOfficeActionsAdvisor::RESTOCK_REQUEST_STATUSES)
+            ->whereNull('lines.done_at')
+            ->where('lines.line_status', '!=', BranchDemandRequestLine::STATUS_REJECTED)
+            ->where('requests.status', '!=', BranchDemandRequest::STATUS_CANCELLED)
+            ->whereRaw("TRIM(COALESCE(lines.internal_code, '')) <> ''")
+            ->selectRaw('TRIM(lines.internal_code) as code, TRIM(requests.store_code) as store, SUM(lines.qty_requested) as qty')
+            ->groupBy('code', 'store')
+            ->get();
+
+        $wanted = array_flip(array_column($designs, 'code'));
+        $demand = [];
+
+        foreach ($rows as $row) {
+            if (isset($wanted[$row->code])) {
+                $demand[$row->code][$row->store] = (int) $row->qty;
+            }
+        }
+
+        return $demand;
+    }
+
+    /**
+     * Salinan PHP bagi sortRows() dlm lib/supplierLookup.ts: susunan berbilang (kunci pertama dahulu, seri dipecahkan kunci seterusnya),
+     * akhir sekali ikut kod kemudian cawangan (perbandingan bait).
      *
      * @param  list<array<string, mixed>>  $rows
+     * @param  list<array{key: string, dir: string}>  $sorts
      * @return list<array<string, mixed>>
      */
-    public static function sorted(array $rows, string $sort, string $direction): array
+    public static function sorted(array $rows, array $sorts): array
     {
-        $factor = $direction === 'desc' ? -1 : 1;
+        usort($rows, function (array $a, array $b) use ($sorts): int {
+            foreach ($sorts as ['key' => $key, 'dir' => $dir]) {
+                $primary = $key === 'code' ? strcmp((string) $a['code'], (string) $b['code']) : $a[$key] <=> $b[$key];
 
-        usort($rows, function (array $a, array $b) use ($sort, $factor): int {
-            $primary = $sort === 'code' ? strcmp((string) $a['code'], (string) $b['code']) : $a[$sort] <=> $b[$sort];
+                if ($primary !== 0) {
+                    return $dir === 'desc' ? -$primary : $primary;
+                }
+            }
 
-            return $primary !== 0
-                ? $primary * $factor
-                : (strcmp((string) $a['code'], (string) $b['code']) ?: strcmp((string) $a['store'], (string) $b['store']));
+            return strcmp((string) $a['code'], (string) $b['code']) ?: strcmp((string) $a['store'], (string) $b['store']);
         });
 
         return $rows;
     }
 
-    /** @return array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float} */
-    private static function makeRow(string $code, ?string $store, int $buy, int $sold): array
+    /**
+     * @param  list<array{store: string, buy: int, sold: int, available: int, requested: int}>  $breakdown
+     * @return array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float, requested: int, branches: list<array{store: string, buy: int, sold: int, available: int, requested: int}>}
+     */
+    private static function makeRow(string $code, ?string $store, int $buy, int $sold, int $requested, array $breakdown = []): array
     {
-        return ['code' => $code, 'store' => $store, 'buy' => $buy, 'sold' => $sold, 'available' => $buy - $sold, 'percent' => $buy > 0 ? (float) ($sold / $buy * 100) : 0.0];
+        return ['code' => $code, 'store' => $store, 'buy' => $buy, 'sold' => $sold, 'available' => $buy - $sold, 'percent' => $buy > 0 ? (float) ($sold / $buy * 100) : 0.0, 'requested' => $requested, 'branches' => $breakdown];
     }
 
     /**

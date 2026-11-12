@@ -19,7 +19,7 @@ use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
  * disusun/ditapis di Excel). Gambar ialah thumbnail JPEG kecil dr RemoteThumbnails, dilekat pd sel lajur Image (baris yg gambarnya tiada/
  * belum sempat dimuat dibiarkan kosong).
  *
- * Susunan lajur: Image, Design Code, [Cawangan], Total Ambil/Buy, Total Sold, Total Available, Percentage.
+ * Susunan lajur: Image, Design Code, [Cawangan], Branch Requested, Total Ambil/Buy, Total Sold, Total Available, Percentage.
  */
 final class SupplierLookupExport implements FromArray, WithColumnFormatting, WithColumnWidths, WithDrawings, WithStyles, WithTitle
 {
@@ -34,7 +34,7 @@ final class SupplierLookupExport implements FromArray, WithColumnFormatting, Wit
     private const IMAGE_HEIGHT_PX = 44;
 
     /**
-     * @param  list<array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float, nickname: ?string, image_url: ?string, image_reference: bool}>  $rows
+     * @param  list<array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float, requested: int, nickname: ?string, image_url: ?string, image_reference: bool}>  $rows
      * @param  array<string, string>  $thumbnails  url => laluan fail JPEG
      */
     public function __construct(
@@ -55,7 +55,7 @@ final class SupplierLookupExport implements FromArray, WithColumnFormatting, Wit
             $header[] = $labels['store'];
         }
 
-        array_push($header, $labels['buy'], $labels['sold'], $labels['available'], $labels['percent']);
+        array_push($header, $labels['requested'], $labels['buy'], $labels['sold'], $labels['available'], $labels['percent']);
 
         $data = array_map(function (array $row): array {
             $values = ['', trim($row['code'].($row['nickname'] ? "\n".$row['nickname'] : ''))];
@@ -64,7 +64,7 @@ final class SupplierLookupExport implements FromArray, WithColumnFormatting, Wit
                 $values[] = (string) $row['store'];
             }
 
-            return [...$values, $row['buy'], $row['sold'], $row['available'], round($row['percent'], 1)];
+            return [...$values, $row['requested'], $row['buy'], $row['sold'], $row['available'], round($row['percent'], 1)];
         }, $this->rows);
 
         return [[$this->heading], $header, ...$data];
@@ -74,14 +74,14 @@ final class SupplierLookupExport implements FromArray, WithColumnFormatting, Wit
     public function columnWidths(): array
     {
         return $this->branchMode
-            ? ['A' => 10, 'B' => 38, 'C' => 16, 'D' => 18, 'E' => 14, 'F' => 18, 'G' => 14]
-            : ['A' => 10, 'B' => 38, 'C' => 18, 'D' => 14, 'E' => 18, 'F' => 14];
+            ? ['A' => 10, 'B' => 38, 'C' => 16, 'D' => 18, 'E' => 18, 'F' => 14, 'G' => 18, 'H' => 14]
+            : ['A' => 10, 'B' => 38, 'C' => 18, 'D' => 18, 'E' => 14, 'F' => 18, 'G' => 14];
     }
 
     /** @return array<string, string> */
     public function columnFormats(): array
     {
-        return [$this->branchMode ? 'G' : 'F' => '0.0"%"'];
+        return [$this->branchMode ? 'H' : 'G' => '0.0"%"'];
     }
 
     /** @return array<int, mixed> */

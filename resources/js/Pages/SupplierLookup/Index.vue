@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { Head, router } from '@inertiajs/vue3';
 import { ChevronDown, ChevronLeft, ChevronRight, Download, FileSpreadsheet, PackageSearch, Printer, Search, X } from '@lucide/vue';
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import BranchBreakdown from '@/components/BranchBreakdown.vue';
 import FacetedFilter from '@/components/FacetedFilter.vue';
 import ImagePreview from '@/components/ImagePreview.vue';
 import SearchAutocomplete from '@/components/SearchAutocomplete.vue';
@@ -10,12 +11,15 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import SortMenu from '@/components/SortMenu.vue';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { branchOptions as buildBranchOptions, COLUMN_LABELS, PAGE_SIZE, paginate, rollUp, sortRows } from '@/lib/supplierLookup';
-import type { LookupDesign, SortDirection, SortKey } from '@/lib/supplierLookup';
+import { branchOptions as buildBranchOptions, COLUMN_LABELS, DEFAULT_SORTS, nextSorts, PAGE_SIZE, paginate, rollUp, serializeSorts, sortRows } from '@/lib/supplierLookup';
+import type { LookupDemand, LookupDesign, SortDirection, SortKey, SortSpec } from '@/lib/supplierLookup';
+import { Separator } from '@/components/ui/separator';
 
 // Jadual ini berjalan di PELAYAR: server menghantar semua design supplier sekali (supplier + tempoh), manakala tapisan cawangan,
 // susunan & halaman dikira tempatan (lib/supplierLookup.ts) - serta-merta tanpa rangkaian. Definisi nombor: rujuk
@@ -24,6 +28,8 @@ interface LookupResult {
     // false = belum ada supplier dipilih (server tidak mengira apa-apa).
     searched: boolean;
     designs: LookupDesign[];
+    // Branch Requested (permintaan cawangan belum selesai) - dikira segar server; kod -> cawangan -> qty.
+    demand: LookupDemand;
 }
 
 // Nickname, imej & gambar rujukan dimuat utk baris sehalaman sahaja (/supplier-lookup/details).
@@ -49,13 +55,17 @@ const props = defineProps<{
 
 const SKELETON_ROWS = 8;
 const SUGGEST_DEBOUNCE_MS = 200;
-const DEFAULT_SORT: SortKey = 'code';
+// Lajur yg boleh disusun dlm menu "Susun mengikut" (kunci + tajuk lajur yg sama dgn jadual).
+const SORT_OPTIONS: { key: SortKey; label: string }[] = (['code', 'requested', 'buy', 'sold', 'available', 'percent'] as const).map((key) => ({
+    key,
+    label: COLUMN_LABELS[key],
+}));
 
 // Skrin < sm (640px): keenam-enam lajur mesti muat tanpa tatal ufuk, jadi tajuk nombor dipendekkan (nama penuh kekal sbg nama
 // aksesibel & tooltip), padding sel dikecilkan & ikon susunan hanya pd lajur aktif. Selaras dgn breakpoint `sm` Tailwind.
 const COMPACT_QUERY = '(max-width: 639px)';
 const TABLE_COMPACT =
-    'bg-card [&_th]:px-1 [&_td]:px-1 sm:[&_th]:px-2 sm:[&_td]:px-2 [&_th_button]:ml-0 [&_th_button]:px-1 sm:[&_th_button]:-ml-3 sm:[&_th_button]:px-3 [&_th_button:not([data-active=true])_svg]:hidden sm:[&_th_button:not([data-active=true])_svg]:inline-block';
+    'bg-card [&_th]:px-1 [&_td]:px-1 sm:[&_th]:px-2 sm:[&_td]:px-2 [&_th_button]:ml-0 [&_th_button]:px-0 sm:[&_th_button]:-ml-3 sm:[&_th_button]:px-3 [&_th_button:not([data-active=true])_svg]:hidden sm:[&_th_button:not([data-active=true])_svg]:inline-block';
 
 const compact = ref(false);
 
@@ -72,27 +82,15 @@ onMounted(() => {
 
 onBeforeUnmount(() => compactQuery?.removeEventListener('change', syncCompact));
 
-const SORT_OPTIONS: { value: string; label: string }[] = [
-    { value: 'code:asc', label: 'Design Code (A - Z)' },
-    { value: 'code:desc', label: 'Design Code (Z - A)' },
-    { value: 'percent:desc', label: 'Percentage (tinggi - rendah)' },
-    { value: 'percent:asc', label: 'Percentage (rendah - tinggi)' },
-    { value: 'buy:desc', label: 'Total Ambil (banyak - sikit)' },
-    { value: 'buy:asc', label: 'Total Ambil (sikit - banyak)' },
-    { value: 'sold:desc', label: 'Total Sold (banyak - sikit)' },
-    { value: 'sold:asc', label: 'Total Sold (sikit - banyak)' },
-    { value: 'available:desc', label: 'Total Available (banyak - sikit)' },
-    { value: 'available:asc', label: 'Total Available (sikit - banyak)' },
-];
-
 // `inputText` = teks medan carian: apa yg sedang ditaip (cadangan supplier muncul), atau nama supplier terpilih (tiada cip
 // berasingan); `supplier` = supplier yg DIPILIH dan memuatkan senarai. Supplier & tempoh = permintaan server; selebihnya tempatan.
 const inputText = ref(props.supplier?.name ?? '');
 const supplier = ref<{ code: string; name: string } | null>(props.supplier);
 const days = ref(String(props.filters.days));
 const branches = ref<string[]>([]);
-const sortKey = ref<SortKey>(DEFAULT_SORT);
-const sortDirection = ref<SortDirection>('asc');
+// Susunan BERBILANG: senarai kunci (yg pertama paling utama), dikongsi oleh klik tajuk lajur & menu "Susun mengikut" (v-model) - sentiasa bersegerak.
+// Setiap klik tajuk menambah / menukar / membuang lajur itu; kosong = kod design menaik.
+const sorts = ref<SortSpec[]>([...DEFAULT_SORTS]);
 const page = ref(1);
 const loading = ref(false);
 
@@ -103,14 +101,13 @@ const suggestError = ref<string | null>(null);
 // Senarai hanya muncul selepas pengguna memilih supplier.
 const hasQuery = computed(() => supplier.value !== null);
 const branchMode = computed(() => branches.value.length > 0);
-const sortValue = computed(() => `${sortKey.value}:${sortDirection.value}`);
 const showSkeleton = computed(() => hasQuery.value && (loading.value || !props.result?.searched));
 const isFiltered = computed(() => hasQuery.value || inputText.value !== '' || branches.value.length > 0);
 
 // Semua dikira tempatan - tiada permintaan rangkaian bila cawangan / susunan / halaman berubah.
 const designs = computed(() => (showSkeleton.value ? [] : (props.result?.designs ?? [])));
 const branchOptions = computed(() => buildBranchOptions(designs.value));
-const sortedRows = computed(() => sortRows(rollUp(designs.value, branches.value), sortKey.value, sortDirection.value));
+const sortedRows = computed(() => sortRows(rollUp(designs.value, branches.value, props.result?.demand ?? {}), sorts.value));
 const pageData = computed(() => paginate(sortedRows.value, page.value, PAGE_SIZE));
 
 const rangeLabel = computed(() => {
@@ -166,9 +163,75 @@ watch([supplier, days], () => {
 });
 
 // Cawangan / susunan berubah = kembali ke halaman 1 (tempatan).
-watch([branches, sortKey, sortDirection], () => {
+watch([branches, sorts], () => {
     page.value = 1;
 });
+
+// Bingkai jadual = ScrollArea. Kesan pudar (scroll-fade) di tepi atas/bawah HANYA bila ada kandungan lagi dlm arah itu (bukan sentiasa);
+// pudar atas diletakkan di bawah pengepala melekat. Dikira drpd viewport ScrollArea (tatal & saiz berubah).
+const frame = ref<HTMLElement | null>(null);
+const fadeTop = ref(false);
+const fadeBottom = ref(false);
+
+let viewport: HTMLElement | null = null;
+let viewportObserver: ResizeObserver | null = null;
+
+function updateFades() {
+    if (!viewport) {
+        return;
+    }
+
+    const maxScroll = viewport.scrollHeight - viewport.clientHeight;
+
+    fadeTop.value = viewport.scrollTop > 1;
+    fadeBottom.value = maxScroll > 1 && viewport.scrollTop < maxScroll - 1;
+}
+
+function unbindViewport() {
+    viewport?.removeEventListener('scroll', updateFades);
+    viewportObserver?.disconnect();
+    viewport = null;
+}
+
+function bindViewport() {
+    const element = frame.value?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]') ?? null;
+
+    if (element === viewport) {
+        return;
+    }
+
+    unbindViewport();
+    viewport = element;
+
+    if (!element) {
+        fadeTop.value = false;
+        fadeBottom.value = false;
+
+        return;
+    }
+
+    element.addEventListener('scroll', updateFades, { passive: true });
+    viewportObserver ??= new ResizeObserver(updateFades);
+    viewportObserver.observe(element);
+
+    if (element.firstElementChild) {
+        viewportObserver.observe(element.firstElementChild);
+    }
+
+    updateFades();
+}
+
+// Bingkai wujud hanya selepas supplier dipilih (v-else) - ikat bila ia muncul.
+watch(frame, () => nextTick(bindViewport), { flush: 'post' });
+
+// Halaman / susunan / cawangan baharu = senarai baharu: mulakan dari atas (jika tidak tatal kekal di bawah halaman sebelumnya).
+watch([() => pageData.value.page, sorts, branches], () => {
+    if (viewport) {
+        viewport.scrollTop = 0;
+    }
+});
+
+onBeforeUnmount(unbindViewport);
 
 // Nickname & imej utk baris yg kelihatan: dimuat sekali bagi setiap kod, kekal dlm memori (tukar halaman/susunan tak muat semula).
 const details = reactive<Record<string, DesignDetail>>({});
@@ -280,34 +343,20 @@ function clearSupplier() {
     supplier.value = null;
 }
 
+// Klik tajuk: lajur itu ditambah (menaik) -> menurun -> dibuang; kunci lain kekal, jadi klik berturutan = susunan berbilang.
 function toggleSort(key: SortKey) {
-    if (sortKey.value !== key) {
-        sortKey.value = key;
-        sortDirection.value = 'asc';
-
-        return;
-    }
-
-    if (sortDirection.value === 'asc') {
-        sortDirection.value = 'desc';
-
-        return;
-    }
-
-    // Kitaran ketiga = kembali ke susunan asal.
-    sortKey.value = DEFAULT_SORT;
-    sortDirection.value = 'asc';
+    sorts.value = nextSorts(sorts.value, key);
 }
 
 function headerDirection(key: SortKey): SortDirection | null {
-    return sortKey.value === key ? sortDirection.value : null;
+    return sorts.value.find((spec) => spec.key === key)?.dir ?? null;
 }
 
-function onSortSelect(value: unknown) {
-    const [key, direction] = String(value).split(':');
+// Nombor keutamaan (1, 2, 3...) hanya bila lebih drpd satu lajur disusun.
+function headerPriority(key: SortKey): number | null {
+    const index = sorts.value.findIndex((spec) => spec.key === key);
 
-    sortKey.value = key as SortKey;
-    sortDirection.value = direction as SortDirection;
+    return sorts.value.length > 1 && index !== -1 ? index + 1 : null;
 }
 
 function resetFilters() {
@@ -331,8 +380,7 @@ function exportUrl(path: ExportKind): string {
     const query = new URLSearchParams({
         supplier: supplier.value?.code ?? '',
         days: days.value,
-        sort: sortKey.value,
-        dir: sortDirection.value,
+        sort: serializeSorts(sorts.value),
     });
 
     branches.value.forEach((branch) => query.append('branches[]', branch));
@@ -441,17 +489,7 @@ function formatNumber(value: number): string {
 
                     <FacetedFilter v-model="branches" title="Cawangan" :options="branchOptions" />
 
-                    <Select :model-value="sortValue" @update:model-value="onSortSelect">
-                        <SelectTrigger class="h-7 w-56 bg-card" aria-label="Susun mengikut">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem v-for="option in SORT_OPTIONS" :key="option.value" :value="option.value">
-                                {{ option.label }}
-                            </SelectItem>
-                        </SelectContent>
-                    </Select>
-
+                    <SortMenu v-model="sorts" :options="SORT_OPTIONS" />
                     <Button v-if="isFiltered" type="button" variant="outline" size="sm" class="h-8 px-2 border-dashed"
                         @click="resetFilters">
                         Reset
@@ -506,31 +544,39 @@ function formatNumber(value: number): string {
                 <template v-else>
                     <!-- Jadual: pada skrin >= sm bingkai bertinggi tetap (data bertatal, pengepala melekat, butang halaman sentiasa
                          kelihatan). Pada mudah alih halaman itu sendiri yg bertatal supaya tiada tatal dalam tatal. -->
-                    <div class="overflow-x-auto rounded-md border shadow-sm sm:max-h-[calc(100dvh-17rem)] sm:min-h-72 sm:overflow-y-auto">
+                    <div ref="frame" class="relative overflow-hidden rounded-md border shadow-sm">
+                      <!-- [&_[data-slot=scroll-area-viewport]>div]:!block - pembungkus dalam viewport reka-ui asalnya display:table & melebar
+                           ikut kandungan (sama spt Back Office Actions). -->
+                      <ScrollArea horizontal
+                        class="rounded-[inherit] sm:max-h-[calc(100dvh-17rem)] sm:min-h-72 [&_[data-slot=scroll-area-viewport]>div]:!block">
                         <Table :class="TABLE_COMPACT">
                             <TableHeader class="sticky top-0 z-10 bg-card shadow-[0_1px_0_var(--border)]">
                                 <TableRow class="hover:bg-transparent">
                                     <TableHead class="w-[3.25rem] sm:w-20">{{ COLUMN_LABELS.image }}</TableHead>
                                     <TableHead>
                                         <SortableHeader :title="COLUMN_LABELS.code" :direction="headerDirection('code')"
-                                            @sort="toggleSort('code')" />
+                                            @sort="toggleSort('code')" :priority="headerPriority('code')" />
                                     </TableHead>
                                     <TableHead v-if="branchMode" class="w-28">{{ COLUMN_LABELS.store }}</TableHead>
                                     <TableHead class="text-right">
+                                        <SortableHeader :title="compact ? 'Req.' : COLUMN_LABELS.requested" :full-title="COLUMN_LABELS.requested"
+                                            :direction="headerDirection('requested')" @sort="toggleSort('requested')" :priority="headerPriority('requested')" />
+                                    </TableHead>
+                                    <TableHead class="text-right">
                                         <SortableHeader :title="compact ? 'Ambil' : COLUMN_LABELS.buy" :full-title="COLUMN_LABELS.buy"
-                                            :direction="headerDirection('buy')" @sort="toggleSort('buy')" />
+                                            :direction="headerDirection('buy')" @sort="toggleSort('buy')" :priority="headerPriority('buy')" />
                                     </TableHead>
                                     <TableHead class="text-right">
                                         <SortableHeader :title="compact ? 'Sold' : COLUMN_LABELS.sold" :full-title="COLUMN_LABELS.sold"
-                                            :direction="headerDirection('sold')" @sort="toggleSort('sold')" />
+                                            :direction="headerDirection('sold')" @sort="toggleSort('sold')" :priority="headerPriority('sold')" />
                                     </TableHead>
                                     <TableHead class="text-right">
                                         <SortableHeader :title="compact ? 'Avail.' : COLUMN_LABELS.available" :full-title="COLUMN_LABELS.available"
-                                            :direction="headerDirection('available')" @sort="toggleSort('available')" />
+                                            :direction="headerDirection('available')" @sort="toggleSort('available')" :priority="headerPriority('available')" />
                                     </TableHead>
                                     <TableHead class="text-right sm:w-44 sm:text-left">
                                         <SortableHeader :title="compact ? '%' : COLUMN_LABELS.percent" :full-title="COLUMN_LABELS.percent"
-                                            :direction="headerDirection('percent')" @sort="toggleSort('percent')" />
+                                            :direction="headerDirection('percent')" @sort="toggleSort('percent')" :priority="headerPriority('percent')" />
                                     </TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -551,7 +597,7 @@ function formatNumber(value: number): string {
                                         <TableCell v-if="branchMode">
                                             <Skeleton class="h-4 w-16" />
                                         </TableCell>
-                                        <TableCell v-for="c in 3" :key="`skn-${n}-${c}`">
+                                        <TableCell v-for="c in 4" :key="`skn-${n}-${c}`">
                                             <Skeleton class="ml-auto h-4 w-10" />
                                         </TableCell>
                                         <TableCell>
@@ -570,17 +616,28 @@ function formatNumber(value: number): string {
                                                 :alt="details[row.code].nickname ?? row.code" class="size-10 rounded-md sm:size-12" />
                                         </TableCell>
                                         <TableCell>
-                                            <div class="text-[13px] font-medium sm:text-sm">{{ row.code }}</div>
-                                            <Skeleton v-if="!details[row.code]" class="mt-1 h-3 w-24 sm:w-40" />
+                                            <div class="break-all text-[13px] font-medium sm:break-normal sm:text-sm">{{ row.code }}</div>
+                                            <Skeleton v-if="!details[row.code]" class="mt-1 h-3 w-16 sm:w-40" />
                                             <div v-else-if="details[row.code].nickname"
-                                                class="max-w-[5.5rem] truncate text-xs text-muted-foreground sm:max-w-72">
+                                                class="max-w-[4.5rem] truncate text-xs text-muted-foreground sm:max-w-72">
                                                 {{ details[row.code].nickname }}
                                             </div>
                                         </TableCell>
                                         <TableCell v-if="branchMode" class="text-sm">{{ row.store }}</TableCell>
+                                        <!-- Branch Requested: tanpa tapisan cawangan = klik angka utk popover cawangan yg minta -->
+                                        <TableCell class="text-right tabular-nums">
+                                            <BranchBreakdown :value="row.requested" :figures="row.branches" field="requested"
+                                                :title="COLUMN_LABELS.requested" />
+                                        </TableCell>
                                         <TableCell class="text-right tabular-nums">{{ formatNumber(row.buy) }}</TableCell>
-                                        <TableCell class="text-right tabular-nums">{{ formatNumber(row.sold) }}</TableCell>
-                                        <TableCell class="text-right tabular-nums">{{ formatNumber(row.available) }}
+                                        <!-- Tanpa tapisan cawangan: klik angka = popover pecahan ikut cawangan -->
+                                        <TableCell class="text-right tabular-nums">
+                                            <BranchBreakdown :value="row.sold" :figures="row.branches" field="sold"
+                                                :title="COLUMN_LABELS.sold" />
+                                        </TableCell>
+                                        <TableCell class="text-right tabular-nums">
+                                            <BranchBreakdown :value="row.available" :figures="row.branches" field="available"
+                                                :title="COLUMN_LABELS.available" />
                                         </TableCell>
                                         <TableCell>
                                             <div class="flex items-center justify-end gap-2 sm:justify-start">
@@ -608,23 +665,33 @@ function formatNumber(value: number): string {
                                 </EmptyDescription>
                             </EmptyHeader>
                         </Empty>
+                      </ScrollArea>
+
+                      <!-- Scroll-fade: pudar lembut menandakan ada baris lagi di atas/bawah (di bawah pengepala 2.5rem; tidak boleh diklik) -->
+                      <div aria-hidden="true"
+                        class="pointer-events-none absolute inset-x-0 top-10 h-8 bg-linear-to-b from-card to-transparent transition-opacity duration-200"
+                        :class="fadeTop ? 'opacity-100' : 'opacity-0'" />
+                      <div aria-hidden="true"
+                        class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-card to-transparent transition-opacity duration-200"
+                        :class="fadeBottom ? 'opacity-100' : 'opacity-0'" />
                     </div>
 
                     <!-- Halaman -->
                     <div class="flex items-center justify-between gap-3">
-                        <div class="text-sm text-muted-foreground">
+                        <div class="flex flex-col gap-0.5 text-sm text-muted-foreground">
                             <Skeleton v-if="showSkeleton" class="h-4 w-40" />
                             <template v-else>{{ rangeLabel }}</template>
+                            <span class="text-xs">Klik beberapa tajuk lajur berturutan untuk susunan berbilang (nombor = keutamaan).</span>
                         </div>
                         <div class="flex items-center gap-2">
-                            <Button type="button" variant="outline" size="sm" aria-label="Halaman sebelum"
+                            <Button type="button" variant="outline" size="icon-sm" aria-label="Halaman sebelum"
                                 :disabled="showSkeleton || pageData.page <= 1" @click="page = pageData.page - 1">
                                 <ChevronLeft class="size-4" />
                             </Button>
                             <span class="text-sm tabular-nums text-muted-foreground">
                                 {{ pageData.page }} / {{ pageData.lastPage }}
                             </span>
-                            <Button type="button" variant="outline" size="sm" aria-label="Halaman seterusnya"
+                            <Button type="button" variant="outline" size="icon-sm" aria-label="Halaman seterusnya"
                                 :disabled="showSkeleton || pageData.page >= pageData.lastPage"
                                 @click="page = pageData.page + 1">
                                 <ChevronRight class="size-4" />

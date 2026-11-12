@@ -59,10 +59,16 @@ class SupplierLookupController extends Controller
                 ->map(fn (int $days) => ['value' => (string) $days, 'label' => $days.' hari terakhir'])
                 ->all(),
             // RawInertiaProp: ribuan design - elak Inertia menelusuri setiap nilai (rujuk dokblok kelas itu).
-            'result' => Inertia::defer(fn () => new RawInertiaProp([
-                'searched' => $hasSupplier,
-                'designs' => $hasSupplier ? SupplierLookup::forDays($filters['days'])->designs($filters['supplier']) : [],
-            ])),
+            // `demand` (Branch Requested) dikira SEGAR setiap permintaan (query kecil, tidak dicache) supaya mengikut status BO semasa.
+            'result' => Inertia::defer(function () use ($hasSupplier, $filters) {
+                $designs = $hasSupplier ? SupplierLookup::forDays($filters['days'])->designs($filters['supplier']) : [];
+
+                return new RawInertiaProp([
+                    'searched' => $hasSupplier,
+                    'designs' => $designs,
+                    'demand' => SupplierLookup::demandFor($designs),
+                ]);
+            }),
         ]);
     }
 
@@ -99,7 +105,7 @@ class SupplierLookupController extends Controller
         set_time_limit(300);
 
         $params = $this->exportParameters($request);
-        $rows = SupplierLookup::forDays($params['days'])->exportRows($params['supplier'], $params['branches'], $params['sort'], $params['dir']);
+        $rows = SupplierLookup::forDays($params['days'])->exportRows($params['supplier'], $params['branches'], $params['sorts']);
         $branchMode = $params['branches'] !== [];
 
         $imageUrls = array_values(array_unique(array_filter(array_column($rows, 'image_url'))));
@@ -128,7 +134,7 @@ class SupplierLookupController extends Controller
         $this->authorizeLookup();
 
         $params = $this->exportParameters($request);
-        $rows = SupplierLookup::forDays($params['days'])->exportRows($params['supplier'], $params['branches'], $params['sort'], $params['dir']);
+        $rows = SupplierLookup::forDays($params['days'])->exportRows($params['supplier'], $params['branches'], $params['sorts']);
 
         return view('supplier-lookup.print', [
             'supplierCode' => $params['supplier'],
@@ -136,7 +142,9 @@ class SupplierLookupController extends Controller
             'days' => $params['days'],
             'branches' => $params['branches'],
             'branchMode' => $params['branches'] !== [],
-            'sortLabel' => SupplierLookup::COLUMN_LABELS[$params['sort']].', '.($params['dir'] === 'desc' ? 'menurun' : 'menaik'),
+            'sortLabel' => collect($params['sorts'])
+                ->map(fn (array $sort): string => SupplierLookup::COLUMN_LABELS[$sort['key']].' '.($sort['dir'] === 'desc' ? 'menurun' : 'menaik'))
+                ->implode(', '),
             'labels' => SupplierLookup::COLUMN_LABELS,
             'rows' => array_slice($rows, 0, SupplierLookup::PRINT_MAX_ROWS),
             'total' => count($rows),
@@ -146,9 +154,10 @@ class SupplierLookupController extends Controller
     }
 
     /**
-     * Parameter eksport yg sama dgn keadaan halaman (?supplier=&days=&branches[]=&sort=&dir=). Supplier wajib.
+     * Parameter eksport yg sama dgn keadaan halaman (?supplier=&days=&branches[]=&sort=percent:desc,buy:desc). Supplier wajib. Bentuk lama
+     * (sort=percent&dir=desc) masih diterima.
      *
-     * @return array{supplier: string, days: int, branches: list<string>, sort: string, dir: string}
+     * @return array{supplier: string, days: int, branches: list<string>, sorts: list<array{key: string, dir: string}>}
      */
     protected function exportParameters(Request $request): array
     {
@@ -163,8 +172,7 @@ class SupplierLookupController extends Controller
                 ->filter(fn ($branch) => is_string($branch) && $branch !== '')
                 ->map(fn (string $branch) => mb_substr(trim($branch), 0, 20))
                 ->unique()->take(20)->values()->all(),
-            'sort' => SupplierLookup::normalizeSort($request->query('sort')),
-            'dir' => SupplierLookup::normalizeDirection($request->query('dir')),
+            'sorts' => SupplierLookup::parseSorts($request->query('sort'), $request->query('dir')),
         ];
     }
 

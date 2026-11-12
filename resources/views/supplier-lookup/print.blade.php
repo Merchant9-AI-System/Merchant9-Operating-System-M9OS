@@ -55,6 +55,7 @@
                 @if ($branchMode)
                     <th>{{ $labels['store'] }}</th>
                 @endif
+                <th class="num">{{ $labels['requested'] }}</th>
                 <th class="num">{{ $labels['buy'] }}</th>
                 <th class="num">{{ $labels['sold'] }}</th>
                 <th class="num">{{ $labels['available'] }}</th>
@@ -83,6 +84,7 @@
                     @if ($branchMode)
                         <td>{{ $row['store'] }}</td>
                     @endif
+                    <td class="num">{{ number_format($row['requested']) }}</td>
                     <td class="num">{{ number_format($row['buy']) }}</td>
                     <td class="num">{{ number_format($row['sold']) }}</td>
                     <td class="num">{{ number_format($row['available']) }}</td>
@@ -90,7 +92,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="{{ $branchMode ? 7 : 6 }}" class="muted">Tiada design bagi supplier, tempoh dan cawangan ini.</td>
+                    <td colspan="{{ $branchMode ? 8 : 7 }}" class="muted">Tiada design bagi supplier, tempoh dan cawangan ini.</td>
                 </tr>
             @endforelse
         </tbody>
