@@ -9,6 +9,7 @@ use App\Filament\Widgets\ActionAlerts;
 use App\Filament\Widgets\ActiveStockRearrangementStopsTable;
 use App\Filament\Widgets\ActiveStockTransfersTable;
 use App\Filament\Widgets\BookVsPhysicalGoldChart;
+use App\Filament\Widgets\BranchActivityStats;
 use App\Filament\Widgets\BranchHealthTable;
 use App\Filament\Widgets\CapitalAgingChart;
 use App\Filament\Widgets\CapitalAgingSummary;
@@ -147,6 +148,7 @@ class AdminPanelProvider extends PanelProvider
                 // CEO Dashboard Phase 1 - boleh dimatikan via .env (config/dashboard.php),
                 // widget lain di bawah TIDAK berubah.
                 CeoActionCentre::class,
+                BranchActivityStats::class,
                 InventoryKpiStats::class,
                 ActionAlerts::class,
                 CapitalAgingChart::class,
