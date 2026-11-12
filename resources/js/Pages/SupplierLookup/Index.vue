@@ -617,7 +617,7 @@ function formatNumber(value: number): string {
                                     <Table :class="TABLE_COMPACT">
                                         <TableHeader class="sticky top-0 z-10 bg-card shadow-[0_1px_0_var(--border)]">
                                             <TableRow class="hover:bg-transparent">
-                                                <TableHead class="w-[3.25rem] sm:w-20">{{ COLUMN_LABELS.image }}
+                                                <TableHead class="w-[3.25rem] sm:w-20 text-sm">{{ COLUMN_LABELS.image }}
                                                 </TableHead>
                                                 <TableHead>
                                                     <SortableHeader :title="COLUMN_LABELS.code"
