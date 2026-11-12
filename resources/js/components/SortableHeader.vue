@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 defineProps<{
     title: string;
     direction: 'asc' | 'desc' | null;
+    // Nama penuh bila `title` dipendekkan (cth. skrin kecil) - jadi nama aksesibel & tooltip butang.
+    fullTitle?: string;
 }>();
 
 defineEmits<{
@@ -16,7 +18,7 @@ defineEmits<{
 
 <template>
     <Button type="button" variant="ghost" size="sm" class="-ml-3 h-8 data-[active=true]:text-foreground"
-        :data-active="direction !== null" @click="$emit('sort')">
+        :data-active="direction !== null" :aria-label="fullTitle" :title="fullTitle" @click="$emit('sort')">
         <span>{{ title }}</span>
         <ArrowUp v-if="direction === 'asc'" class="size-3.5" />
         <ArrowDown v-else-if="direction === 'desc'" class="size-3.5" />

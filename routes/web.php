@@ -49,6 +49,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/supplier-lookup', [SupplierLookupController::class, 'index'])->name('supplier-lookup.index');
     Route::get('/supplier-lookup/suggestions', [SupplierLookupController::class, 'suggestions'])->middleware('throttle:120,1')->name('supplier-lookup.suggestions');
     Route::get('/supplier-lookup/details', [SupplierLookupController::class, 'details'])->middleware('throttle:240,1')->name('supplier-lookup.details');
+    Route::get('/supplier-lookup/export', [SupplierLookupController::class, 'export'])->middleware('throttle:20,1')->name('supplier-lookup.export');
+    Route::get('/supplier-lookup/print', [SupplierLookupController::class, 'print'])->middleware('throttle:20,1')->name('supplier-lookup.print');
 
     // Senarai PENUH imej produk (bukan 1 thumbnail sahaja) bagi satu InternalCode - dibuka drpd
     // lajur imej ImageColumn di Filament (rujuk ProductImagesController dokblok).

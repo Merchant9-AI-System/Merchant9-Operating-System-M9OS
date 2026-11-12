@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Support\RemoteThumbnails;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -14,7 +15,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Thumbnail gambar utk eksport Excel Supplier Lookup (cache di storage/app/supplier-lookup-thumbs); ujian menggantikannya.
+        $this->app->bind(RemoteThumbnails::class, fn () => RemoteThumbnails::default());
     }
 
     /**

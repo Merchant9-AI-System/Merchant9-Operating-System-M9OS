@@ -6,6 +6,7 @@ use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Vendor;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -23,6 +24,10 @@ use Illuminate\Support\Facades\Schema;
  * mengubahnya serta-merta tanpa permintaan rangkaian. Nickname & imej TIDAK dihantar bersama (query merentas semua design diukur
  * ~50 saat) - klien meminta hanya utk baris yg kelihatan sehalaman (details()).
  *
+ * Eksport Excel/PDF (rujuk SupplierLookupController::export()/print()) mencerminkan apa yg pengguna nampak: pelayar menghantar supplier,
+ * tempoh, cawangan & susunan, dan server membina baris yg SAMA (exportRows() = salinan PHP bagi rollUp/sortRows dlm lib/supplierLookup.ts -
+ * ubah KEDUA-DUA). Tajuk lajur = COLUMN_LABELS (salinan pemalar TS dgn nama sama).
+ *
  * Agregat (design x cawangan x supplier, ikut StoreCode semasa piece) bagi setiap tempoh dikira SEKALI & dipecah ikut supplier dlm
  * cache (kunci mengandungi masa segerak cermin terakhir, jadi sah sehingga segerak berikutnya & dipanaskan oleh
  * `supplier-lookup:warm`).
@@ -37,6 +42,31 @@ final class SupplierLookup
     /** Status piece terjual (TblInventory: '0' Sold, '9' SoldClosed). */
     public const SOLD_STATUSES = ['0', '9'];
 
+    /** @var array<int, string> */
+    public const SORTS = ['code', 'buy', 'sold', 'available', 'percent'];
+
+    /**
+     * Tajuk lajur jadual - SALINAN COLUMN_LABELS dlm resources/js/lib/supplierLookup.ts (eksport memakai tajuk yg sebijik sama; ujian
+     * memastikan kedua-duanya sama). `store` hanya wujud dlm mod cawangan.
+     *
+     * @var array<string, string>
+     */
+    public const COLUMN_LABELS = [
+        'image' => 'Image',
+        'code' => 'Design Code',
+        'store' => 'Cawangan',
+        'buy' => 'Total Ambil/Buy',
+        'sold' => 'Total Sold',
+        'available' => 'Total Available',
+        'percent' => 'Percentage',
+    ];
+
+    /** Paling banyak baris pd cetakan PDF (setiap baris ada imej) - Excel tiada had. */
+    public const PRINT_MAX_ROWS = 1000;
+
+    /** Saiz kumpulan kod bagi query butiran utk eksport (jauh lebih besar drpd satu halaman jadual). */
+    private const EXPORT_DETAIL_CHUNK = 500;
+
     /** Paling banyak cadangan supplier dlm autocomplete. */
     public const SUGGESTION_LIMIT = 8;
 
@@ -48,6 +78,11 @@ final class SupplierLookup
 
     /** Index covering (PurchDate, InternalCode, StoreCode, Status, VendorCode) - rujuk migrasi dgn nama yg sama. */
     private const COVERING_INDEX = 'idx_mirror_supplier_lookup_covering';
+
+    /** Index covering imej (InternalCode, image_source, image_url) & nickname (InternalCode, nickname) utk butiran. */
+    private const IMAGE_INDEX = 'idx_mirror_board_image_ref_covering';
+
+    private const NICKNAME_INDEX = 'idx_mirror_board_nickname_covering';
 
     public function __construct(private readonly Carbon $from, private readonly Carbon $to) {}
 
@@ -61,6 +96,16 @@ final class SupplierLookup
     public static function normalizeDays(mixed $days): int
     {
         return in_array((int) $days, self::PERIOD_DAYS, true) ? (int) $days : self::DEFAULT_DAYS;
+    }
+
+    public static function normalizeSort(mixed $sort): string
+    {
+        return in_array($sort, self::SORTS, true) ? (string) $sort : 'code';
+    }
+
+    public static function normalizeDirection(mixed $direction): string
+    {
+        return $direction === 'desc' ? 'desc' : 'asc';
     }
 
     /**
@@ -100,36 +145,137 @@ final class SupplierLookup
      */
     public static function details(array $codes): array
     {
-        $codes = collect($codes)
-            ->filter(fn ($code) => is_string($code))
-            ->map(fn (string $code) => mb_substr(trim($code), 0, 20))
-            ->filter()
-            ->unique()
-            ->take(self::MAX_DETAIL_CODES)
-            ->values();
+        return self::detailsFor(
+            collect($codes)
+                ->filter(fn ($code) => is_string($code))
+                ->map(fn (string $code) => mb_substr(trim($code), 0, 20))
+                ->filter()
+                ->unique()
+                ->take(self::MAX_DETAIL_CODES)
+                ->values()
+                ->all(),
+            self::MAX_DETAIL_CODES,
+        );
+    }
 
-        if ($codes->isEmpty()) {
+    /**
+     * Butiran bagi kod yg sudah bersih, dlm kumpulan `$chunk` kod setiap query.
+     *
+     * @param  list<string>  $codes
+     * @return array<string, array{nickname: ?string, image_url: ?string, image_reference: bool}>
+     */
+    private static function detailsFor(array $codes, int $chunk): array
+    {
+        if ($codes === []) {
             return [];
         }
 
-        $rows = InventoryPiece::query()
-            ->whereIn('InternalCode', $codes->all())
-            ->selectRaw('InternalCode, MAX(nickname) as nickname, MAX(image_url) as image_url, MAX(image_source) as image_source')
-            ->groupBy('InternalCode')
-            ->toBase()
-            ->get()
-            ->keyBy(fn ($row) => trim((string) $row->InternalCode));
+        // DUA query ber-index covering (imej: InternalCode, image_source, image_url; nickname: InternalCode, nickname) - dijawab drpd
+        // index sahaja, ~3x lebih pantas drpd satu query MAX() merentas lajur lebar jadual (diukur 5.4s -> 1.8s utk 500 kod).
+        $images = [];
+        $nicknames = [];
 
-        return $codes->mapWithKeys(function (string $code) use ($rows): array {
-            $row = $rows->get($code);
-            $hasImage = $row !== null && filled($row->image_url);
+        foreach (array_chunk($codes, $chunk) as $codesChunk) {
+            DB::table(DB::raw('jemisys_inventory_mirror'.self::indexHint(self::IMAGE_INDEX)))
+                ->whereIn('InternalCode', $codesChunk)
+                ->selectRaw('InternalCode, MAX(image_url) as image_url, MAX(image_source) as image_source')
+                ->groupBy('InternalCode')
+                ->get()
+                ->each(function ($row) use (&$images): void {
+                    $images[trim((string) $row->InternalCode)] = $row;
+                });
+
+            DB::table(DB::raw('jemisys_inventory_mirror'.self::indexHint(self::NICKNAME_INDEX)))
+                ->whereIn('InternalCode', $codesChunk)
+                ->selectRaw('InternalCode, MAX(nickname) as nickname')
+                ->groupBy('InternalCode')
+                ->get()
+                ->each(function ($row) use (&$nicknames): void {
+                    $nicknames[trim((string) $row->InternalCode)] = $row->nickname;
+                });
+        }
+
+        return collect($codes)->mapWithKeys(function (string $code) use ($images, $nicknames): array {
+            $image = $images[$code] ?? null;
+            $hasImage = $image !== null && filled($image->image_url);
 
             return [$code => [
-                'nickname' => $row !== null && filled($row->nickname) ? trim((string) $row->nickname) : null,
-                'image_url' => $hasImage ? (string) $row->image_url : null,
-                'image_reference' => $hasImage && $row->image_source === DesignFamily::SOURCE_NEAREST,
+                'nickname' => filled($nicknames[$code] ?? null) ? trim((string) $nicknames[$code]) : null,
+                'image_url' => $hasImage ? (string) $image->image_url : null,
+                'image_reference' => $hasImage && $image->image_source === DesignFamily::SOURCE_NEAREST,
             ]];
         })->all();
+    }
+
+    /**
+     * Baris eksport = baris yg SAMA dgn jadual di pelayar: roll-up (jumlah semua cawangan, atau satu baris setiap design setiap cawangan
+     * dipilih), disusun, kemudian dilekatkan nickname/imej (semua baris, bukan satu halaman).
+     *
+     * @param  list<string>  $branches
+     * @return list<array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float, nickname: ?string, image_url: ?string, image_reference: bool}>
+     */
+    public function exportRows(string $supplier, array $branches, string $sort, string $direction): array
+    {
+        $rows = self::sorted(self::rollUp($this->designs($supplier), $branches), $sort, $direction);
+        $details = self::detailsFor(array_values(array_unique(array_column($rows, 'code'))), self::EXPORT_DETAIL_CHUNK);
+
+        return array_map(fn (array $row): array => $row + ($details[$row['code']] ?? ['nickname' => null, 'image_url' => null, 'image_reference' => false]), $rows);
+    }
+
+    /**
+     * Salinan PHP bagi rollUp() dlm lib/supplierLookup.ts. Tanpa cawangan: satu baris setiap design (jumlah semua cawangan). Dgn cawangan:
+     * satu baris setiap design setiap cawangan yg dipilih, hanya yg ada piece diambil.
+     *
+     * @param  list<array{code: string, stores: array<string, array{0: int, 1: int}>}>  $designs
+     * @param  list<string>  $branches
+     * @return list<array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float}>
+     */
+    public static function rollUp(array $designs, array $branches): array
+    {
+        $rows = [];
+
+        foreach ($designs as $design) {
+            if ($branches === []) {
+                $rows[] = self::makeRow($design['code'], null, array_sum(array_column($design['stores'], 0)), array_sum(array_column($design['stores'], 1)));
+
+                continue;
+            }
+
+            foreach ($branches as $branch) {
+                if (isset($design['stores'][$branch])) {
+                    $rows[] = self::makeRow($design['code'], $branch, $design['stores'][$branch][0], $design['stores'][$branch][1]);
+                }
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Salinan PHP bagi sortRows() dlm lib/supplierLookup.ts: seri dipecahkan ikut kod kemudian cawangan (perbandingan bait).
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    public static function sorted(array $rows, string $sort, string $direction): array
+    {
+        $factor = $direction === 'desc' ? -1 : 1;
+
+        usort($rows, function (array $a, array $b) use ($sort, $factor): int {
+            $primary = $sort === 'code' ? strcmp((string) $a['code'], (string) $b['code']) : $a[$sort] <=> $b[$sort];
+
+            return $primary !== 0
+                ? $primary * $factor
+                : (strcmp((string) $a['code'], (string) $b['code']) ?: strcmp((string) $a['store'], (string) $b['store']));
+        });
+
+        return $rows;
+    }
+
+    /** @return array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float} */
+    private static function makeRow(string $code, ?string $store, int $buy, int $sold): array
+    {
+        return ['code' => $code, 'store' => $store, 'buy' => $buy, 'sold' => $sold, 'available' => $buy - $sold, 'percent' => $buy > 0 ? (float) ($sold / $buy * 100) : 0.0];
     }
 
     /**
@@ -251,6 +397,23 @@ final class SupplierLookup
                 'sold' => (int) $row->sold,
             ])
             ->all();
+    }
+
+    /**
+     * ` FORCE INDEX (...)` utk satu index covering jika wujud (rujuk migrasi board covering indexes), selain itu kosong - query tetap
+     * betul tanpa petunjuk. Kewujudan index di-cache sejam.
+     */
+    private static function indexHint(string $index): string
+    {
+        $exists = Cache::remember('supplier-lookup:index:'.$index, now()->addHour(), function () use ($index): bool {
+            try {
+                return Schema::hasIndex('jemisys_inventory_mirror', $index);
+            } catch (\Throwable) {
+                return false;
+            }
+        });
+
+        return $exists ? " FORCE INDEX ({$index})" : '';
     }
 
     /** Index covering mungkin belum wujud (migrasi belum dijalankan) - tanpa petunjuk index, query tetap betul tetapi perlahan. */

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Head, router } from '@inertiajs/vue3';
-import { ChevronLeft, ChevronRight, PackageSearch, Search, X } from '@lucide/vue';
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { ChevronDown, ChevronLeft, ChevronRight, Download, FileSpreadsheet, PackageSearch, Printer, Search, X } from '@lucide/vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import FacetedFilter from '@/components/FacetedFilter.vue';
 import ImagePreview from '@/components/ImagePreview.vue';
 import SearchAutocomplete from '@/components/SearchAutocomplete.vue';
@@ -9,10 +9,12 @@ import SortableHeader from '@/components/SortableHeader.vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { branchOptions as buildBranchOptions, PAGE_SIZE, paginate, rollUp, sortRows } from '@/lib/supplierLookup';
+import { branchOptions as buildBranchOptions, COLUMN_LABELS, PAGE_SIZE, paginate, rollUp, sortRows } from '@/lib/supplierLookup';
 import type { LookupDesign, SortDirection, SortKey } from '@/lib/supplierLookup';
 
 // Jadual ini berjalan di PELAYAR: server menghantar semua design supplier sekali (supplier + tempoh), manakala tapisan cawangan,
@@ -48,6 +50,27 @@ const props = defineProps<{
 const SKELETON_ROWS = 8;
 const SUGGEST_DEBOUNCE_MS = 200;
 const DEFAULT_SORT: SortKey = 'code';
+
+// Skrin < sm (640px): keenam-enam lajur mesti muat tanpa tatal ufuk, jadi tajuk nombor dipendekkan (nama penuh kekal sbg nama
+// aksesibel & tooltip), padding sel dikecilkan & ikon susunan hanya pd lajur aktif. Selaras dgn breakpoint `sm` Tailwind.
+const COMPACT_QUERY = '(max-width: 639px)';
+const TABLE_COMPACT =
+    'bg-card [&_th]:px-1 [&_td]:px-1 sm:[&_th]:px-2 sm:[&_td]:px-2 [&_th_button]:ml-0 [&_th_button]:px-1 sm:[&_th_button]:-ml-3 sm:[&_th_button]:px-3 [&_th_button:not([data-active=true])_svg]:hidden sm:[&_th_button:not([data-active=true])_svg]:inline-block';
+
+const compact = ref(false);
+
+let compactQuery: MediaQueryList | null = null;
+const syncCompact = () => {
+    compact.value = compactQuery?.matches ?? false;
+};
+
+onMounted(() => {
+    compactQuery = window.matchMedia(COMPACT_QUERY);
+    syncCompact();
+    compactQuery.addEventListener('change', syncCompact);
+});
+
+onBeforeUnmount(() => compactQuery?.removeEventListener('change', syncCompact));
 
 const SORT_OPTIONS: { value: string; label: string }[] = [
     { value: 'code:asc', label: 'Design Code (A - Z)' },
@@ -294,6 +317,88 @@ function resetFilters() {
     branches.value = [];
 }
 
+// Eksport mencerminkan apa yg kelihatan: supplier, tempoh, cawangan & susunan semasa (SEMUA baris, bukan satu halaman). Server membina
+// baris yg sama (App\Support\SupplierLookup::exportRows) dgn tajuk lajur COLUMN_LABELS. Menyediakan eksport boleh mengambil beberapa saat
+// (butiran semua baris), jadi butang menunjukkan loading sehingga siap.
+type ExportKind = 'export' | 'print';
+
+const canExport = computed(() => hasQuery.value && !showSkeleton.value && pageData.value.total > 0);
+const exporting = ref<ExportKind | null>(null);
+const exportError = ref<string | null>(null);
+const exportMenuOpen = ref(false);
+
+function exportUrl(path: ExportKind): string {
+    const query = new URLSearchParams({
+        supplier: supplier.value?.code ?? '',
+        days: days.value,
+        sort: sortKey.value,
+        dir: sortDirection.value,
+    });
+
+    branches.value.forEach((branch) => query.append('branches[]', branch));
+
+    return `/supplier-lookup/${path}?${query.toString()}`;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+}
+
+async function runExport(kind: ExportKind) {
+    exportMenuOpen.value = false;
+
+    if (exporting.value !== null) {
+        return;
+    }
+
+    exportError.value = null;
+
+    // PDF: tab dibuka SEKARANG (selagi klik masih dikira tindakan pengguna - elak penyekat pop-up) dan diisi bila halaman cetak siap.
+    const tab = kind === 'print' ? window.open('', '_blank') : null;
+
+    if (kind === 'print' && !tab) {
+        exportError.value = 'Pop-up disekat. Benarkan pop-up untuk eksport PDF.';
+
+        return;
+    }
+
+    tab?.document.write('<title>Supplier Lookup</title><p style="font:14px system-ui;padding:24px">Menyediakan PDF...</p>');
+    exporting.value = kind;
+
+    try {
+        const response = await fetch(exportUrl(kind), { credentials: 'same-origin' });
+
+        if (!response.ok) {
+            throw new Error(String(response.status));
+        }
+
+        if (kind === 'export') {
+            const filename = /filename="?([^";]+)"?/.exec(response.headers.get('content-disposition') ?? '')?.[1] ?? 'Supplier-Lookup.xlsx';
+
+            downloadBlob(await response.blob(), filename);
+        } else {
+            const html = await response.text();
+
+            tab?.document.open();
+            tab?.document.write(html);
+            tab?.document.close();
+        }
+    } catch {
+        tab?.close();
+        exportError.value = 'Eksport gagal. Cuba lagi.';
+    } finally {
+        exporting.value = null;
+    }
+}
+
 function percentWidth(percent: number): string {
     return `${Math.min(100, Math.max(0, percent))}%`;
 }
@@ -307,7 +412,7 @@ function formatNumber(value: number): string {
 
     <Head title="Supplier Lookup" />
 
-    <div class="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-8">
+    <div class="mx-auto flex max-w-6xl flex-col gap-4 px-3 py-6 sm:px-6 sm:py-8">
         <div>
             <h1 class="text-xl font-semibold tracking-tight">Supplier Lookup</h1>
             <p class="text-sm text-muted-foreground">
@@ -352,6 +457,37 @@ function formatNumber(value: number): string {
                         Reset
                         <X class="size-4" />
                     </Button>
+
+                    <!-- Eksport: satu butang dropdown (Excel / PDF), loading semasa disediakan -->
+                    <div v-if="hasQuery" class="flex items-center gap-2 sm:ml-auto">
+                        <p v-if="exportError" class="text-xs text-destructive" role="alert">{{ exportError }}</p>
+
+                        <Popover v-model:open="exportMenuOpen">
+                            <PopoverTrigger as-child>
+                                <Button type="button" variant="outline" size="sm" class="h-8 bg-card"
+                                    :disabled="!canExport || exporting !== null" :aria-busy="exporting !== null">
+                                    <Spinner v-if="exporting" class="size-4" />
+                                    <Download v-else class="size-4" />
+                                    <template v-if="exporting === 'export'">Menyediakan Excel...</template>
+                                    <template v-else-if="exporting === 'print'">Menyediakan PDF...</template>
+                                    <template v-else>Eksport</template>
+                                    <ChevronDown v-if="!exporting" class="size-4" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent class="w-44 p-1" align="end">
+                                <button type="button"
+                                    class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-none"
+                                    @click="runExport('export')">
+                                    <FileSpreadsheet class="size-4" /> Excel (.xlsx)
+                                </button>
+                                <button type="button"
+                                    class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-none"
+                                    @click="runExport('print')">
+                                    <Printer class="size-4" /> PDF / Cetak
+                                </button>
+                            </PopoverContent>
+                        </Popover>
+                    </div>
                 </div>
 
                 <!-- Belum pilih supplier: tiada senarai -->
@@ -368,32 +504,33 @@ function formatNumber(value: number): string {
                 </Empty>
 
                 <template v-else>
-                    <!-- Jadual -->
-                    <div class="overflow-x-auto rounded-md border shadow-sm">
-                        <Table class="bg-card">
-                            <TableHeader>
+                    <!-- Jadual: pada skrin >= sm bingkai bertinggi tetap (data bertatal, pengepala melekat, butang halaman sentiasa
+                         kelihatan). Pada mudah alih halaman itu sendiri yg bertatal supaya tiada tatal dalam tatal. -->
+                    <div class="overflow-x-auto rounded-md border shadow-sm sm:max-h-[calc(100dvh-17rem)] sm:min-h-72 sm:overflow-y-auto">
+                        <Table :class="TABLE_COMPACT">
+                            <TableHeader class="sticky top-0 z-10 bg-card shadow-[0_1px_0_var(--border)]">
                                 <TableRow class="hover:bg-transparent">
-                                    <TableHead class="w-20"><span class="text-md font-medium tracking-wide">Image</span></TableHead>
+                                    <TableHead class="w-[3.25rem] sm:w-20">{{ COLUMN_LABELS.image }}</TableHead>
                                     <TableHead>
-                                        <SortableHeader title="Design Code" :direction="headerDirection('code')"
+                                        <SortableHeader :title="COLUMN_LABELS.code" :direction="headerDirection('code')"
                                             @sort="toggleSort('code')" />
                                     </TableHead>
-                                    <TableHead v-if="branchMode" class="w-28">Cawangan</TableHead>
+                                    <TableHead v-if="branchMode" class="w-28">{{ COLUMN_LABELS.store }}</TableHead>
                                     <TableHead class="text-right">
-                                        <SortableHeader title="Total Ambil/Buy" :direction="headerDirection('buy')"
-                                            @sort="toggleSort('buy')" />
+                                        <SortableHeader :title="compact ? 'Ambil' : COLUMN_LABELS.buy" :full-title="COLUMN_LABELS.buy"
+                                            :direction="headerDirection('buy')" @sort="toggleSort('buy')" />
                                     </TableHead>
                                     <TableHead class="text-right">
-                                        <SortableHeader title="Total Sold" :direction="headerDirection('sold')"
-                                            @sort="toggleSort('sold')" />
+                                        <SortableHeader :title="compact ? 'Sold' : COLUMN_LABELS.sold" :full-title="COLUMN_LABELS.sold"
+                                            :direction="headerDirection('sold')" @sort="toggleSort('sold')" />
                                     </TableHead>
                                     <TableHead class="text-right">
-                                        <SortableHeader title="Total Available"
+                                        <SortableHeader :title="compact ? 'Avail.' : COLUMN_LABELS.available" :full-title="COLUMN_LABELS.available"
                                             :direction="headerDirection('available')" @sort="toggleSort('available')" />
                                     </TableHead>
-                                    <TableHead class="w-44">
-                                        <SortableHeader title="Percentage" :direction="headerDirection('percent')"
-                                            @sort="toggleSort('percent')" />
+                                    <TableHead class="text-right sm:w-44 sm:text-left">
+                                        <SortableHeader :title="compact ? '%' : COLUMN_LABELS.percent" :full-title="COLUMN_LABELS.percent"
+                                            :direction="headerDirection('percent')" @sort="toggleSort('percent')" />
                                     </TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -403,7 +540,7 @@ function formatNumber(value: number): string {
                                 <template v-if="showSkeleton">
                                     <TableRow v-for="n in SKELETON_ROWS" :key="`sk-${n}`" class="hover:bg-transparent">
                                         <TableCell>
-                                            <Skeleton class="size-12 rounded-md" />
+                                            <Skeleton class="size-10 rounded-md sm:size-12" />
                                         </TableCell>
                                         <TableCell>
                                             <div class="flex flex-col gap-1.5">
@@ -418,7 +555,7 @@ function formatNumber(value: number): string {
                                             <Skeleton class="ml-auto h-4 w-10" />
                                         </TableCell>
                                         <TableCell>
-                                            <Skeleton class="h-4 w-28" />
+                                            <Skeleton class="h-4 w-12 sm:w-28" />
                                         </TableCell>
                                     </TableRow>
                                 </template>
@@ -427,16 +564,16 @@ function formatNumber(value: number): string {
                                     <TableRow v-for="row in pageData.rows" :key="`${row.code}|${row.store ?? ''}`">
                                         <TableCell>
                                             <!-- Imej/nickname dimuat utk baris sehalaman (sebentar sahaja) -->
-                                            <Skeleton v-if="!details[row.code]" class="size-12 rounded-md" />
+                                            <Skeleton v-if="!details[row.code]" class="size-10 rounded-md sm:size-12" />
                                             <ImagePreview v-else :src="details[row.code].image_url"
                                                 :reference="details[row.code].image_reference"
-                                                :alt="details[row.code].nickname ?? row.code" class="size-12 rounded-md" />
+                                                :alt="details[row.code].nickname ?? row.code" class="size-10 rounded-md sm:size-12" />
                                         </TableCell>
                                         <TableCell>
-                                            <div class="font-medium">{{ row.code }}</div>
-                                            <Skeleton v-if="!details[row.code]" class="mt-1 h-3 w-40" />
+                                            <div class="text-[13px] font-medium sm:text-sm">{{ row.code }}</div>
+                                            <Skeleton v-if="!details[row.code]" class="mt-1 h-3 w-24 sm:w-40" />
                                             <div v-else-if="details[row.code].nickname"
-                                                class="max-w-72 truncate text-xs text-muted-foreground">
+                                                class="max-w-[5.5rem] truncate text-xs text-muted-foreground sm:max-w-72">
                                                 {{ details[row.code].nickname }}
                                             </div>
                                         </TableCell>
@@ -446,10 +583,10 @@ function formatNumber(value: number): string {
                                         <TableCell class="text-right tabular-nums">{{ formatNumber(row.available) }}
                                         </TableCell>
                                         <TableCell>
-                                            <div class="flex items-center gap-2">
-                                                <span class="w-12 text-right tabular-nums">{{ row.percent.toFixed(1)
+                                            <div class="flex items-center justify-end gap-2 sm:justify-start">
+                                                <span class="text-right tabular-nums sm:w-12">{{ row.percent.toFixed(1)
                                                 }}%</span>
-                                                <div class="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+                                                <div class="hidden h-1.5 w-20 overflow-hidden rounded-full bg-muted sm:block">
                                                     <div class="h-full rounded-full bg-primary"
                                                         :style="{ width: percentWidth(row.percent) }" />
                                                 </div>
@@ -480,14 +617,14 @@ function formatNumber(value: number): string {
                             <template v-else>{{ rangeLabel }}</template>
                         </div>
                         <div class="flex items-center gap-2">
-                            <Button type="button" variant="outline" size="sm"
+                            <Button type="button" variant="outline" size="sm" aria-label="Halaman sebelum"
                                 :disabled="showSkeleton || pageData.page <= 1" @click="page = pageData.page - 1">
                                 <ChevronLeft class="size-4" />
                             </Button>
                             <span class="text-sm tabular-nums text-muted-foreground">
                                 {{ pageData.page }} / {{ pageData.lastPage }}
                             </span>
-                            <Button type="button" variant="outline" size="sm"
+                            <Button type="button" variant="outline" size="sm" aria-label="Halaman seterusnya"
                                 :disabled="showSkeleton || pageData.page >= pageData.lastPage"
                                 @click="page = pageData.page + 1">
                                 <ChevronRight class="size-4" />

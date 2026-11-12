@@ -28,6 +28,17 @@ export interface BranchOption {
 
 export const PAGE_SIZE = 25;
 
+// Tajuk lajur jadual - SATU sumber supaya eksport (PDF/Excel) memakai tajuk yg sebijik sama. `store` hanya wujud dlm mod cawangan.
+export const COLUMN_LABELS = {
+    image: 'Image',
+    code: 'Design Code',
+    store: 'Cawangan',
+    buy: 'Total Ambil/Buy',
+    sold: 'Total Sold',
+    available: 'Total Available',
+    percent: 'Percentage',
+} as const;
+
 // Bukan cawangan sebenar - tak ditawarkan sbg pilihan cawangan (masih dikira dlm jumlah tanpa tapisan).
 const EXCLUDED_BRANCHES = ['SECURITY'];
 

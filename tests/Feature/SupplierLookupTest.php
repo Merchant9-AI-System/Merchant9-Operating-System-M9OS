@@ -3,12 +3,16 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Support\RemoteThumbnails;
 use App\Support\SupplierLookup;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Testing\TestResponse;
 use Inertia\Testing\AssertableInertia;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -227,7 +231,7 @@ class SupplierLookupTest extends TestCase
 
     public function test_the_page_and_its_endpoints_are_limited_to_manager_ceo_and_super_admin(): void
     {
-        $urls = ['/supplier-lookup', '/supplier-lookup/suggestions?q=rt', '/supplier-lookup/details?codes[]=A'];
+        $urls = ['/supplier-lookup', '/supplier-lookup/suggestions?q=rt', '/supplier-lookup/details?codes[]=A', '/supplier-lookup/export?supplier=GRJ', '/supplier-lookup/print?supplier=GRJ'];
 
         // Tetamu dahulu (actingAs kekal sepanjang ujian).
         foreach ($urls as $url) {
@@ -314,5 +318,194 @@ class SupplierLookupTest extends TestCase
             ->assertJsonPath('details.DESIGN-A.nickname', 'Rantai Wave')
             ->assertJsonPath('details.DESIGN-A.image_reference', false)
             ->assertJsonPath('details.DESIGN-X.image_url', null);
+    }
+
+    public function test_the_php_roll_up_and_sort_match_the_browser_logic(): void
+    {
+        // Data & jangkaan sama dgn semakan klien (resources/js/lib/supplierLookup.ts): A [4,1] B [2,2] C [4,0].
+        $designs = [
+            ['code' => 'A', 'stores' => ['DAMAI' => [2, 0], 'WM' => [2, 1]]],
+            ['code' => 'B', 'stores' => ['WM' => [2, 2]]],
+            ['code' => 'C', 'stores' => ['NILAI' => [2, 0], 'SECURITY' => [1, 0], 'WM' => [1, 0]]],
+        ];
+
+        $all = SupplierLookup::rollUp($designs, []);
+        $this->assertSame([['A', null, 4, 1, 3, 25.0], ['B', null, 2, 2, 0, 100.0], ['C', null, 4, 0, 4, 0.0]], array_map(fn (array $r) => [$r['code'], $r['store'], $r['buy'], $r['sold'], $r['available'], $r['percent']], $all));
+
+        $order = fn (string $sort, string $dir) => implode('', array_column(SupplierLookup::sorted($all, $sort, $dir), 'code'));
+        $this->assertSame('ABC', $order('code', 'asc'));
+        $this->assertSame('CBA', $order('code', 'desc'));
+        $this->assertSame('BAC', $order('percent', 'desc'));
+        $this->assertSame('CAB', $order('percent', 'asc'));
+        $this->assertSame('ACB', $order('buy', 'desc'));
+        $this->assertSame('BAC', $order('sold', 'desc'));
+        $this->assertSame('CAB', $order('available', 'desc'));
+        $this->assertSame('BAC', $order('available', 'asc'));
+
+        $branch = SupplierLookup::rollUp($designs, ['WM', 'DAMAI']);
+        $this->assertSame(['A|WM|2|1|50', 'A|DAMAI|2|0|0', 'B|WM|2|2|100', 'C|WM|1|0|0'], array_map(fn (array $r) => implode('|', [$r['code'], $r['store'], $r['buy'], $r['sold'], $r['percent']]), $branch));
+        $this->assertSame('ADAMAI,AWM,BWM,CWM', implode(',', array_map(fn (array $r) => $r['code'].$r['store'], SupplierLookup::sorted($branch, 'code', 'asc'))));
+    }
+
+    public function test_the_php_column_labels_are_identical_to_the_tables_labels_in_the_browser(): void
+    {
+        $ts = file_get_contents(base_path('resources/js/lib/supplierLookup.ts'));
+
+        foreach (SupplierLookup::COLUMN_LABELS as $key => $label) {
+            $this->assertMatchesRegularExpression("/{$key}: '".preg_quote($label, '/')."'/", $ts, "Label lajur '{$key}' berbeza antara PHP dan TypeScript.");
+        }
+    }
+
+    public function test_export_rows_cover_every_row_with_details_in_the_requested_order(): void
+    {
+        $this->piece('DESIGN-A', ['Status' => '0', 'nickname' => 'Rantai Wave', 'image_url' => 'https://merchant9.com/products/a.jpg']);
+        $this->piece('DESIGN-A', ['StoreCode' => 'DAMAI']);
+        $this->piece('DESIGN-B', ['Status' => '0', 'Status' => '0']);
+
+        $rows = SupplierLookup::forDays(90)->exportRows('GRJ', [], 'percent', 'desc');
+
+        $this->assertSame(['DESIGN-B', 'DESIGN-A'], array_column($rows, 'code'));
+        $this->assertSame('Rantai Wave', $rows[1]['nickname']);
+        $this->assertSame('https://merchant9.com/products/a.jpg', $rows[1]['image_url']);
+        $this->assertNull($rows[0]['image_url']);
+        $this->assertCount(3, SupplierLookup::forDays(90)->exportRows('GRJ', ['WM', 'DAMAI'], 'code', 'asc'));
+    }
+
+    private string $thumbDirectory = '';
+
+    /** Ganti muat turun gambar sebenar dgn PNG palsu (kecuali URL mengandungi "missing" = gagal), tanpa rangkaian. */
+    private function fakeThumbnails(): void
+    {
+        $this->thumbDirectory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'lookup-thumbs-'.uniqid();
+
+        $this->app->bind(RemoteThumbnails::class, fn () => new RemoteThumbnails($this->thumbDirectory, function (array $urls): array {
+            $image = imagecreatetruecolor(120, 90);
+            imagefill($image, 0, 0, imagecolorallocate($image, 30, 120, 200));
+            ob_start();
+            imagepng($image);
+            $png = (string) ob_get_clean();
+
+            return collect($urls)->mapWithKeys(fn (string $url) => [$url => str_contains($url, 'missing') ? null : $png])->all();
+        }));
+    }
+
+    protected function tearDown(): void
+    {
+        // HANYA bila fakeThumbnails() menetapkan direktori sementara (jika kosong, glob('/*') akan menyasarkan akar cakera).
+        if ($this->thumbDirectory !== '' && is_dir($this->thumbDirectory)) {
+            foreach (glob($this->thumbDirectory.DIRECTORY_SEPARATOR.'*') ?: [] as $file) {
+                unlink($file);
+            }
+
+            rmdir($this->thumbDirectory);
+        }
+
+        parent::tearDown();
+    }
+
+    private function loadXlsx(TestResponse $response): Worksheet
+    {
+        return IOFactory::load($response->baseResponse->getFile()->getPathname())->getActiveSheet();
+    }
+
+    public function test_the_excel_export_has_the_same_headers_as_the_table_real_embedded_images_and_every_row(): void
+    {
+        $this->fakeThumbnails();
+        $this->vendor('GRJ', 'Guan Rong Jewellery');
+        $this->piece('DESIGN-A', ['Status' => '0', 'nickname' => 'Rantai Wave', 'image_url' => 'https://merchant9.com/products/a.jpg']);
+        $this->piece('DESIGN-A', ['Status' => '1']);
+        $this->piece('DESIGN-B', ['image_url' => 'https://merchant9.com/products/b.jpg', 'image_source' => 'nearest']);
+        $this->piece('DESIGN-C');
+
+        $response = $this->actingAs($this->userWithRole('manager'))->get('/supplier-lookup/export?supplier=GRJ&days=90&sort=code&dir=asc');
+
+        $response->assertOk();
+        $this->assertStringContainsString('Supplier-Lookup-grj-', (string) $response->headers->get('content-disposition'));
+        $sheet = $this->loadXlsx($response);
+        $rows = $sheet->toArray(null, true, false, false);
+
+        $this->assertStringContainsString('Guan Rong Jewellery (GRJ)', $rows[0][0]);
+        $this->assertStringNotContainsString('gambar dibenamkan', $rows[0][0]);
+        $this->assertSame(['Image', 'Design Code', 'Total Ambil/Buy', 'Total Sold', 'Total Available', 'Percentage'], array_slice($rows[1], 0, 6));
+        $this->assertEquals([null, "DESIGN-A\nRantai Wave", 2, 1, 1, 50.0], array_slice($rows[2], 0, 6));
+        $this->assertEquals([null, 'DESIGN-B', 1, 0, 1, 0.0], array_slice($rows[3], 0, 6));
+        $this->assertEquals([null, 'DESIGN-C', 1, 0, 1, 0.0], array_slice($rows[4], 0, 6));
+        $this->assertCount(5, array_filter($rows, fn (array $row) => array_filter($row, fn ($cell) => $cell !== null && $cell !== '') !== []));
+
+        // Gambar SEBENAR terbenam (bukan URL): satu pada baris DESIGN-A (A3) & DESIGN-B (A4); DESIGN-C tiada gambar.
+        $drawings = $sheet->getDrawingCollection();
+        $this->assertCount(2, $drawings);
+        $this->assertSame(['A3', 'A4'], collect($drawings)->map(fn ($drawing) => $drawing->getCoordinates())->sort()->values()->all());
+        $this->assertStringNotContainsString('merchant9.com', json_encode($rows));
+        $this->assertSame('0.0"%"', $sheet->getStyle('F3')->getNumberFormat()->getFormatCode());
+    }
+
+    public function test_the_excel_export_in_branch_mode_adds_the_branch_column_and_follows_the_sort(): void
+    {
+        $this->fakeThumbnails();
+        $this->piece('DESIGN-A', ['StoreCode' => 'WM', 'Status' => '0']);
+        $this->piece('DESIGN-A', ['StoreCode' => 'DAMAI']);
+        $this->piece('DESIGN-B', ['StoreCode' => 'WM']);
+        $this->piece('DESIGN-B', ['StoreCode' => 'NILAI']);
+
+        $response = $this->actingAs($this->userWithRole('manager'))->get('/supplier-lookup/export?supplier=GRJ&branches[]=WM&branches[]=DAMAI&sort=percent&dir=desc');
+        $rows = $this->loadXlsx($response)->toArray(null, true, false, false);
+
+        $this->assertSame(['Image', 'Design Code', 'Cawangan', 'Total Ambil/Buy', 'Total Sold', 'Total Available', 'Percentage'], array_slice($rows[1], 0, 7));
+        $this->assertEquals(['DESIGN-A', 'WM', 1, 1, 0, 100.0], array_slice($rows[2], 1, 6));
+        // NILAI tidak dipilih - tiada barisnya (3 baris data: A-WM, A-DAMAI, B-WM).
+        $this->assertCount(2 + 3, array_filter($rows, fn (array $row) => array_filter($row, fn ($cell) => $cell !== null && $cell !== '') !== []));
+        $this->assertStringContainsString('Cawangan: WM, DAMAI', $rows[0][0]);
+    }
+
+    public function test_images_that_could_not_be_downloaded_are_left_blank_and_noted_in_the_heading(): void
+    {
+        $this->fakeThumbnails();
+        $this->piece('DESIGN-A', ['image_url' => 'https://merchant9.com/products/a.jpg']);
+        $this->piece('DESIGN-B', ['image_url' => 'https://merchant9.com/products/missing.jpg']);
+
+        $response = $this->actingAs($this->userWithRole('manager'))->get('/supplier-lookup/export?supplier=GRJ');
+        $sheet = $this->loadXlsx($response);
+
+        $this->assertCount(1, $sheet->getDrawingCollection());
+        $this->assertStringContainsString('gambar dibenamkan: 1 daripada 2', (string) $sheet->getCell('A1')->getValue());
+    }
+
+    public function test_the_print_page_shows_the_same_headers_images_and_context(): void
+    {
+        $this->vendor('GRJ', 'Guan Rong Jewellery');
+        $this->piece('DESIGN-A', ['image_url' => 'https://merchant9.com/products/a.jpg', 'nickname' => 'Rantai Wave']);
+        $this->piece('DESIGN-B', ['image_url' => 'https://merchant9.com/products/b.jpg', 'image_source' => 'nearest']);
+
+        $response = $this->actingAs($this->userWithRole('manager'))->get('/supplier-lookup/print?supplier=GRJ&days=90&sort=percent&dir=desc');
+
+        $response->assertOk()
+            ->assertSeeInOrder(['Image', 'Design Code', 'Total Ambil/Buy', 'Total Sold', 'Total Available', 'Percentage'])
+            ->assertDontSee('Cawangan</th>', false)
+            ->assertSee('Guan Rong Jewellery (GRJ)')
+            ->assertSee('90 hari terakhir')
+            ->assertSee('Percentage, menurun')
+            ->assertSee('DESIGN-A')
+            ->assertSee('Rantai Wave')
+            ->assertSee('https://merchant9.com/products/b.jpg', false)
+            ->assertSee('Rujukan');
+
+        $this->actingAs($this->userWithRole('manager'))->get('/supplier-lookup/print?supplier=GRJ&branches[]=WM')
+            ->assertSee('Cawangan</th>', false)
+            ->assertSee('Cawangan: WM');
+    }
+
+    public function test_export_and_print_require_a_supplier_and_normalise_unexpected_values(): void
+    {
+        $manager = $this->userWithRole('manager');
+
+        $this->actingAs($manager)->get('/supplier-lookup/export')->assertStatus(422);
+        $this->actingAs($manager)->get('/supplier-lookup/print')->assertStatus(422);
+
+        $this->piece('DESIGN-A');
+        $this->actingAs($manager)->get('/supplier-lookup/print?supplier=GRJ&days=999&sort=hack&dir=up')
+            ->assertOk()
+            ->assertSee('90 hari terakhir')
+            ->assertSee('Design Code, menaik');
     }
 }
