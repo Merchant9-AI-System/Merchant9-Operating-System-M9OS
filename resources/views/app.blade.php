@@ -29,6 +29,7 @@
         }
     </style> --}}
     <title inertia>{{ config('app.name') }}</title>
+    @include('partials.share-meta')
 
     {{-- Logo Merchant9 OS. Naikkan ?v= bila logo ditukar (pelayar menyimpan favicon lama sangat lama). --}}
     <link rel="icon" href="{{ asset('favicon.ico') }}?v=2" sizes="48x48">

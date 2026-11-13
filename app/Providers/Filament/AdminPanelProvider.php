@@ -81,6 +81,8 @@ class AdminPanelProvider extends PanelProvider
             ->spa()
             // Modal "domain telah bertukar" - dihidupkan melalui .env (rujuk config/domain_notice.php); tiada output
             // bila dimatikan atau hos semasa sudah domain baharu.
+            // Meta pratonton pautan (og:image) utk halaman log masuk/panel - rujuk partials/share-meta.
+            ->renderHook(PanelsRenderHook::HEAD_END, fn (): string => view('partials.share-meta')->render())
             ->renderHook(
                 PanelsRenderHook::BODY_END,
                 fn (): string => DomainNotice::shouldShow(request()) ? view('filament.hooks.domain-notice')->render() : '',
