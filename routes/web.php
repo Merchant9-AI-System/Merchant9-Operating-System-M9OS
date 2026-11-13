@@ -3,21 +3,27 @@
 use App\Http\Controllers\BackOfficeActionsController;
 use App\Http\Controllers\BranchDemandEntryController;
 use App\Http\Controllers\ExpenseClaimController;
+use App\Http\Controllers\HomeController;
 use App\Http\Controllers\JobsheetLookupController;
 use App\Http\Controllers\ProductImagesController;
 use App\Http\Controllers\SupplierLookupController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
-Route::get('/', function () {
-    // return view('welcome');
-    return Inertia::render('LandingPage/FirstPage');
-});
+// Route::get('/', function () {
+//     // return view('welcome');
+//     // return Inertia::render('LandingPage/FirstPage');
+// });
+
+Route::redirect('/', '/home');
 
 // Permukaan Inertia+Vue+shadcn-vue berasingan drpd Filament, khusus staf cawangan hantar
 // Branch Demand (rujuk BranchDemandEntryController) - SENGAJA tiada middleware 'auth', staf
 // cawangan tak perlu login, pilih cawangan terus dlm borang (rujuk store_code pd request).
 Route::middleware('auth')->group(function () {
+    // Ringkasan semalam ikut peranan - halaman pertama selepas log masuk (rujuk HomeController).
+    Route::get('/home', HomeController::class)->name('home');
+
     Route::get('/branch-demand', [BranchDemandEntryController::class, 'create'])->name('branch-demand.create');
     Route::get('/branch-demand/current-items', [BranchDemandEntryController::class, 'currentItems'])->name('branch-demand.current-items');
     Route::get('/branch-demand/search', [BranchDemandEntryController::class, 'search'])->name('branch-demand.search');

@@ -71,14 +71,4 @@ class StockRearrangementStopPolicy
     {
         return $authUser->can('Reorder:StockRearrangementStop');
     }
-
-    public function approve(AuthUser $authUser, StockRearrangementStop $stockRearrangementStop): bool
-    {
-        return $authUser->can('Approve:StockRearrangementStop');
-    }
-
-    public function reject(AuthUser $authUser, StockRearrangementStop $stockRearrangementStop): bool
-    {
-        return $authUser->can('Reject:StockRearrangementStop');
-    }
 }

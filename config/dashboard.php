@@ -34,6 +34,13 @@ return [
         'reconciliation_red_pct' => (float) env('PGB_RECON_RED_PCT', 5.0),
     ],
 
+    // Halaman /home (ringkasan semalam): kunci kad yang jadi kad HERO (paling besar) pada halaman CEO. Pilihan:
+    // sales | sales_value | hedge | asset_value | available_cash | cash_for_gb | lock_ace | hutang_used_gold |
+    // physical_vs_book | used_gold. Boleh ditukar bila boss sudah memutuskan, tanpa ubah kod.
+    'home' => [
+        'ceo_hero_key' => env('HOME_CEO_HERO_KEY', ''),
+    ],
+
     // Formula hedge harian Finance: (berat jualan x sales_purity) - (berat buyback x buyback_purity)
     // = gram tulen bersih. Faktor ialah andaian tetap Finance (mesej harian "SALES - BUYBACK"), bukan
     // purata sebenar - rujuk App\Support\DailyHedgeFigure. buyback_doc_types = DocType TblTradeIn.

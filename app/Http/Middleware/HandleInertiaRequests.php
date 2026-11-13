@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\HomeSummary\HomeAccess;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -42,6 +43,7 @@ class HandleInertiaRequests extends Middleware
                     'id' => $request->user()->id,
                     'name' => $request->user()->name,
                     'store_code' => $request->user()->store_code,
+                    'home_enabled' => HomeAccess::enabledFor($request->user()),
                 ] : null,
             ],
             'flash' => [

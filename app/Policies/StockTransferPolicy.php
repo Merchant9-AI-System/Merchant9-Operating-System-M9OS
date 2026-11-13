@@ -71,14 +71,4 @@ class StockTransferPolicy
     {
         return $authUser->can('Reorder:StockTransfer');
     }
-
-    public function advance(AuthUser $authUser, StockTransfer $stockTransfer): bool
-    {
-        return $authUser->can('Advance:StockTransfer');
-    }
-
-    public function cancel(AuthUser $authUser, StockTransfer $stockTransfer): bool
-    {
-        return $authUser->can('Cancel:StockTransfer');
-    }
 }

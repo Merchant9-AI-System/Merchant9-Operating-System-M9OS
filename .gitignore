@@ -30,3 +30,6 @@ CLAUDE.md
 AGENTS.md
 image-retreive.php
 AI_AGENTS_PLAN.md
+phpunit.xml
+skills-lock.json
+.agents

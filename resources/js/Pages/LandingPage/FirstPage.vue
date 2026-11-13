@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { config, Head, Link, usePage } from '@inertiajs/vue3';
-import { ClipboardList, LayoutDashboard, LogIn } from '@lucide/vue';
+import { CalendarDays, ClipboardList, LayoutDashboard, LogIn } from '@lucide/vue';
 import { Button } from '@/components/ui/button';
 
 interface AuthUser {
     id: number;
     name: string;
     store_code: string | null;
+    home_enabled: boolean;
 }
 
 const page = usePage<{ auth: { user: AuthUser | null } }>();
@@ -29,6 +30,11 @@ const page = usePage<{ auth: { user: AuthUser | null } }>();
                 </Button>
             </Link> -->
 
+            <a v-if="page.props.auth.user?.home_enabled" href="/home">
+                <Button size="lg" class="w-full bg-amber-600 text-zinc-900 hover:bg-amber-700">
+                    <CalendarDays class="size-4" /> Ringkasan Semalam
+                </Button>
+            </a>
             <a v-if="page.props.auth.user" href="/admin">
                 <Button size="lg" variant="outline" class="w-full">
                     <LayoutDashboard class="size-4" /> Dashboard

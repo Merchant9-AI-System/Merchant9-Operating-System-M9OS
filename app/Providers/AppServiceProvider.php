@@ -2,7 +2,9 @@
 
 namespace App\Providers;
 
+use App\Http\Responses\HomeLoginResponse;
 use App\Support\RemoteThumbnails;
+use Filament\Auth\Http\Responses\Contracts\LoginResponse;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -17,6 +19,9 @@ class AppServiceProvider extends ServiceProvider
     {
         // Thumbnail gambar utk eksport Excel Supplier Lookup (cache di storage/app/supplier-lookup-thumbs); ujian menggantikannya.
         $this->app->bind(RemoteThumbnails::class, fn () => RemoteThumbnails::default());
+
+        // Selepas log masuk Filament -> halaman ringkasan semalam /home (bukan terus ke dashboard admin).
+        $this->app->bind(LoginResponse::class, HomeLoginResponse::class);
     }
 
     /**

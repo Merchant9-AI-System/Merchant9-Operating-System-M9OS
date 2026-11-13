@@ -51,14 +51,25 @@ class DailyHedgeFigure
         $docTypes = array_values((array) config('dashboard.hedge.buyback_doc_types', ['TI', 'TC']));
         $placeholders = implode(',', array_fill(0, count($docTypes), '?'));
 
-        $buyback = SqlServerQueryTimeout::run(self::CONNECTION, fn () => DB::connection(self::CONNECTION)->selectOne(
-            "SELECT SUM(TotalGoldWeight) AS weight, COUNT(*) AS docs
+        $buybackRows = SqlServerQueryTimeout::run(self::CONNECTION, fn () => DB::connection(self::CONNECTION)->select(
+            "SELECT UPPER(RTRIM(StoreCode)) AS store, SUM(TotalGoldWeight) AS weight, COUNT(*) AS docs
              FROM TblTradeIn WITH (NOLOCK)
-             WHERE Status = ? AND RTRIM(DocType) IN ({$placeholders}) AND TransDate >= ? AND TransDate < ?".($cutoff ? ' AND CreatedDate <= ?' : ''),
+             WHERE Status = ? AND RTRIM(DocType) IN ({$placeholders}) AND TransDate >= ? AND TransDate < ?".($cutoff ? ' AND CreatedDate <= ?' : '').'
+             GROUP BY UPPER(RTRIM(StoreCode))',
             array_filter(['0', ...$docTypes, $from, $to, $cutoff], fn ($v) => $v !== null),
         ), SqlServerQueryTimeout::HEAVY_SECONDS);
 
-        return ['date' => $from, 'as_of' => $cutoff]
+        $buyback = (object) [
+            'weight' => collect($buybackRows)->sum(fn ($r) => (float) $r->weight),
+            'docs' => collect($buybackRows)->sum(fn ($r) => (int) $r->docs),
+        ];
+
+        // Berat buyback (TI+TC) setiap cawangan - utk ringkasan cawangan (HomeSummary).
+        $buybackByStore = collect($buybackRows)
+            ->mapWithKeys(fn ($r) => [strtoupper(trim((string) $r->store)) => round((float) $r->weight, 2)])
+            ->all();
+
+        return ['date' => $from, 'as_of' => $cutoff, 'buyback_by_store' => $buybackByStore]
             + self::fromRows(
                 array_map(fn ($r) => [
                     'store' => (string) $r->store,
@@ -120,6 +131,37 @@ class DailyHedgeFigure
         });
 
         return self::seriesFromWeights($raw['sales'], $raw['buyback'], $salesPurity, $buybackPurity);
+    }
+
+    /**
+     * Berat jualan (g) setiap cawangan setiap hari dlm julat - utk ranking cawangan & perbandingan dgn purata sendiri.
+     * Satu query berkumpul ikut tarikh + cawangan. Cache 15 minit.
+     *
+     * @return Collection<int, array{date: string, store: string, sales_weight: float}>
+     */
+    public function storeSeries(string $dateFrom, string $dateTo): Collection
+    {
+        SalesAnalytics::assertDateRange($dateFrom, $dateTo);
+
+        $from = Carbon::parse($dateFrom)->toDateString();
+        $toExclusive = Carbon::parse($dateTo)->addDay()->toDateString();
+
+        $rows = Cache::remember('store_sales_series_'.md5($from.$toExclusive), now()->addMinutes(15), function () use ($from, $toExclusive) {
+            return SqlServerQueryTimeout::run(self::CONNECTION, fn () => DB::connection(self::CONNECTION)->select(
+                'SELECT CONVERT(char(10), H.InvoiceDate, 23) AS d, UPPER(RTRIM(H.StoreCode)) AS store, SUM(D.GoldWeight) AS weight
+                 FROM TblSalesInvoice H WITH (NOLOCK)
+                 JOIN TblSalesInvoiceDetail D WITH (NOLOCK) ON D.InvoiceNo = H.InvoiceNo AND D.StoreCode = H.StoreCode
+                 WHERE H.Status = ? AND H.DocType = ? AND H.InvoiceDate >= ? AND H.InvoiceDate < ?
+                 GROUP BY CONVERT(char(10), H.InvoiceDate, 23), UPPER(RTRIM(H.StoreCode))',
+                ['0', 'SI', $from, $toExclusive],
+            ), SqlServerQueryTimeout::HEAVY_SECONDS);
+        });
+
+        return collect($rows)->map(fn ($r) => [
+            'date' => (string) $r->d,
+            'store' => strtoupper(trim((string) $r->store)),
+            'sales_weight' => round((float) $r->weight, 2),
+        ])->sortBy('date')->values();
     }
 
     /**

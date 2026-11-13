@@ -8,12 +8,6 @@ use App\Models\ExpenseClaim;
 use Illuminate\Auth\Access\HandlesAuthorization;
 use Illuminate\Foundation\Auth\User as AuthUser;
 
-/**
- * Guard SEPENUHNYA permukaan Filament panel (approver: manager/ceo/super_admin) - permukaan
- * Inertia staf hantar claim SENDIRI (ExpenseClaimController) TIDAK melalui policy ni langsung,
- * skop terus via Auth::id() (rujuk BranchDemandEntryController punya corak serupa, staf cuma
- * boleh capai claim MILIK SENDIRI secara struktur, bukan via permission check).
- */
 class ExpenseClaimPolicy
 {
     use HandlesAuthorization;
@@ -76,15 +70,5 @@ class ExpenseClaimPolicy
     public function reorder(AuthUser $authUser): bool
     {
         return $authUser->can('Reorder:ExpenseClaim');
-    }
-
-    public function approve(AuthUser $authUser, ExpenseClaim $expenseClaim): bool
-    {
-        return $authUser->can('Approve:ExpenseClaim');
-    }
-
-    public function reject(AuthUser $authUser, ExpenseClaim $expenseClaim): bool
-    {
-        return $authUser->can('Reject:ExpenseClaim');
     }
 }

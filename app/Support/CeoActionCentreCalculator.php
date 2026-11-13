@@ -37,15 +37,27 @@ class CeoActionCentreCalculator
         return collect($plain);
     }
 
+    /**
+     * Tambah kunci jenis amaran (cth. 'dead_stock') - dipakai halaman /home untuk memaut amaran ke halaman yang
+     * berkaitan. Cache lama (sebelum kunci wujud) tiada kunci; pengguna kunci itu hanya tidak dapat pautan.
+     *
+     * @param  array<string, mixed>|null  $alert
+     * @return array<string, mixed>|null
+     */
+    protected static function tag(string $key, ?array $alert): ?array
+    {
+        return $alert === null ? null : ['key' => $key] + $alert;
+    }
+
     protected static function compute(): Collection
     {
         $alerts = collect([
-            static::deadStockAlert(),
-            static::stockoutBestSellerAlert(),
-            static::rearrangeAlert(),
-            ...static::branchImbalanceAlerts(),
-            static::missingIdealWeightAlert(),
-            static::negativeMarginSupplierAlert(),
+            static::tag('dead_stock', static::deadStockAlert()),
+            static::tag('stockout_best_seller', static::stockoutBestSellerAlert()),
+            static::tag('rearrange', static::rearrangeAlert()),
+            ...array_map(fn (?array $alert) => static::tag('branch_imbalance', $alert), static::branchImbalanceAlerts()),
+            static::tag('missing_ideal_weight', static::missingIdealWeightAlert()),
+            static::tag('negative_margin_supplier', static::negativeMarginSupplierAlert()),
         ])->filter()->values();
 
         $order = [self::HIGH => 0, self::MEDIUM => 1, self::LOW => 2];
