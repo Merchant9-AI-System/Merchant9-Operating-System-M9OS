@@ -80,7 +80,7 @@ function onUpdate(value: DateRange) {
     <Popover v-model:open="open">
         <PopoverTrigger as-child>
             <Button type="button" variant="outline"
-                :class="cn('justify-start text-left font-normal', !rangeValue.start && 'text-muted-foreground', props.class)">
+                :class="cn('justify-start text-left font-normal bg-card', !rangeValue.start && 'text-muted-foreground', props.class)">
                 <CalendarIcon class="mr-2 size-4 shrink-0" />
                 <span class="truncate">{{ label }}</span>
             </Button>

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" @class(['dark' => ($appearance ?? 'system') == 'dark'])> {{-- @class(['dark' => ($appearance ?? 'system') == 'dark']) --}}
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" @class(['dark' => ($appearance ?? 'system') == 'dark'])>
 
 <head>
     <meta charset="utf-8">
@@ -40,12 +40,11 @@
     <link rel="manifest" href="{{ asset('site.webmanifest') }}?v=2">
     <meta name="theme-color" content="#16181D">
 
-    {{-- @vite(['resources/css/inertia.css', 'resources/js/inertia.ts', "resources/js/pages/{$page['component']}.vue"]) --}}
     @vite(['resources/css/inertia.css', 'resources/js/inertia.ts'])
     @inertiaHead
 </head>
 
-<body class="font-sans antialiased bg-muted"> {{-- bg-background --}}
+<body class="font-sans antialiased bg-background"> {{-- bg-background --}}
     @inertia
 </body>
 

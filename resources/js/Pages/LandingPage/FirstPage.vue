@@ -17,9 +17,9 @@ const page = usePage<{ auth: { user: AuthUser | null } }>();
 
     <Head title="Hi, Welcome" />
 
-    <div class="flex min-h-screen flex-col bg-zinc-950 items-center justify-center gap-8 px-3">
+    <div class="flex min-h-screen flex-col items-center justify-center gap-8 px-3">
         <div class="text-center">
-            <h1 class="text-4xl font-extrabold text-white">Merchant9 OS</h1>
+            <h1 class="text-4xl font-extrabold">Merchant9 OS</h1>
             <p class="mt-2 text-sm text-muted-foreground">Sistem Operasi Merchant9</p>
         </div>
 

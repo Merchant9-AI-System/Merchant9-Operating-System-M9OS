@@ -34,7 +34,7 @@ const selectedLabels = computed(() => props.options.filter((o) => selectedSet.va
 <template>
     <Popover v-model:open="open">
         <PopoverTrigger as-child>
-            <Button type="button" variant="outline" size="sm" class="h-8 border-dashed">
+            <Button type="button" variant="outline" size="sm" class="h-8 bg-card border-dashed">
                 <CirclePlus class="size-4 mr-1" />
                 {{ title }}
                 <template v-if="selected.length > 0">

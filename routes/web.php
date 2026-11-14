@@ -10,10 +10,10 @@ use App\Http\Controllers\SupplierLookupController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
-// Route::get('/', function () {
-//     // return view('welcome');
-//     // return Inertia::render('LandingPage/FirstPage');
-// });
+Route::get('/page', function () {
+    // return view('welcome');
+    return Inertia::render('LandingPage/FirstPage');
+});
 
 Route::redirect('/', '/home');
 

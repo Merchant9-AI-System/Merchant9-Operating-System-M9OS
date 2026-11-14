@@ -2471,7 +2471,7 @@ function save(andPrint = false, afterSave?: () => void) {
                     semua cawangan yang minta design itu.
                 </p>
             </div>
-            <Button type="button" variant="outline" @click="handlePrint">
+            <Button type="button" variant="outline" class="bg-card" @click="handlePrint">
                 <Printer class="size-4" />
                 Print
             </Button>
