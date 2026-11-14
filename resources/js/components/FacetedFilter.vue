@@ -58,7 +58,7 @@ const selectedLabels = computed(() => props.options.filter((o) => selectedSet.va
                 <CommandInput :placeholder="title" />
                 <CommandList>
                     <CommandEmpty>Tiada padanan.</CommandEmpty>
-                    <CommandGroup>
+                    <CommandGroup v-if="options.length > 0">
                         <CommandItem v-for="option in options" :key="option.value" :value="option.label"
                             @select.prevent="toggle(option.value)">
                             <div :class="cn(
@@ -71,6 +71,11 @@ const selectedLabels = computed(() => props.options.filter((o) => selectedSet.va
                             <span v-if="option.count !== undefined" class="ml-auto font-mono text-xs text-muted-foreground">
                                 {{ option.count }}
                             </span>
+                        </CommandItem>
+                    </CommandGroup>
+                    <CommandGroup v-else>
+                        <CommandItem value="__empty" class="justify-center text-center">
+                            Tiada carian
                         </CommandItem>
                     </CommandGroup>
                     <template v-if="selected.length > 0">

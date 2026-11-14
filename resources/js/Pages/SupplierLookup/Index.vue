@@ -3,12 +3,13 @@ import { Head, router } from '@inertiajs/vue3';
 import { ChevronDown, ChevronLeft, ChevronRight, Download, FileSpreadsheet, PackageSearch, Printer, Search, X } from '@lucide/vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import BranchBreakdown from '@/components/BranchBreakdown.vue';
-import FacetedFilter from '@/components/FacetedFilter.vue';
+import CircularProgress from '@/components/CircularProgress.vue';
 import { Frame, FrameFooter, FrameHeader, FramePanel } from '@/components/ui/frame';
 import ImagePreview from '@/components/ImagePreview.vue';
 import SearchAutocomplete from '@/components/SearchAutocomplete.vue';
 import SortableHeader from '@/components/SortableHeader.vue';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -405,6 +406,10 @@ function applyTemplate(template: SortTemplate) {
     }
 }
 
+function toggleBranch(value: string) {
+    branches.value = branches.value.includes(value) ? branches.value.filter((branch) => branch !== value) : [...branches.value, value];
+}
+
 function resetFilters() {
     skipNextSuggest = inputText.value !== '';
     inputText.value = '';
@@ -493,10 +498,6 @@ async function runExport(kind: ExportKind) {
     }
 }
 
-function percentWidth(percent: number): string {
-    return `${Math.min(100, Math.max(0, percent))}%`;
-}
-
 function formatNumber(value: number): string {
     return value.toLocaleString('en-MY');
 }
@@ -506,7 +507,7 @@ function formatNumber(value: number): string {
 
     <Head title="Supplier Lookup" />
 
-    <div class="mx-auto flex max-w-6xl flex-col gap-4 px-3 py-6 sm:px-6 sm:py-8">
+    <div class="mx-auto flex max-w-7xl flex-col gap-4 px-3 py-6 sm:px-6 sm:py-8">
         <div>
             <h1 class="text-xl font-semibold tracking-tight">Supplier Lookup</h1>
             <p class="text-sm text-muted-foreground">
@@ -514,289 +515,340 @@ function formatNumber(value: number): string {
             </p>
         </div>
 
+        <!-- Susun atur gaya e-commerce: penapis di kiri (sidebar), senarai (Frame + jadual) di kanan. Di bawah xl sidebar di atas senarai. -->
         <div>
-            <div class="flex flex-col gap-4">
-                <!-- Carian supplier, penapis & susunan -->
-                <div class="flex flex-wrap items-center gap-2">
-                    <SearchAutocomplete v-model="inputText" placeholder="Taip kod atau nama supplier..."
-                        :suppliers="suggestions.suppliers" :loading="suggestLoading" :error="suggestError"
-                        @pick="pickSupplier" @clear="clearSupplier" />
-
-                    <Select v-model="days">
-                        <SelectTrigger class="h-7 w-44 bg-card" aria-label="Tempoh">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem v-for="option in periodOptions" :key="option.value" :value="option.value">
-                                {{ option.label }}
-                            </SelectItem>
-                        </SelectContent>
-                    </Select>
-
-                    <FacetedFilter v-model="branches" title="Cawangan" :options="branchOptions" />
-
-                    <SortMenu v-model="sorts" :options="SORT_OPTIONS" />
-                    <Button v-if="isFiltered" type="button" variant="outline" size="sm" class="h-8 px-2 border-dashed"
-                        @click="resetFilters">
-                        Reset
-                        <X class="size-4" />
-                    </Button>
-
-                    <!-- Eksport: satu butang dropdown (Excel / PDF), loading semasa disediakan -->
-                    <div v-if="hasQuery" class="flex items-center gap-2 sm:ml-auto">
-                        <p v-if="exportError" class="text-xs text-destructive" role="alert">{{ exportError }}</p>
-
-                        <Popover v-model:open="exportMenuOpen">
-                            <PopoverTrigger as-child>
-                                <Button type="button" variant="outline" size="sm" class="h-8 bg-card"
-                                    :disabled="!canExport || exporting !== null" :aria-busy="exporting !== null">
-                                    <Spinner v-if="exporting" class="size-4" />
-                                    <Download v-else class="size-4" />
-                                    <template v-if="exporting === 'export'">Menyediakan Excel...</template>
-                                    <template v-else-if="exporting === 'print'">Menyediakan PDF...</template>
-                                    <template v-else>Eksport</template>
-                                    <ChevronDown v-if="!exporting" class="size-4" />
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent class="w-44 p-1" align="end">
-                                <button type="button"
-                                    class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-none"
-                                    @click="runExport('export')">
-                                    <FileSpreadsheet class="size-4" /> Excel (.xlsx)
-                                </button>
-                                <button type="button"
-                                    class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-none"
-                                    @click="runExport('print')">
-                                    <Printer class="size-4" /> PDF / Cetak
-                                </button>
-                            </PopoverContent>
-                        </Popover>
-                    </div>
-                </div>
-
-                <!-- Belum pilih supplier: tiada senarai -->
-                <Empty v-if="!hasQuery" class="rounded-md border border-dashed bg-card">
-                    <EmptyHeader>
-                        <EmptyMedia variant="icon">
-                            <Search />
-                        </EmptyMedia>
-                        <EmptyTitle>Cari untuk memulakan</EmptyTitle>
-                        <EmptyDescription>
-                            Taip kod atau nama supplier, kemudian pilih daripada cadangan.
-                        </EmptyDescription>
-                    </EmptyHeader>
-                </Empty>
-
-                <template v-else>
-                    <!-- Frame: pengepala = template (chip), panel = jadual, pengaki = halaman. -->
-                    <!-- Mudah alih: Frame sampai tepi skrin (-mx-3 = gutter halaman) supaya semua lajur muat tanpa tatal ufuk. -->
-                    <Frame dense class="-mx-3 rounded-none border-x-0 sm:mx-0 sm:rounded-2xl sm:border-x">
-                        <!-- Template (chip): satu klik = susunan berbilang (+ tempoh). Satu baris bertatal ufuk pada skrin kecil. -->
-                        <FrameHeader class="py-2">
-                            <div class="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0"
-                                role="group" aria-label="Template susunan">
-                                <Button v-for="template in SORT_TEMPLATES" :key="template.key" type="button" size="sm"
-                                    :variant="activeTemplate === template.key ? 'default' : 'outline'"
-                                    class="h-7 shrink-0 rounded-full px-3 text-xs font-medium"
-                                    :class="activeTemplate === template.key ? '' : 'bg-card'"
-                                    :aria-pressed="activeTemplate === template.key" :title="template.hint"
-                                    @click="applyTemplate(template)">
-                                    {{ template.label }}
-                                </Button>
+            <div class="grid gap-4 xl:grid-cols-[16.5rem_minmax(0,1fr)] xl:items-start">
+                <aside class="xl:sticky xl:top-4" aria-label="Penapis">
+                    <Frame spacing="sm">
+                        <FramePanel class="flex flex-col gap-4 p-3">
+                            <div class="flex flex-col gap-1.5">
+                                <p class="text-xs font-medium text-muted-foreground">Supplier</p>
+                                <SearchAutocomplete v-model="inputText" placeholder="Taip kod atau nama supplier..."
+                                    :suppliers="suggestions.suppliers" :loading="suggestLoading" :error="suggestError"
+                                    @pick="pickSupplier" @clear="clearSupplier" />
                             </div>
-                        </FrameHeader>
 
-                        <!-- Jadual: pada skrin >= sm bingkai bertinggi tetap (data bertatal, pengepala melekat, butang halaman sentiasa
-                         kelihatan). Pada mudah alih halaman itu sendiri yg bertatal supaya tiada tatal dalam tatal. -->
-                        <FramePanel class="overflow-hidden border border-border shadow-xs p-0">
-                            <div ref="frame" class="relative">
-                                <!-- [&_[data-slot=scroll-area-viewport]>div]:!block - pembungkus dalam viewport reka-ui asalnya display:table & melebar
-                           ikut kandungan (sama spt Back Office Actions). -->
-                                <ScrollArea horizontal
-                                    class="rounded-[inherit] sm:max-h-[calc(100dvh-21rem)] sm:min-h-72 [&_[data-slot=scroll-area-viewport]>div]:!block">
-                                    <Table :class="TABLE_COMPACT">
-                                        <TableHeader class="sticky top-0 z-10 bg-card shadow-[0_1px_0_var(--border)]">
-                                            <TableRow class="hover:bg-transparent">
-                                                <TableHead class="w-[3.25rem] sm:w-20 text-sm">{{ COLUMN_LABELS.image }}
-                                                </TableHead>
-                                                <TableHead>
-                                                    <SortableHeader :title="COLUMN_LABELS.code"
-                                                        :direction="headerDirection('code')" @sort="toggleSort('code')"
-                                                        :priority="headerPriority('code')" />
-                                                </TableHead>
-                                                <TableHead v-if="branchMode" class="w-28">{{ COLUMN_LABELS.store }}
-                                                </TableHead>
-                                                <TableHead class="text-right">
-                                                    <SortableHeader :title="compact ? 'Req.' : COLUMN_LABELS.requested"
-                                                        :full-title="COLUMN_LABELS.requested"
-                                                        :direction="headerDirection('requested')"
-                                                        @sort="toggleSort('requested')"
-                                                        :priority="headerPriority('requested')" />
-                                                </TableHead>
-                                                <TableHead class="text-right">
-                                                    <SortableHeader :title="compact ? 'Ambil' : COLUMN_LABELS.buy"
-                                                        :full-title="COLUMN_LABELS.buy"
-                                                        :direction="headerDirection('buy')" @sort="toggleSort('buy')"
-                                                        :priority="headerPriority('buy')" />
-                                                </TableHead>
-                                                <TableHead class="text-right">
-                                                    <SortableHeader :title="compact ? 'Sold' : COLUMN_LABELS.sold"
-                                                        :full-title="COLUMN_LABELS.sold"
-                                                        :direction="headerDirection('sold')" @sort="toggleSort('sold')"
-                                                        :priority="headerPriority('sold')" />
-                                                </TableHead>
-                                                <TableHead class="text-right">
-                                                    <SortableHeader
-                                                        :title="compact ? 'Avail.' : COLUMN_LABELS.available"
-                                                        :full-title="COLUMN_LABELS.available"
-                                                        :direction="headerDirection('available')"
-                                                        @sort="toggleSort('available')"
-                                                        :priority="headerPriority('available')" />
-                                                </TableHead>
-                                                <TableHead class="text-right sm:w-44 sm:text-left">
-                                                    <SortableHeader :title="compact ? '%' : COLUMN_LABELS.percent"
-                                                        :full-title="COLUMN_LABELS.percent"
-                                                        :direction="headerDirection('percent')"
-                                                        @sort="toggleSort('percent')"
-                                                        :priority="headerPriority('percent')" />
-                                                </TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-
-                                        <TableBody>
-                                            <!-- Skeleton: hanya semasa supplier / tempoh dimuatkan dari server -->
-                                            <template v-if="showSkeleton">
-                                                <TableRow v-for="n in SKELETON_ROWS" :key="`sk-${n}`"
-                                                    class="hover:bg-transparent">
-                                                    <TableCell>
-                                                        <Skeleton class="size-10 rounded-md sm:size-12" />
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div class="flex flex-col gap-1.5">
-                                                            <Skeleton class="h-4 w-32" />
-                                                            <Skeleton class="h-3 w-44" />
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell v-if="branchMode">
-                                                        <Skeleton class="h-4 w-16" />
-                                                    </TableCell>
-                                                    <TableCell v-for="c in 4" :key="`skn-${n}-${c}`">
-                                                        <Skeleton class="ml-auto h-4 w-10" />
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Skeleton class="h-4 w-12 sm:w-28" />
-                                                    </TableCell>
-                                                </TableRow>
-                                            </template>
-
-                                            <template v-else>
-                                                <TableRow v-for="row in pageData.rows"
-                                                    :key="`${row.code}|${row.store ?? ''}`">
-                                                    <TableCell>
-                                                        <!-- Imej/nickname dimuat utk baris sehalaman (sebentar sahaja) -->
-                                                        <Skeleton v-if="!details[row.code]"
-                                                            class="size-10 rounded-md sm:size-12" />
-                                                        <ImagePreview v-else :src="details[row.code].image_url"
-                                                            :reference="details[row.code].image_reference"
-                                                            :alt="details[row.code].nickname ?? row.code"
-                                                            class="size-10 rounded-md sm:size-12" />
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div
-                                                            class="break-all text-[13px] font-medium sm:break-normal sm:text-sm">
-                                                            {{ row.code }}</div>
-                                                        <Skeleton v-if="!details[row.code]"
-                                                            class="mt-1 h-3 w-16 sm:w-40" />
-                                                        <div v-else-if="details[row.code].nickname"
-                                                            class="max-w-[4.5rem] truncate text-xs text-muted-foreground sm:max-w-72">
-                                                            {{ details[row.code].nickname }}
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell v-if="branchMode" class="text-sm">{{ row.store }}
-                                                    </TableCell>
-                                                    <!-- Branch Requested: tanpa tapisan cawangan = klik angka utk popover cawangan yg minta -->
-                                                    <TableCell class="text-right tabular-nums">
-                                                        <BranchBreakdown :value="row.requested" :figures="row.branches"
-                                                            field="requested" :title="COLUMN_LABELS.requested" />
-                                                    </TableCell>
-                                                    <TableCell class="text-right tabular-nums">{{ formatNumber(row.buy)
-                                                        }}</TableCell>
-                                                    <!-- Tanpa tapisan cawangan: klik angka = popover pecahan ikut cawangan -->
-                                                    <TableCell class="text-right tabular-nums">
-                                                        <BranchBreakdown :value="row.sold" :figures="row.branches"
-                                                            field="sold" :title="COLUMN_LABELS.sold" />
-                                                    </TableCell>
-                                                    <TableCell class="text-right tabular-nums">
-                                                        <BranchBreakdown :value="row.available" :figures="row.branches"
-                                                            field="available" :title="COLUMN_LABELS.available" />
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div
-                                                            class="flex items-center justify-end gap-2 sm:justify-start">
-                                                            <span class="text-right tabular-nums sm:w-12">{{
-                                                                row.percent.toFixed(1)
-                                                                }}%</span>
-                                                            <div
-                                                                class="hidden h-1.5 w-20 overflow-hidden rounded-full bg-muted sm:block">
-                                                                <div class="h-full rounded-full bg-primary"
-                                                                    :style="{ width: percentWidth(row.percent) }" />
-                                                            </div>
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            </template>
-                                        </TableBody>
-                                    </Table>
-
-                                    <Empty v-if="!showSkeleton && pageData.total === 0" class="border-0 bg-card">
-                                        <EmptyHeader>
-                                            <EmptyMedia variant="icon">
-                                                <PackageSearch />
-                                            </EmptyMedia>
-                                            <EmptyTitle>Tiada design ditemui</EmptyTitle>
-                                            <EmptyDescription>
-                                                Supplier ini tidak mengambil sebarang piece dalam tempoh atau cawangan
-                                                yang dipilih.
-                                            </EmptyDescription>
-                                        </EmptyHeader>
-                                    </Empty>
-                                </ScrollArea>
-
-                                <!-- Scroll-fade: pudar lembut menandakan ada baris lagi di atas/bawah (di bawah pengepala 2.5rem; tidak boleh diklik) -->
-                                <div aria-hidden="true"
-                                    class="pointer-events-none absolute inset-x-0 top-10 h-8 bg-linear-to-b from-card to-transparent transition-opacity duration-200"
-                                    :class="fadeTop ? 'opacity-100' : 'opacity-0'" />
-                                <div aria-hidden="true"
-                                    class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-card to-transparent transition-opacity duration-200"
-                                    :class="fadeBottom ? 'opacity-100' : 'opacity-0'" />
+                            <div class="flex flex-col gap-1.5">
+                                <p class="text-xs font-medium text-muted-foreground">Tempoh</p>
+                                <Select v-model="days">
+                                    <SelectTrigger class="h-8 w-full bg-card" size="sm" aria-label="Tempoh">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem v-for="option in periodOptions" :key="option.value"
+                                            :value="option.value">
+                                            {{ option.label }}
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
                             </div>
+
+                            <div class="flex flex-col gap-1.5">
+                                <div class="flex items-center justify-between">
+                                    <p class="text-xs font-medium text-muted-foreground">Cawangan</p>
+                                    <button v-if="branches.length > 0" type="button"
+                                        class="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                                        @click="branches = []">
+                                        Kosongkan
+                                    </button>
+                                </div>
+                                <p v-if="branchOptions.length === 0" class="text-xs text-muted-foreground">
+                                    Pilih supplier dahulu.
+                                </p>
+                                <ul v-else class="flex max-h-56 flex-col overflow-y-auto" role="group"
+                                    aria-label="Cawangan">
+                                    <li v-for="option in branchOptions" :key="option.value">
+                                        <label
+                                            class="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1.5 text-sm hover:bg-accent">
+                                            <Checkbox :model-value="branches.includes(option.value)"
+                                                @update:model-value="toggleBranch(option.value)" />
+                                            <span class="truncate">{{ option.label }}</span>
+                                            <span class="ml-auto font-mono text-xs text-muted-foreground">{{
+                                                option.count }}</span>
+                                        </label>
+                                    </li>
+                                </ul>
+                            </div>
+
+                            <div class="flex flex-col gap-1.5">
+                                <p class="text-xs font-medium text-muted-foreground">Susunan</p>
+                                <SortMenu v-model="sorts" :options="SORT_OPTIONS" />
+                            </div>
+
+                            <!-- Eksport: satu butang dropdown (Excel / PDF), loading semasa disediakan -->
+                            <div v-if="hasQuery" class="flex flex-col gap-1.5">
+                                <p v-if="exportError" class="text-xs text-destructive" role="alert">{{ exportError }}
+                                </p>
+
+                                <Popover v-model:open="exportMenuOpen">
+                                    <PopoverTrigger as-child>
+                                        <Button type="button" variant="outline" size="sm" class="h-8 w-full bg-card"
+                                            :disabled="!canExport || exporting !== null"
+                                            :aria-busy="exporting !== null">
+                                            <Spinner v-if="exporting" class="size-4" />
+                                            <Download v-else class="size-4" />
+                                            <template v-if="exporting === 'export'">Menyediakan Excel...</template>
+                                            <template v-else-if="exporting === 'print'">Menyediakan PDF...</template>
+                                            <template v-else>Eksport</template>
+                                            <ChevronDown v-if="!exporting" class="size-4" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent class="w-44 p-1" align="start">
+                                        <button type="button"
+                                            class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-none"
+                                            @click="runExport('export')">
+                                            <FileSpreadsheet class="size-4" /> Excel (.xlsx)
+                                        </button>
+                                        <button type="button"
+                                            class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-none"
+                                            @click="runExport('print')">
+                                            <Printer class="size-4" /> PDF / Cetak
+                                        </button>
+                                    </PopoverContent>
+                                </Popover>
+                            </div>
+
+                            <Button v-if="isFiltered" type="button" variant="ghost" size="sm"
+                                class="h-8 text-muted-foreground" @click="resetFilters">
+                                <X class="size-4" /> Reset penapis
+                            </Button>
                         </FramePanel>
-
-                        <!-- Halaman -->
-                        <FrameFooter class="justify-between gap-3">
-                            <div class="flex flex-col gap-0.5 text-sm text-muted-foreground">
-                                <Skeleton v-if="showSkeleton" class="h-4 w-40" />
-                                <template v-else>{{ rangeLabel }}</template>
-                                <span class="text-xs">Klik beberapa tajuk lajur berturutan untuk susunan berbilang
-                                    (nombor = keutamaan).</span>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <Button type="button" variant="outline" size="icon-sm" aria-label="Halaman sebelum"
-                                    :disabled="showSkeleton || pageData.page <= 1" @click="page = pageData.page - 1">
-                                    <ChevronLeft class="size-4" />
-                                </Button>
-                                <span class="text-sm tabular-nums text-muted-foreground">
-                                    {{ pageData.page }} / {{ pageData.lastPage }}
-                                </span>
-                                <Button type="button" variant="outline" size="icon-sm" aria-label="Halaman seterusnya"
-                                    :disabled="showSkeleton || pageData.page >= pageData.lastPage"
-                                    @click="page = pageData.page + 1">
-                                    <ChevronRight class="size-4" />
-                                </Button>
-                            </div>
-                        </FrameFooter>
                     </Frame>
-                </template>
+                </aside>
+
+                <div class="flex min-w-0 flex-col gap-4">
+                    <!-- Belum pilih supplier: tiada senarai -->
+                    <Frame spacing="sm" v-if="!hasQuery">
+                        <FramePanel>
+                            <Empty>
+                                <EmptyHeader>
+                                    <EmptyMedia variant="icon">
+                                        <Search />
+                                    </EmptyMedia>
+                                    <EmptyTitle>Cari untuk memulakan</EmptyTitle>
+                                    <EmptyDescription>
+                                        Taip kod atau nama supplier, kemudian pilih daripada cadangan.
+                                    </EmptyDescription>
+                                </EmptyHeader>
+                            </Empty>
+                        </FramePanel>
+                    </Frame>
+
+                    <template v-else>
+                        <!-- Frame: pengepala = template (chip), panel = jadual, pengaki = halaman. -->
+                        <!-- Mudah alih: Frame sampai tepi skrin (-mx-3 = gutter halaman) supaya semua lajur muat tanpa tatal ufuk. -->
+                        <Frame dense class="-mx-3 rounded-none border-x-0 sm:mx-0 sm:rounded-2xl sm:border-x">
+                            <!-- Template (chip): satu klik = susunan berbilang (+ tempoh). Satu baris bertatal ufuk pada skrin kecil. -->
+                            <FrameHeader class="py-2">
+                                <div class="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0"
+                                    role="group" aria-label="Template susunan">
+                                    <Button v-for="template in SORT_TEMPLATES" :key="template.key" type="button"
+                                        size="sm" :variant="activeTemplate === template.key ? 'default' : 'outline'"
+                                        class="h-7 shrink-0 rounded-full px-3 text-xs font-medium"
+                                        :class="activeTemplate === template.key ? '' : 'bg-card'"
+                                        :aria-pressed="activeTemplate === template.key" :title="template.hint"
+                                        @click="applyTemplate(template)">
+                                        {{ template.label }}
+                                    </Button>
+                                </div>
+                            </FrameHeader>
+
+                            <!-- Jadual: pada skrin >= sm bingkai bertinggi tetap (data bertatal, pengepala melekat, butang halaman sentiasa
+                         kelihatan). Pada mudah alih halaman itu sendiri yg bertatal supaya tiada tatal dalam tatal. -->
+                            <FramePanel class="overflow-hidden border border-border shadow-xs p-0">
+                                <div ref="frame" class="relative">
+                                    <!-- [&_[data-slot=scroll-area-viewport]>div]:!block - pembungkus dalam viewport reka-ui asalnya display:table & melebar
+                           ikut kandungan (sama spt Back Office Actions). -->
+                                    <ScrollArea horizontal
+                                        class="rounded-[inherit] sm:max-h-[calc(100dvh-17rem)] sm:min-h-72 [&_[data-slot=scroll-area-viewport]>div]:!block">
+                                        <Table :class="TABLE_COMPACT">
+                                            <TableHeader
+                                                class="sticky top-0 z-10 bg-card shadow-[0_1px_0_var(--border)]">
+                                                <TableRow class="hover:bg-transparent">
+                                                    <TableHead class="w-[3.25rem] sm:w-20 text-sm">{{
+                                                        COLUMN_LABELS.image }}
+                                                    </TableHead>
+                                                    <TableHead>
+                                                        <SortableHeader :title="COLUMN_LABELS.code"
+                                                            :direction="headerDirection('code')"
+                                                            @sort="toggleSort('code')"
+                                                            :priority="headerPriority('code')" />
+                                                    </TableHead>
+                                                    <TableHead v-if="branchMode" class="w-28">{{ COLUMN_LABELS.store }}
+                                                    </TableHead>
+                                                    <TableHead class="text-right">
+                                                        <SortableHeader
+                                                            :title="compact ? 'Req.' : COLUMN_LABELS.requested"
+                                                            :full-title="COLUMN_LABELS.requested"
+                                                            :direction="headerDirection('requested')"
+                                                            @sort="toggleSort('requested')"
+                                                            :priority="headerPriority('requested')" />
+                                                    </TableHead>
+                                                    <TableHead class="text-right">
+                                                        <SortableHeader :title="compact ? 'Ambil' : COLUMN_LABELS.buy"
+                                                            :full-title="COLUMN_LABELS.buy"
+                                                            :direction="headerDirection('buy')"
+                                                            @sort="toggleSort('buy')"
+                                                            :priority="headerPriority('buy')" />
+                                                    </TableHead>
+                                                    <TableHead class="text-right">
+                                                        <SortableHeader :title="compact ? 'Sold' : COLUMN_LABELS.sold"
+                                                            :full-title="COLUMN_LABELS.sold"
+                                                            :direction="headerDirection('sold')"
+                                                            @sort="toggleSort('sold')"
+                                                            :priority="headerPriority('sold')" />
+                                                    </TableHead>
+                                                    <TableHead class="text-right">
+                                                        <SortableHeader
+                                                            :title="compact ? 'Avail.' : COLUMN_LABELS.available"
+                                                            :full-title="COLUMN_LABELS.available"
+                                                            :direction="headerDirection('available')"
+                                                            @sort="toggleSort('available')"
+                                                            :priority="headerPriority('available')" />
+                                                    </TableHead>
+                                                    <TableHead class="text-center sm:w-28">
+                                                        <SortableHeader :title="compact ? '%' : COLUMN_LABELS.percent"
+                                                            :full-title="COLUMN_LABELS.percent"
+                                                            :direction="headerDirection('percent')"
+                                                            @sort="toggleSort('percent')"
+                                                            :priority="headerPriority('percent')" />
+                                                    </TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+
+                                            <TableBody>
+                                                <!-- Skeleton: hanya semasa supplier / tempoh dimuatkan dari server -->
+                                                <template v-if="showSkeleton">
+                                                    <TableRow v-for="n in SKELETON_ROWS" :key="`sk-${n}`"
+                                                        class="hover:bg-transparent">
+                                                        <TableCell>
+                                                            <Skeleton class="size-10 rounded-md sm:size-12" />
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div class="flex flex-col gap-1.5">
+                                                                <Skeleton class="h-4 w-32" />
+                                                                <Skeleton class="h-3 w-44" />
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell v-if="branchMode">
+                                                            <Skeleton class="h-4 w-16" />
+                                                        </TableCell>
+                                                        <TableCell v-for="c in 4" :key="`skn-${n}-${c}`">
+                                                            <Skeleton class="ml-auto h-4 w-10" />
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Skeleton class="h-4 w-12 sm:w-28" />
+                                                        </TableCell>
+                                                    </TableRow>
+                                                </template>
+
+                                                <template v-else>
+                                                    <TableRow v-for="row in pageData.rows"
+                                                        :key="`${row.code}|${row.store ?? ''}`">
+                                                        <TableCell>
+                                                            <!-- Imej/nickname dimuat utk baris sehalaman (sebentar sahaja) -->
+                                                            <Skeleton v-if="!details[row.code]"
+                                                                class="size-10 rounded-md sm:size-12" />
+                                                            <ImagePreview v-else :src="details[row.code].image_url"
+                                                                :reference="details[row.code].image_reference"
+                                                                :alt="details[row.code].nickname ?? row.code"
+                                                                class="size-10 rounded-md sm:size-12" />
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div
+                                                                class="break-all text-[13px] font-medium sm:break-normal sm:text-sm">
+                                                                {{ row.code }}</div>
+                                                            <Skeleton v-if="!details[row.code]"
+                                                                class="mt-1 h-3 w-16 sm:w-40" />
+                                                            <div v-else-if="details[row.code].nickname"
+                                                                class="max-w-[4.5rem] text-xs leading-snug text-balance break-words text-muted-foreground sm:max-w-60">
+                                                                {{ details[row.code].nickname }}
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell v-if="branchMode" class="text-sm">{{ row.store }}
+                                                        </TableCell>
+                                                        <!-- Branch Requested: tanpa tapisan cawangan = klik angka utk popover cawangan yg minta -->
+                                                        <TableCell class="text-right tabular-nums">
+                                                            <BranchBreakdown :value="row.requested"
+                                                                :figures="row.branches" field="requested"
+                                                                :title="COLUMN_LABELS.requested" />
+                                                        </TableCell>
+                                                        <TableCell class="text-right tabular-nums">{{
+                                                            formatNumber(row.buy)
+                                                            }}</TableCell>
+                                                        <!-- Tanpa tapisan cawangan: klik angka = popover pecahan ikut cawangan -->
+                                                        <TableCell class="text-right tabular-nums">
+                                                            <BranchBreakdown :value="row.sold" :figures="row.branches"
+                                                                field="sold" :title="COLUMN_LABELS.sold" />
+                                                        </TableCell>
+                                                        <TableCell class="text-right tabular-nums">
+                                                            <BranchBreakdown :value="row.available"
+                                                                :figures="row.branches" field="available"
+                                                                :title="COLUMN_LABELS.available" />
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div class="flex justify-center">
+<CircularProgress :value="row.percent" :label="COLUMN_LABELS.percent" class="size-10 sm:size-12" />
+</div>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                </template>
+                                            </TableBody>
+                                        </Table>
+
+                                        <Empty v-if="!showSkeleton && pageData.total === 0" class="rounded-xl border-0 bg-card">
+                                            <EmptyHeader>
+                                                <EmptyMedia variant="icon">
+                                                    <PackageSearch />
+                                                </EmptyMedia>
+                                                <EmptyTitle>Tiada design ditemui</EmptyTitle>
+                                                <EmptyDescription>
+                                                    Supplier ini tidak mengambil sebarang piece dalam tempoh
+                                                    atau cawangan
+                                                    yang dipilih.
+                                                </EmptyDescription>
+                                            </EmptyHeader>
+                                        </Empty>
+                                    </ScrollArea>
+
+                                    <!-- Scroll-fade: pudar lembut menandakan ada baris lagi di atas/bawah (di bawah pengepala 2.5rem; tidak boleh diklik) -->
+                                    <div aria-hidden="true"
+                                        class="pointer-events-none absolute inset-x-0 top-10 h-8 bg-linear-to-b from-card to-transparent transition-opacity duration-200"
+                                        :class="fadeTop ? 'opacity-100' : 'opacity-0'" />
+                                    <div aria-hidden="true"
+                                        class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-card to-transparent transition-opacity duration-200"
+                                        :class="fadeBottom ? 'opacity-100' : 'opacity-0'" />
+                                </div>
+                            </FramePanel>
+
+                            <!-- Halaman -->
+                            <FrameFooter class="justify-between gap-3">
+                                <div class="flex flex-col gap-0.5 text-sm text-muted-foreground">
+                                    <Skeleton v-if="showSkeleton" class="h-4 w-40" />
+                                    <template v-else>{{ rangeLabel }}</template>
+                                    <span class="text-xs">Klik beberapa tajuk lajur berturutan untuk susunan berbilang
+                                        (nombor = keutamaan).</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <Button type="button" variant="outline" size="icon-sm" class="bg-card" aria-label="Halaman sebelum"
+                                        :disabled="showSkeleton || pageData.page <= 1"
+                                        @click="page = pageData.page - 1">
+                                        <ChevronLeft class="size-4" />
+                                    </Button>
+                                    <span class="text-sm tabular-nums text-muted-foreground">
+                                        {{ pageData.page }} / {{ pageData.lastPage }}
+                                    </span>
+                                    <Button type="button" variant="outline" size="icon-sm" class="bg-card"
+                                        aria-label="Halaman seterusnya"
+                                        :disabled="showSkeleton || pageData.page >= pageData.lastPage"
+                                        @click="page = pageData.page + 1">
+                                        <ChevronRight class="size-4" />
+                                    </Button>
+                                </div>
+                            </FrameFooter>
+                        </Frame>
+                    </template>
+                </div>
             </div>
         </div>
     </div>

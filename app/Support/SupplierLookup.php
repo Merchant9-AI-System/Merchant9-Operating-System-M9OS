@@ -148,10 +148,12 @@ final class SupplierLookup
         foreach ($this->groups($supplier) as $group) {
             $designs[$group['code']]['code'] = $group['code'];
 
-            // Kod mentah berbeza selepas trim (cth. aksara TAB) boleh jatuh pd design & cawangan yg sama - dijumlahkan.
-            $buy = ($designs[$group['code']]['stores'][$group['store']][0] ?? 0) + $group['buy'];
-            $sold = ($designs[$group['code']]['stores'][$group['store']][1] ?? 0) + $group['sold'];
-            $designs[$group['code']]['stores'][$group['store']] = [$buy, $sold];
+            // Kod mentah berbeza selepas trim (cth. aksara TAB) atau hanya berbeza huruf besar/kecil (cermin ada 'WEB' & 'web') boleh
+            // jatuh pd design & cawangan yg sama - kod cawangan diseragamkan kpd HURUF BESAR & dijumlahkan.
+            $store = strtoupper($group['store']);
+            $buy = ($designs[$group['code']]['stores'][$store][0] ?? 0) + $group['buy'];
+            $sold = ($designs[$group['code']]['stores'][$store][1] ?? 0) + $group['sold'];
+            $designs[$group['code']]['stores'][$store] = [$buy, $sold];
         }
 
         ksort($designs, SORT_STRING);
@@ -331,7 +333,9 @@ final class SupplierLookup
 
         foreach ($rows as $row) {
             if (isset($wanted[$row->code])) {
-                $demand[$row->code][$row->store] = (int) $row->qty;
+                // Kod cawangan diseragamkan kpd HURUF BESAR (sama dgn designs()) - 'WEB' & 'web' ialah cawangan yg sama.
+                $store = strtoupper($row->store);
+                $demand[$row->code][$store] = ($demand[$row->code][$store] ?? 0) + (int) $row->qty;
             }
         }
 
