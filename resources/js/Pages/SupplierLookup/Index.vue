@@ -829,7 +829,7 @@ function formatNumber(value: number): string {
                                                                 class="max-w-[4.5rem] text-xs leading-snug text-balance break-words text-muted-foreground sm:max-w-60">
                                                                 {{ details[row.code].nickname }}
                                                             </div>
-                                                            <div class="mt-1.5 flex gap-1">
+                                                            <!-- <div class="mt-1.5 flex gap-1">
                                                                 <Button type="button" variant="outline" size="sm"
                                                                     class="size-6 gap-1 bg-card p-0 text-xs sm:h-7 sm:w-auto sm:px-1.5"
                                                                     :aria-label="`Lihat ${row.code}`" @click="viewDesign(row.code)">
@@ -840,7 +840,7 @@ function formatNumber(value: number): string {
                                                                     :aria-label="`Salin kod ${row.code}`" @click="copyCode(row.code)">
                                                                     <Copy class="size-3 sm:size-3.5" /><span class="hidden sm:inline">Salin Code</span>
                                                                 </Button>
-                                                            </div>
+                                                            </div> -->
                                                         </TableCell>
                                                         <TableCell v-if="branchMode" class="text-sm">{{ row.store }}
                                                         </TableCell>
