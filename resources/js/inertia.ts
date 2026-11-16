@@ -1,7 +1,9 @@
 import { createInertiaApp, router } from '@inertiajs/vue3';
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { createApp, Fragment, h, type DefineComponent } from 'vue';
+import { Moon, Sun } from '@lucide/vue';
 import { toast, Toaster } from 'vue-sonner';
+import { initAppearance, registerAppearanceShortcut } from '@/lib/appearance';
 
 // Jambatan flash session (`session()->flash('success', ...)`) -> toast Sonner, didaftar SEKALI
 // di sini (bukan per-page) supaya terpakai app-wide tanpa perlu komponen banner berasingan tiap
@@ -22,6 +24,12 @@ function bridgeFlashToToast(initialFlash: unknown) {
         showIfPresent((event.detail.page.props as { flash?: { success?: string | null } }).flash?.success);
     });
 }
+
+// Mod cerah/gelap: pulihkan pilihan tersimpan (skrip awal dlm app.blade.php sudah menetapkan kelas) & Ctrl + D utk menukar.
+initAppearance();
+registerAppearanceShortcut((appearance) =>
+    toast(appearance === 'dark' ? 'Mod gelap' : 'Mod cerah', { icon: appearance === 'dark' ? Moon : Sun, duration: 1200 }),
+);
 
 createInertiaApp({
     title: (title) => (title ? `${title} - M9OS` : 'M9OS'),

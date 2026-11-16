@@ -44,7 +44,9 @@ class SupplierLookupController extends Controller
 
         $filters = [
             'supplier' => mb_substr(trim((string) $request->query('supplier', '')), 0, 20),
+            // days = tempoh STOCK IN (PurchDate, Total Amik); sales_days = tempoh JUALAN (SalesDate, Total Sold) - dua tempoh bebas.
             'days' => SupplierLookup::normalizeDays($request->query('days')),
+            'sales_days' => SupplierLookup::normalizeDays($request->query('sales_days')),
         ];
 
         $hasSupplier = $filters['supplier'] !== '';
@@ -61,14 +63,36 @@ class SupplierLookupController extends Controller
             // RawInertiaProp: ribuan design - elak Inertia menelusuri setiap nilai (rujuk dokblok kelas itu).
             // `demand` (Branch Requested) dikira SEGAR setiap permintaan (query kecil, tidak dicache) supaya mengikut status BO semasa.
             'result' => Inertia::defer(function () use ($hasSupplier, $filters) {
-                $designs = $hasSupplier ? SupplierLookup::forDays($filters['days'])->designs($filters['supplier']) : [];
+                $designs = $hasSupplier ? SupplierLookup::forDays($filters['days'], $filters['sales_days'])->designs($filters['supplier']) : [];
 
                 return new RawInertiaProp([
                     'searched' => $hasSupplier,
                     'designs' => $designs,
+                    // Kategori yg ada pd design supplier ini (kod => nama) utk penapis kategori.
+                    'categories' => SupplierLookup::categoryNames(array_values(array_unique(array_filter(array_column($designs, 'category'))))),
                     'demand' => SupplierLookup::demandFor($designs),
                 ]);
             }),
+        ]);
+    }
+
+    /**
+     * Halaman butiran SATU design (butang "Lihat" pd jadual): carousel semua gambar, maklumat asas (saiz, berat, supplier), stok mengikut
+     * cawangan & senarai piece. Gambar DITANGGUH (kikisan laman web boleh lambat) - carousel papar skeleton dahulu.
+     */
+    public function design(Request $request, string $code): Response
+    {
+        $this->authorizeLookup();
+
+        $detail = SupplierLookup::designDetail($code);
+
+        abort_if($detail === null, 404);
+
+        return Inertia::render('SupplierLookup/Design', [
+            'design' => $detail,
+            // Supplier yg dicari di jadual (?supplier=MG): dipaparkan dahulu dlm senarai supplier; yg lain dikumpul dlm lencana "+N".
+            'focusSupplier' => mb_substr(trim((string) $request->query('supplier', '')), 0, 20) ?: null,
+            'images' => Inertia::defer(fn () => SupplierLookup::designImages($detail['code'])),
         ]);
     }
 
@@ -105,15 +129,17 @@ class SupplierLookupController extends Controller
         set_time_limit(300);
 
         $params = $this->exportParameters($request);
-        $rows = SupplierLookup::forDays($params['days'])->exportRows($params['supplier'], $params['branches'], $params['sorts']);
+        $rows = SupplierLookup::forDays($params['days'], $params['sales_days'])->exportRows($params['supplier'], $params['branches'], $params['sorts'], $params['categories']);
         $branchMode = $params['branches'] !== [];
 
         $imageUrls = array_values(array_unique(array_filter(array_column($rows, 'image_url'))));
         $thumbnails = app(RemoteThumbnails::class)->paths($imageUrls, self::IMAGE_FETCH_BUDGET_SECONDS);
 
         $supplierName = SupplierLookup::supplierName($params['supplier']) ?? $params['supplier'];
-        $heading = 'Supplier Lookup - '.$supplierName.' ('.$params['supplier'].') - '.$params['days'].' hari terakhir - '
-            .($branchMode ? 'Cawangan: '.implode(', ', $params['branches']) : 'Semua cawangan').' - '.now()->format('d/m/Y H:i');
+        $heading = 'Supplier Lookup - '.$supplierName.' ('.$params['supplier'].') - '.'stock in '.$params['days'].' hari - jualan '.$params['sales_days'].' hari - '
+            .($branchMode ? 'Cawangan: '.implode(', ', $params['branches']) : 'Semua cawangan')
+            .($params['categories'] !== [] ? ' - Kategori: '.implode(', ', $params['categories']) : '')
+            .' - '.now()->format('d/m/Y H:i');
 
         if (count($thumbnails) < count($imageUrls)) {
             $heading .= ' - gambar dibenamkan: '.count($thumbnails).' daripada '.count($imageUrls).' (eksport semula untuk melengkapkan)';
@@ -134,14 +160,16 @@ class SupplierLookupController extends Controller
         $this->authorizeLookup();
 
         $params = $this->exportParameters($request);
-        $rows = SupplierLookup::forDays($params['days'])->exportRows($params['supplier'], $params['branches'], $params['sorts']);
+        $rows = SupplierLookup::forDays($params['days'], $params['sales_days'])->exportRows($params['supplier'], $params['branches'], $params['sorts'], $params['categories']);
 
         return view('supplier-lookup.print', [
             'supplierCode' => $params['supplier'],
             'supplierName' => SupplierLookup::supplierName($params['supplier']) ?? $params['supplier'],
             'days' => $params['days'],
+            'salesDays' => $params['sales_days'],
             'branches' => $params['branches'],
             'branchMode' => $params['branches'] !== [],
+            'categories' => $params['categories'],
             'sortLabel' => collect($params['sorts'])
                 ->map(fn (array $sort): string => SupplierLookup::COLUMN_LABELS[$sort['key']].' '.($sort['dir'] === 'desc' ? 'menurun' : 'menaik'))
                 ->implode(', '),
@@ -157,7 +185,7 @@ class SupplierLookupController extends Controller
      * Parameter eksport yg sama dgn keadaan halaman (?supplier=&days=&branches[]=&sort=percent:desc,buy:desc). Supplier wajib. Bentuk lama
      * (sort=percent&dir=desc) masih diterima.
      *
-     * @return array{supplier: string, days: int, branches: list<string>, sorts: list<array{key: string, dir: string}>}
+     * @return array{supplier: string, days: int, sales_days: int, branches: list<string>, categories: list<string>, sorts: list<array{key: string, dir: string}>}
      */
     protected function exportParameters(Request $request): array
     {
@@ -168,10 +196,15 @@ class SupplierLookupController extends Controller
         return [
             'supplier' => $supplier,
             'days' => SupplierLookup::normalizeDays($request->query('days')),
+            'sales_days' => SupplierLookup::normalizeDays($request->query('sales_days')),
             'branches' => collect((array) $request->query('branches', []))
                 ->filter(fn ($branch) => is_string($branch) && $branch !== '')
-                ->map(fn (string $branch) => mb_substr(trim($branch), 0, 20))
+                ->map(fn (string $branch) => mb_strtoupper(mb_substr(trim($branch), 0, 20)))
                 ->unique()->take(20)->values()->all(),
+            'categories' => collect((array) $request->query('categories', []))
+                ->filter(fn ($category) => is_string($category) && $category !== '')
+                ->map(fn (string $category) => mb_strtoupper(mb_substr(trim($category), 0, 20)))
+                ->unique()->take(50)->values()->all(),
             'sorts' => SupplierLookup::parseSorts($request->query('sort'), $request->query('dir')),
         ];
     }

@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { Head, router } from '@inertiajs/vue3';
-import { ChevronDown, ChevronLeft, ChevronRight, Download, FileSpreadsheet, PackageSearch, Printer, Search, X } from '@lucide/vue';
+import { Head, router, useRemember } from '@inertiajs/vue3';
+import { ChevronDown, ChevronLeft, ChevronRight, Copy, Download, Eye, FileSpreadsheet, PackageSearch, Printer, Search, X } from '@lucide/vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { toast } from 'vue-sonner';
+import { copyText } from '@/lib/clipboard';
 import BranchBreakdown from '@/components/BranchBreakdown.vue';
 import CircularProgress from '@/components/CircularProgress.vue';
+import FacetedFilter from '@/components/FacetedFilter.vue';
 import { Frame, FrameFooter, FrameHeader, FramePanel } from '@/components/ui/frame';
 import ImagePreview from '@/components/ImagePreview.vue';
 import SearchAutocomplete from '@/components/SearchAutocomplete.vue';
@@ -19,7 +22,7 @@ import SortMenu from '@/components/SortMenu.vue';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { branchOptions as buildBranchOptions, COLUMN_LABELS, DEFAULT_SORTS, nextSorts, PAGE_SIZE, paginate, rollUp, serializeSorts, sortRows } from '@/lib/supplierLookup';
+import { branchOptions as buildBranchOptions, categoryOptions as buildCategoryOptions, COLUMN_LABELS, filterByCategories, DEFAULT_SORTS, nextSorts, PAGE_SIZE, paginate, rollUp, serializeSorts, sortRows } from '@/lib/supplierLookup';
 import type { LookupDemand, LookupDesign, SortDirection, SortKey, SortSpec } from '@/lib/supplierLookup';
 import { Separator } from '@/components/ui/separator';
 
@@ -30,6 +33,8 @@ interface LookupResult {
     // false = belum ada supplier dipilih (server tidak mengira apa-apa).
     searched: boolean;
     designs: LookupDesign[];
+    // Kategori yg ada pd design supplier ini: kod -> nama.
+    categories: Record<string, string>;
     // Branch Requested (permintaan cawangan belum selesai) - dikira segar server; kod -> cawangan -> qty.
     demand: LookupDemand;
 }
@@ -47,7 +52,8 @@ interface Suggestions {
 }
 
 const props = defineProps<{
-    filters: { supplier: string; days: number };
+    // days = tempoh STOCK IN (Total Amik); sales_days = tempoh JUALAN (Total Sold) - dua tempoh bebas.
+    filters: { supplier: string; days: number; sales_days: number };
     // Supplier terpilih (kod + nama) utk medan carian.
     supplier: { code: string; name: string } | null;
     periodOptions: { value: string; label: string }[];
@@ -108,11 +114,14 @@ onBeforeUnmount(() => compactQuery?.removeEventListener('change', syncCompact));
 const inputText = ref(props.supplier?.name ?? '');
 const supplier = ref<{ code: string; name: string } | null>(props.supplier);
 const days = ref(String(props.filters.days));
-const branches = ref<string[]>([]);
+const salesDays = ref(String(props.filters.sales_days));
+// Cawangan, kategori, susunan & halaman DIINGAT (useRemember) supaya butang Kembali drpd halaman butiran design memulihkan jadual spt sebelumnya.
+const branches = useRemember<string[]>([], 'supplier-lookup:branches');
+const categories = useRemember<string[]>([], 'supplier-lookup:categories');
 // Susunan BERBILANG: senarai kunci (yg pertama paling utama), dikongsi oleh klik tajuk lajur & menu "Susun mengikut" (v-model) - sentiasa bersegerak.
 // Setiap klik tajuk menambah / menukar / membuang lajur itu; kosong = kod design menaik.
-const sorts = ref<SortSpec[]>([...DEFAULT_SORTS]);
-const page = ref(1);
+const sorts = useRemember<SortSpec[]>([...DEFAULT_SORTS], 'supplier-lookup:sorts');
+const page = useRemember(1, 'supplier-lookup:page');
 const loading = ref(false);
 
 const suggestions = ref<Suggestions>({ suppliers: [] });
@@ -123,12 +132,15 @@ const suggestError = ref<string | null>(null);
 const hasQuery = computed(() => supplier.value !== null);
 const branchMode = computed(() => branches.value.length > 0);
 const showSkeleton = computed(() => hasQuery.value && (loading.value || !props.result?.searched));
-const isFiltered = computed(() => hasQuery.value || inputText.value !== '' || branches.value.length > 0);
+const isFiltered = computed(() => hasQuery.value || inputText.value !== '' || branches.value.length > 0 || categories.value.length > 0);
 
 // Semua dikira tempatan - tiada permintaan rangkaian bila cawangan / susunan / halaman berubah.
 const designs = computed(() => (showSkeleton.value ? [] : (props.result?.designs ?? [])));
 const branchOptions = computed(() => buildBranchOptions(designs.value));
-const sortedRows = computed(() => sortRows(rollUp(designs.value, branches.value, props.result?.demand ?? {}), sorts.value));
+const categoryOptions = computed(() => buildCategoryOptions(designs.value, props.result?.categories ?? {}));
+// Kategori menapis design SEBELUM roll-up (jumlah & baris cawangan mengikut design yg ditapis).
+const filteredDesigns = computed(() => filterByCategories(designs.value, categories.value));
+const sortedRows = computed(() => sortRows(rollUp(filteredDesigns.value, branches.value, props.result?.demand ?? {}), sorts.value));
 const pageData = computed(() => paginate(sortedRows.value, page.value, PAGE_SIZE));
 
 const rangeLabel = computed(() => {
@@ -153,7 +165,7 @@ let skipNextSuggest = false;
 function visit() {
     router.get(
         '/supplier-lookup',
-        { supplier: supplier.value?.code || undefined, days: days.value },
+        { supplier: supplier.value?.code || undefined, days: days.value, sales_days: salesDays.value },
         {
             only: ['result', 'filters', 'supplier'],
             preserveState: true,
@@ -169,9 +181,10 @@ function visit() {
     );
 }
 
-watch([supplier, days], () => {
+watch([supplier, days, salesDays], () => {
     page.value = 1;
     branches.value = [];
+    categories.value = [];
 
     // Skeleton serta-merta (sebelum permintaan bermula) - jangan tunjuk data supplier lama.
     loading.value = true;
@@ -184,7 +197,7 @@ watch([supplier, days], () => {
 });
 
 // Cawangan / susunan berubah = kembali ke halaman 1 (tempatan).
-watch([branches, sorts], () => {
+watch([branches, categories, sorts], () => {
     page.value = 1;
 });
 
@@ -246,7 +259,7 @@ function bindViewport() {
 watch(frame, () => nextTick(bindViewport), { flush: 'post' });
 
 // Halaman / susunan / cawangan baharu = senarai baharu: mulakan dari atas (jika tidak tatal kekal di bawah halaman sebelumnya).
-watch([() => pageData.value.page, sorts, branches], () => {
+watch([() => pageData.value.page, sorts, branches, categories], () => {
     if (viewport) {
         viewport.scrollTop = 0;
     }
@@ -386,7 +399,7 @@ const activeTemplate = computed(
     () =>
         SORT_TEMPLATES.find(
             (template) =>
-                (template.days === undefined || template.days === days.value) &&
+                (template.days === undefined || (template.days === days.value && template.days === salesDays.value)) &&
                 template.sorts.length === sorts.value.length &&
                 template.sorts.every((spec, index) => spec.key === sorts.value[index].key && spec.dir === sorts.value[index].dir),
         )?.key ?? null,
@@ -402,7 +415,9 @@ function applyTemplate(template: SortTemplate) {
     sorts.value = template.sorts.map((spec) => ({ ...spec }));
 
     if (template.days !== undefined) {
+        // Template berkaitan tempoh menetapkan KEDUA-DUA tempoh (stock in & jualan) kpd nilai sama.
         days.value = template.days;
+        salesDays.value = template.days;
     }
 }
 
@@ -410,11 +425,32 @@ function toggleBranch(value: string) {
     branches.value = branches.value.includes(value) ? branches.value.filter((branch) => branch !== value) : [...branches.value, value];
 }
 
+// Butang baris: "Lihat" = halaman butiran design (gambar, saiz, berat, stok cawangan, piece); "Salin Code" = salin kod design.
+// Supplier yg dicari dibawa sebagai ?supplier= supaya halaman butiran memaparkannya dahulu dlm senarai supplier.
+function designUrl(code: string): string {
+    const focus = supplier.value ? `?supplier=${encodeURIComponent(supplier.value.code)}` : '';
+
+    return `/supplier-lookup/design/${encodeURIComponent(code)}${focus}`;
+}
+
+function viewDesign(code: string) {
+    router.visit(designUrl(code));
+}
+
+async function copyCode(code: string) {
+    if (await copyText(code)) {
+        toast.success(`Kod ${code} disalin`);
+    } else {
+        toast.error('Gagal menyalin kod');
+    }
+}
+
 function resetFilters() {
     skipNextSuggest = inputText.value !== '';
     inputText.value = '';
     supplier.value = null;
     branches.value = [];
+    categories.value = [];
 }
 
 // Eksport mencerminkan apa yg kelihatan: supplier, tempoh, cawangan & susunan semasa (SEMUA baris, bukan satu halaman). Server membina
@@ -431,10 +467,12 @@ function exportUrl(path: ExportKind): string {
     const query = new URLSearchParams({
         supplier: supplier.value?.code ?? '',
         days: days.value,
+        sales_days: salesDays.value,
         sort: serializeSorts(sorts.value),
     });
 
     branches.value.forEach((branch) => query.append('branches[]', branch));
+    categories.value.forEach((category) => query.append('categories[]', category));
 
     return `/supplier-lookup/${path}?${query.toString()}`;
 }
@@ -508,11 +546,46 @@ function formatNumber(value: number): string {
     <Head title="Supplier Lookup" />
 
     <div class="mx-auto flex max-w-7xl flex-col gap-4 px-3 py-6 sm:px-6 sm:py-8">
-        <div>
-            <h1 class="text-xl font-semibold tracking-tight">Supplier Lookup</h1>
-            <p class="text-sm text-muted-foreground">
-                Jualan setiap design daripada piece yang diambil daripada satu supplier dalam tempoh dipilih.
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <h1 class="text-xl font-semibold tracking-tight">Supplier Lookup</h1>
+                <p class="text-sm text-muted-foreground">
+                    Jualan setiap design daripada piece yang diambil daripada satu supplier dalam tempoh dipilih.
+                </p>
+            </div>
+
+            <!-- Eksport: satu butang dropdown (Excel / PDF), loading semasa disediakan -->
+            <div v-if="hasQuery" class="flex shrink-0 items-center gap-2">
+            <p v-if="exportError" class="text-xs text-destructive" role="alert">{{ exportError }}
             </p>
+
+            <Popover v-model:open="exportMenuOpen">
+            <PopoverTrigger as-child>
+            <Button type="button" variant="outline" size="sm" class="h-8 bg-card"
+            :disabled="!canExport || exporting !== null"
+            :aria-busy="exporting !== null">
+            <Spinner v-if="exporting" class="size-4" />
+            <Download v-else class="size-4" />
+            <template v-if="exporting === 'export'">Menyediakan Excel...</template>
+            <template v-else-if="exporting === 'print'">Menyediakan PDF...</template>
+            <template v-else>Eksport</template>
+            <ChevronDown v-if="!exporting" class="size-4" />
+            </Button>
+            </PopoverTrigger>
+            <PopoverContent class="w-44 p-1" align="end">
+            <button type="button"
+            class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-none"
+            @click="runExport('export')">
+            <FileSpreadsheet class="size-4" /> Excel (.xlsx)
+            </button>
+            <button type="button"
+            class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-none"
+            @click="runExport('print')">
+            <Printer class="size-4" /> PDF / Cetak
+            </button>
+            </PopoverContent>
+            </Popover>
+            </div>
         </div>
 
         <!-- Susun atur gaya e-commerce: penapis di kiri (sidebar), senarai (Frame + jadual) di kanan. Di bawah xl sidebar di atas senarai. -->
@@ -529,9 +602,24 @@ function formatNumber(value: number): string {
                             </div>
 
                             <div class="flex flex-col gap-1.5">
-                                <p class="text-xs font-medium text-muted-foreground">Tempoh</p>
+                                <p class="text-xs font-medium text-muted-foreground">Tempoh stock in</p>
                                 <Select v-model="days">
-                                    <SelectTrigger class="h-8 w-full bg-card" size="sm" aria-label="Tempoh">
+                                    <SelectTrigger class="h-8 w-full bg-card" size="sm" aria-label="Tempoh stock in">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem v-for="option in periodOptions" :key="option.value"
+                                            :value="option.value">
+                                            {{ option.label }}
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div class="flex flex-col gap-1.5">
+                                <p class="text-xs font-medium text-muted-foreground">Tempoh jualan</p>
+                                <Select v-model="salesDays">
+                                    <SelectTrigger class="h-8 w-full bg-card" size="sm" aria-label="Tempoh jualan">
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -571,41 +659,18 @@ function formatNumber(value: number): string {
                             </div>
 
                             <div class="flex flex-col gap-1.5">
-                                <p class="text-xs font-medium text-muted-foreground">Susunan</p>
-                                <SortMenu v-model="sorts" :options="SORT_OPTIONS" />
+                                <p class="text-xs font-medium text-muted-foreground">Kategori</p>
+                                <p v-if="categoryOptions.length === 0" class="text-xs text-muted-foreground">
+                                    Pilih supplier dahulu.
+                                </p>
+                                <div v-else class="[&_button]:w-full [&_button]:justify-start">
+                                    <FacetedFilter v-model="categories" title="Pilih kategori" :options="categoryOptions" />
+                                </div>
                             </div>
 
-                            <!-- Eksport: satu butang dropdown (Excel / PDF), loading semasa disediakan -->
-                            <div v-if="hasQuery" class="flex flex-col gap-1.5">
-                                <p v-if="exportError" class="text-xs text-destructive" role="alert">{{ exportError }}
-                                </p>
-
-                                <Popover v-model:open="exportMenuOpen">
-                                    <PopoverTrigger as-child>
-                                        <Button type="button" variant="outline" size="sm" class="h-8 w-full bg-card"
-                                            :disabled="!canExport || exporting !== null"
-                                            :aria-busy="exporting !== null">
-                                            <Spinner v-if="exporting" class="size-4" />
-                                            <Download v-else class="size-4" />
-                                            <template v-if="exporting === 'export'">Menyediakan Excel...</template>
-                                            <template v-else-if="exporting === 'print'">Menyediakan PDF...</template>
-                                            <template v-else>Eksport</template>
-                                            <ChevronDown v-if="!exporting" class="size-4" />
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent class="w-44 p-1" align="start">
-                                        <button type="button"
-                                            class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-none"
-                                            @click="runExport('export')">
-                                            <FileSpreadsheet class="size-4" /> Excel (.xlsx)
-                                        </button>
-                                        <button type="button"
-                                            class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:outline-none"
-                                            @click="runExport('print')">
-                                            <Printer class="size-4" /> PDF / Cetak
-                                        </button>
-                                    </PopoverContent>
-                                </Popover>
+                            <div class="flex flex-col gap-1.5">
+                                <p class="text-xs font-medium text-muted-foreground">Susunan</p>
+                                <SortMenu v-model="sorts" :options="SORT_OPTIONS" />
                             </div>
 
                             <Button v-if="isFiltered" type="button" variant="ghost" size="sm"
@@ -763,6 +828,18 @@ function formatNumber(value: number): string {
                                                             <div v-else-if="details[row.code].nickname"
                                                                 class="max-w-[4.5rem] text-xs leading-snug text-balance break-words text-muted-foreground sm:max-w-60">
                                                                 {{ details[row.code].nickname }}
+                                                            </div>
+                                                            <div class="mt-1.5 flex gap-1">
+                                                                <Button type="button" variant="outline" size="sm"
+                                                                    class="size-6 gap-1 bg-card p-0 text-xs sm:h-7 sm:w-auto sm:px-1.5"
+                                                                    :aria-label="`Lihat ${row.code}`" @click="viewDesign(row.code)">
+                                                                    <Eye class="size-3 sm:size-3.5" /><span class="hidden sm:inline">Lihat</span>
+                                                                </Button>
+                                                                <Button type="button" variant="outline" size="sm"
+                                                                    class="size-6 gap-1 bg-card p-0 text-xs sm:h-7 sm:w-auto sm:px-1.5"
+                                                                    :aria-label="`Salin kod ${row.code}`" @click="copyCode(row.code)">
+                                                                    <Copy class="size-3 sm:size-3.5" /><span class="hidden sm:inline">Salin Code</span>
+                                                                </Button>
                                                             </div>
                                                         </TableCell>
                                                         <TableCell v-if="branchMode" class="text-sm">{{ row.store }}

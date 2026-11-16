@@ -65,11 +65,11 @@ function clear() {
 <template>
     <Popover v-model:open="open">
         <PopoverTrigger as-child>
-            <Button type="button" variant="outline" size="sm" class="bg-card font-normal border-dashed"
+            <Button type="button" variant="outline" size="sm" class="justify-start bg-card font-normal border-dashed"
                 aria-label="Susun mengikut">
-                <span class="flex min-w-0 items-center gap-1.5">
+                <span class="flex min-w-0 items-center gap-2">
                     <ArrowUpDown class="size-4 shrink-0" />
-                    <span class="truncate">{{ summary }}</span>
+                    <span class="truncate font-medium">{{ summary }}</span>
                     <template v-if="sorts.length === 1">
                         <ArrowUp v-if="sorts[0].dir === 'asc'" class="size-3.5 shrink-0" />
                         <ArrowDown v-else class="size-3.5 shrink-0" />

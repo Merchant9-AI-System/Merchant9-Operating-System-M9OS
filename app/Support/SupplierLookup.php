@@ -2,8 +2,10 @@
 
 namespace App\Support;
 
+use App\Enums\JemisysInventoryStatus;
 use App\Models\BranchDemandRequest;
 use App\Models\BranchDemandRequestLine;
+use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
 use App\Models\Jemisys\Vendor;
 use Illuminate\Support\Carbon;
@@ -73,6 +75,12 @@ final class SupplierLookup
     /** Saiz kumpulan kod bagi query butiran utk eksport (jauh lebih besar drpd satu halaman jadual). */
     private const EXPORT_DETAIL_CHUNK = 500;
 
+    /**
+     * Paling banyak piece dihantar utk halaman butiran design (terkini dahulu; jumlah sebenar dipaparkan berasingan). Susunan jadual piece
+     * dibuat di PELAYAR atas senarai ini, jadi had mesti menampung design terbesar (~2,900 piece) supaya susunan betul utk SEMUA piece.
+     */
+    public const DESIGN_PIECE_LIMIT = 3000;
+
     /** Paling banyak cadangan supplier dlm autocomplete. */
     public const SUGGESTION_LIMIT = 8;
 
@@ -85,18 +93,37 @@ final class SupplierLookup
     /** Index covering (PurchDate, InternalCode, StoreCode, Status, VendorCode) - rujuk migrasi dgn nama yg sama. */
     private const COVERING_INDEX = 'idx_mirror_supplier_lookup_covering';
 
+    /** Index covering jualan (SalesDate, InternalCode, StoreCode, VendorCode, Status) - rujuk migrasi dgn nama yg sama. */
+    private const SALES_INDEX = 'idx_mirror_supplier_sales_covering';
+
     /** Index covering imej (InternalCode, image_source, image_url) & nickname (InternalCode, nickname) utk butiran. */
     private const IMAGE_INDEX = 'idx_mirror_board_image_ref_covering';
 
     private const NICKNAME_INDEX = 'idx_mirror_board_nickname_covering';
 
-    public function __construct(private readonly Carbon $from, private readonly Carbon $to) {}
+    /**
+     * @param  Carbon  $from  tempoh STOCK IN (PurchDate) - Total Amik/Buy
+     * @param  Carbon  $salesFrom  tempoh JUALAN (SalesDate) - Total Sold
+     */
+    public function __construct(
+        private readonly Carbon $from,
+        private readonly Carbon $to,
+        private readonly Carbon $salesFrom,
+        private readonly Carbon $salesTo,
+    ) {}
 
-    public static function forDays(int $days): self
+    /** Tempoh stock in $days hari terakhir & tempoh jualan $salesDays hari terakhir (lalai = sama dgn $days). */
+    public static function forDays(int $days, ?int $salesDays = null): self
     {
         $to = now()->endOfDay();
+        $salesDays ??= $days;
 
-        return new self($to->copy()->subDays($days - 1)->startOfDay(), $to);
+        return new self(
+            $to->copy()->subDays($days - 1)->startOfDay(),
+            $to,
+            $to->copy()->subDays($salesDays - 1)->startOfDay(),
+            $to->copy(),
+        );
     }
 
     public static function normalizeDays(mixed $days): int
@@ -137,30 +164,57 @@ final class SupplierLookup
     }
 
     /**
-     * Semua design SATU supplier dlm tempoh: kod + setiap cawangan => [Amik, Sold]. Disusun ikut kod (klien yg menyusun semula).
+     * Semua design SATU supplier: kod + setiap cawangan => [Amik, Sold, Available]. Disusun ikut kod (klien yg menyusun semula).
      *
-     * @return list<array{code: string, stores: array<string, array{0: int, 1: int}>}>
+     * DUA tempoh bebas: Amik = piece yg PurchDate-nya dlm tempoh STOCK IN; Sold = SEMUA piece supplier itu yg terjual (Status 0/9) dgn
+     * SalesDate dlm tempoh JUALAN (walaupun masuk sebelum tempoh stock in); Available = baki batch stock in yg belum terjual (Amik tolak
+     * piece batch itu yg sudah terjual - bila-bila masa), jadi tak negatif. Design yg hanya ada jualan (tiada stock in dlm tempoh) muncul
+     * dgn Amik 0.
+     *
+     * Setiap design turut membawa `category` (kod kategori, null jika tiada) utk penapis kategori di pelayar.
+     *
+     * @return list<array{code: string, category: ?string, stores: array<string, array{0: int, 1: int, 2: int}>}>
      */
     public function designs(string $supplier): array
     {
         $designs = [];
+        $categories = self::categoryByDesign();
+
+        // Kod mentah berbeza selepas trim (cth. aksara TAB) atau hanya berbeza huruf besar/kecil (cermin ada 'WEB' & 'web') boleh
+        // jatuh pd design & cawangan yg sama - kod cawangan diseragamkan kpd HURUF BESAR & dijumlahkan.
+        $add = function (array $group, string $key) use (&$designs): void {
+            $store = strtoupper($group['store']);
+            $designs[$group['code']]['code'] = $group['code'];
+            $entry = $designs[$group['code']]['stores'][$store] ?? ['buy' => 0, 'batch_sold' => 0, 'sold' => 0];
+
+            if ($key === 'stock_in') {
+                $entry['buy'] += $group['buy'];
+                $entry['batch_sold'] += $group['sold'];
+            } else {
+                $entry['sold'] += $group['sold'];
+            }
+
+            $designs[$group['code']]['stores'][$store] = $entry;
+        };
 
         foreach ($this->groups($supplier) as $group) {
-            $designs[$group['code']]['code'] = $group['code'];
+            $add($group, 'stock_in');
+        }
 
-            // Kod mentah berbeza selepas trim (cth. aksara TAB) atau hanya berbeza huruf besar/kecil (cermin ada 'WEB' & 'web') boleh
-            // jatuh pd design & cawangan yg sama - kod cawangan diseragamkan kpd HURUF BESAR & dijumlahkan.
-            $store = strtoupper($group['store']);
-            $buy = ($designs[$group['code']]['stores'][$store][0] ?? 0) + $group['buy'];
-            $sold = ($designs[$group['code']]['stores'][$store][1] ?? 0) + $group['sold'];
-            $designs[$group['code']]['stores'][$store] = [$buy, $sold];
+        foreach ($this->salesGroups($supplier) as $group) {
+            $add($group, 'sales');
         }
 
         ksort($designs, SORT_STRING);
 
         // Cawangan juga disusun (kekunci) - susunan tetap, tidak bergantung pd susunan baris DB.
-        return array_values(array_map(function (array $design): array {
+        return array_values(array_map(function (array $design) use ($categories): array {
             ksort($design['stores'], SORT_STRING);
+            $design['category'] = $categories[$design['code']] ?? null;
+            $design['stores'] = array_map(
+                fn (array $entry): array => [$entry['buy'], $entry['sold'], max(0, $entry['buy'] - $entry['batch_sold'])],
+                $design['stores'],
+            );
 
             return $design;
         }, $designs));
@@ -243,11 +297,18 @@ final class SupplierLookup
      *
      * @param  list<string>  $branches
      * @param  list<array{key: string, dir: string}>  $sorts  rujuk parseSorts()
+     * @param  list<string>  $categories  kod kategori yg dipilih (kosong = semua)
      * @return list<array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float, requested: int, branches: list<array{store: string, buy: int, sold: int, available: int, requested: int}>, nickname: ?string, image_url: ?string, image_reference: bool}>
      */
-    public function exportRows(string $supplier, array $branches, array $sorts): array
+    public function exportRows(string $supplier, array $branches, array $sorts, array $categories = []): array
     {
         $designs = $this->designs($supplier);
+
+        if ($categories !== []) {
+            $wanted = array_flip(array_map('strtoupper', $categories));
+            $designs = array_values(array_filter($designs, fn (array $design): bool => isset($wanted[strtoupper((string) $design['category'])])));
+        }
+
         $rows = self::sorted(self::rollUp($designs, $branches, self::demandFor($designs)), $sorts);
         $details = self::detailsFor(array_values(array_unique(array_column($rows, 'code'))), self::EXPORT_DETAIL_CHUNK);
 
@@ -262,7 +323,7 @@ final class SupplierLookup
      * minta (termasuk yg tak pernah ambil piece drpd supplier ini - muncul dlm `branches` utk popover); mod cawangan = permintaan
      * cawangan baris itu sahaja (cawangan yg minta tapi tiada piece diambil tidak mendapat baris sendiri).
      *
-     * @param  list<array{code: string, stores: array<string, array{0: int, 1: int}>}>  $designs
+     * @param  list<array{code: string, stores: array<string, array{0: int, 1: int, 2: int}>}>  $designs
      * @param  list<string>  $branches
      * @param  array<string, array<string, int>>  $demand  kod => [cawangan => qty] (demandFor())
      * @return list<array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float, requested: int, branches: list<array{store: string, buy: int, sold: int, available: int, requested: int}>}>
@@ -281,18 +342,26 @@ final class SupplierLookup
                 $breakdown = [];
 
                 foreach ($stores as $store) {
-                    [$storeBuy, $storeSold] = $design['stores'][$store] ?? [0, 0];
-                    $breakdown[] = ['store' => (string) $store, 'buy' => $storeBuy, 'sold' => $storeSold, 'available' => $storeBuy - $storeSold, 'requested' => $requested[$store] ?? 0];
+                    [$storeBuy, $storeSold, $storeAvailable] = $design['stores'][$store] ?? [0, 0, 0];
+                    $breakdown[] = ['store' => (string) $store, 'buy' => $storeBuy, 'sold' => $storeSold, 'available' => $storeAvailable, 'requested' => $requested[$store] ?? 0];
                 }
 
-                $rows[] = self::makeRow($design['code'], null, array_sum(array_column($design['stores'], 0)), array_sum(array_column($design['stores'], 1)), array_sum($requested), $breakdown);
+                $rows[] = self::makeRow(
+                    $design['code'],
+                    null,
+                    array_sum(array_column($design['stores'], 0)),
+                    array_sum(array_column($design['stores'], 1)),
+                    array_sum(array_column($design['stores'], 2)),
+                    array_sum($requested),
+                    $breakdown,
+                );
 
                 continue;
             }
 
             foreach ($branches as $branch) {
                 if (isset($design['stores'][$branch])) {
-                    $rows[] = self::makeRow($design['code'], $branch, $design['stores'][$branch][0], $design['stores'][$branch][1], $requested[$branch] ?? 0);
+                    $rows[] = self::makeRow($design['code'], $branch, $design['stores'][$branch][0], $design['stores'][$branch][1], $design['stores'][$branch][2], $requested[$branch] ?? 0);
                 }
             }
         }
@@ -308,7 +377,7 @@ final class SupplierLookup
      * request Cancelled juga tak dikira. Kuantiti = qty_requested; cawangan = store_code request (termasuk WEB). Line tanpa internal_code
      * (web/upload yg belum dipadankan) tak boleh dipadankan dgn design.
      *
-     * @param  list<array{code: string, stores: array<string, array{0: int, 1: int}>}>  $designs
+     * @param  list<array{code: string, stores: array<string, array{0: int, 1: int, 2: int}>}>  $designs
      * @return array<string, array<string, int>> kod design => [cawangan => qty]
      */
     public static function demandFor(array $designs): array
@@ -371,9 +440,210 @@ final class SupplierLookup
      * @param  list<array{store: string, buy: int, sold: int, available: int, requested: int}>  $breakdown
      * @return array{code: string, store: ?string, buy: int, sold: int, available: int, percent: float, requested: int, branches: list<array{store: string, buy: int, sold: int, available: int, requested: int}>}
      */
-    private static function makeRow(string $code, ?string $store, int $buy, int $sold, int $requested, array $breakdown = []): array
+    private static function makeRow(string $code, ?string $store, int $buy, int $sold, int $available, int $requested, array $breakdown = []): array
     {
-        return ['code' => $code, 'store' => $store, 'buy' => $buy, 'sold' => $sold, 'available' => $buy - $sold, 'percent' => $buy > 0 ? (float) ($sold / $buy * 100) : 0.0, 'requested' => $requested, 'branches' => $breakdown];
+        return ['code' => $code, 'store' => $store, 'buy' => $buy, 'sold' => $sold, 'available' => $available, 'percent' => $buy > 0 ? (float) ($sold / $buy * 100) : 0.0, 'requested' => $requested, 'branches' => $breakdown];
+    }
+
+    /**
+     * Kategori setiap design (kod kategori, ditrim; kod kosong = tiada) merentas SELURUH cermin - satu imbasan index covering
+     * (CategoryCode, InternalCode) ~3 saat, di-cache (kunci mengandungi masa segerak cermin). Design yg tersenarai dlm >1 kategori
+     * (sangat jarang) dapat kategori dgn kod terbesar supaya konsisten.
+     *
+     * @return array<string, string> kod design => kod kategori
+     */
+    public static function categoryByDesign(): array
+    {
+        $key = 'supplier-lookup:categories:v1:'.md5((string) InventoryPiece::query()->max('synced_at'));
+
+        return Cache::remember($key, now()->addMinutes(self::CACHE_MINUTES), function (): array {
+            $map = [];
+
+            DB::table((new InventoryPiece)->getTable())
+                ->whereNotNull('InternalCode')
+                ->where('InternalCode', '!=', '')
+                ->selectRaw('TRIM(InternalCode) as code, MAX(TRIM(CategoryCode)) as category')
+                ->groupBy('code')
+                ->orderBy('code')
+                ->get()
+                ->each(function (object $row) use (&$map): void {
+                    if (filled($row->category)) {
+                        $map[(string) $row->code] = (string) $row->category;
+                    }
+                });
+
+            return $map;
+        });
+    }
+
+    /**
+     * Nama kategori (kod => keterangan) utk kod yg diberi; keterangan kosong jatuh balik ke kod.
+     *
+     * @param  list<string>  $codes
+     * @return array<string, string>
+     */
+    public static function categoryNames(array $codes): array
+    {
+        if ($codes === []) {
+            return [];
+        }
+
+        $descriptions = Category::query()->get(['CategoryCode', 'Description'])
+            ->mapWithKeys(fn (Category $category): array => [trim((string) $category->CategoryCode) => trim((string) $category->Description)]);
+
+        $names = [];
+
+        foreach ($codes as $code) {
+            $names[$code] = filled($descriptions[$code] ?? null) ? $descriptions[$code] : $code;
+        }
+
+        ksort($names, SORT_STRING);
+
+        return $names;
+    }
+
+    /**
+     * Butiran SATU design utk halaman butiran (semua supplier, semua cawangan, semua masa): maklumat asas (nickname, kategori, saiz, berat,
+     * supplier), stok & jualan mengikut cawangan (+ Branch Requested), dan senarai piece (terkini dahulu, dihadkan DESIGN_PIECE_LIMIT).
+     * Gambar TIDAK dikira di sini (kikis laman web boleh lambat) - rujuk designImages(). Null jika kod tiada satu piece pun.
+     *
+     * @return array{
+     *     code: string, nickname: ?string, description: ?string, category: ?array{code: string, name: string},
+     *     sizes: list<string>, sizes_available: list<string>, weight: array{min: float, max: float}, length: ?string, vendors: list<array{code: string, name: string}>,
+     *     suppliers: list<array{code: string, name: string, buy: int, sold: int, available: int}>,
+     *     totals: array{pieces: int, on_hand: int, sold: int}, branches: list<array{store: string, pieces: int, on_hand: int, sold: int, requested: int}>,
+     *     pieces: list<array{inventory_code: string, store: string, status: string, status_label: string, vendor: string, size: ?string, weight: float, purchased_at: ?string, sold_at: ?string, purchased_on: ?string, sold_on: ?string}>,
+     *     pieces_total: int
+     * }|null
+     */
+    public static function designDetail(string $code, ?int $pieceLimit = null): ?array
+    {
+        $code = trim($code);
+        $table = (new InventoryPiece)->getTable();
+
+        if ($code === '') {
+            return null;
+        }
+
+        $soldList = "'".implode("','", self::SOLD_STATUSES)."'";
+
+        $meta = DB::table($table)->where('InternalCode', $code)
+            ->selectRaw('COUNT(*) as pieces, MAX(nickname) as nickname, MAX(Description) as description, MAX(TRIM(CategoryCode)) as category, MIN(GoldWeight) as w_min, MAX(GoldWeight) as w_max, MAX(JewelLength) as length')
+            ->first();
+
+        if ($meta === null || (int) $meta->pieces === 0) {
+            return null;
+        }
+
+        $branches = [];
+
+        foreach (DB::table($table)->where('InternalCode', $code)
+            ->selectRaw("StoreCode, COUNT(*) as pieces, SUM(CASE WHEN QtyOnHand = 1 THEN 1 ELSE 0 END) as on_hand, SUM(CASE WHEN Status IN ({$soldList}) THEN 1 ELSE 0 END) as sold")
+            ->groupBy('StoreCode')->get() as $row) {
+            // 'WEB' & 'web' ialah cawangan yg sama (rujuk designs()).
+            $store = strtoupper(trim((string) $row->StoreCode));
+            $entry = $branches[$store] ?? ['store' => $store, 'pieces' => 0, 'on_hand' => 0, 'sold' => 0, 'requested' => 0];
+            $entry['pieces'] += (int) $row->pieces;
+            $entry['on_hand'] += (int) $row->on_hand;
+            $entry['sold'] += (int) $row->sold;
+            $branches[$store] = $entry;
+        }
+
+        foreach (self::demandFor([['code' => $code, 'stores' => []]])[$code] ?? [] as $store => $qty) {
+            $branches[$store] ??= ['store' => $store, 'pieces' => 0, 'on_hand' => 0, 'sold' => 0, 'requested' => 0];
+            $branches[$store]['requested'] = $qty;
+        }
+
+        ksort($branches, SORT_STRING);
+
+        $vendorCodes = DB::table($table)->where('InternalCode', $code)->selectRaw('DISTINCT TRIM(VendorCode) as vendor')->pluck('vendor')
+            ->filter(fn ($vendor) => filled($vendor) && $vendor !== '.')->values();
+        $vendorNames = Vendor::query()->whereIn('VendorCode', $vendorCodes)->get(['VendorCode', 'Description'])
+            ->mapWithKeys(fn (Vendor $vendor): array => [trim((string) $vendor->VendorCode) => trim((string) $vendor->Description)]);
+
+        // Senarai supplier yg ada design ini (semua masa): Ambil = semua piece daripadanya, Sold = yg terjual (Status 0/9), Available = Ambil tolak Sold.
+        $suppliers = DB::table($table)->where('InternalCode', $code)
+            ->selectRaw("TRIM(VendorCode) as vendor, COUNT(*) as buy, SUM(CASE WHEN Status IN ({$soldList}) THEN 1 ELSE 0 END) as sold")
+            ->groupBy('vendor')->orderByDesc('buy')->orderBy('vendor')->get()
+            ->filter(fn (object $row) => filled($row->vendor) && $row->vendor !== '.')
+            ->map(fn (object $row): array => [
+                'code' => (string) $row->vendor,
+                'name' => filled($vendorNames[$row->vendor] ?? null) ? $vendorNames[$row->vendor] : (string) $row->vendor,
+                'buy' => (int) $row->buy,
+                'sold' => (int) $row->sold,
+                'available' => (int) $row->buy - (int) $row->sold,
+            ])->values()->all();
+
+        // Saiz: SEMUA yg pernah di-stock in (`sizes`) & yg ADA STOK sekarang (`sizes_available`, QtyOnHand = 1) - susunan nombor semula jadi (7, 7.5, 8, ...).
+        $sizesWhere = fn (bool $onHandOnly): array => DB::table($table)->where('InternalCode', $code)->whereNotNull('JewelSize')
+            ->when($onHandOnly, fn ($query) => $query->where('QtyOnHand', 1))
+            ->selectRaw('DISTINCT JewelSize as size')->pluck('size')
+            ->map(fn ($size) => RestockAnalysisCalculator::sizeLabel($size))->reject(fn (string $size) => $size === '(tiada)')
+            ->unique()->sort(SORT_NATURAL)->values()->all();
+        $sizes = $sizesWhere(false);
+        $sizesAvailable = $sizesWhere(true);
+
+        $categoryCode = filled($meta->category) ? (string) $meta->category : null;
+
+        $pieces = DB::table($table)->where('InternalCode', $code)
+            ->orderByDesc('PurchDate')->orderBy('InventoryCode')->limit($pieceLimit ?? self::DESIGN_PIECE_LIMIT)
+            ->get(['InventoryCode', 'StoreCode', 'Status', 'VendorCode', 'GoldWeight', 'JewelSize', 'PurchDate', 'SalesDate'])
+            ->map(fn (object $piece): array => [
+                'inventory_code' => trim((string) $piece->InventoryCode),
+                'store' => strtoupper(trim((string) $piece->StoreCode)),
+                'status' => trim((string) $piece->Status),
+                'status_label' => JemisysInventoryStatus::labelFor(trim((string) $piece->Status)),
+                'vendor' => trim((string) $piece->VendorCode),
+                'size' => ($size = RestockAnalysisCalculator::sizeLabel($piece->JewelSize)) === '(tiada)' ? null : $size,
+                'weight' => round((float) $piece->GoldWeight, 2),
+                'purchased_at' => $piece->PurchDate ? Carbon::parse($piece->PurchDate)->format('d/m/Y') : null,
+                'sold_at' => $piece->SalesDate ? Carbon::parse($piece->SalesDate)->format('d/m/Y') : null,
+                // Tarikh ISO utk susunan di pelayar (d/m/Y tak boleh disusun sbg teks).
+                'purchased_on' => $piece->PurchDate ? Carbon::parse($piece->PurchDate)->toDateString() : null,
+                'sold_on' => $piece->SalesDate ? Carbon::parse($piece->SalesDate)->toDateString() : null,
+            ])->all();
+
+        return [
+            'code' => $code,
+            'nickname' => filled($meta->nickname) ? trim((string) $meta->nickname) : null,
+            'description' => filled($meta->description) ? trim((string) $meta->description) : null,
+            'category' => $categoryCode === null ? null : ['code' => $categoryCode, 'name' => self::categoryNames([$categoryCode])[$categoryCode] ?? $categoryCode],
+            'sizes' => $sizes,
+            'sizes_available' => $sizesAvailable,
+            'weight' => ['min' => round((float) $meta->w_min, 2), 'max' => round((float) $meta->w_max, 2)],
+            'length' => filled($meta->length) && (float) $meta->length > 0 ? RestockAnalysisCalculator::sizeLabel($meta->length) : null,
+            'suppliers' => $suppliers,
+            'vendors' => $vendorCodes->map(fn (string $vendor): array => ['code' => $vendor, 'name' => filled($vendorNames[$vendor] ?? null) ? $vendorNames[$vendor] : $vendor])->all(),
+            'totals' => [
+                'pieces' => (int) $meta->pieces,
+                'on_hand' => array_sum(array_column($branches, 'on_hand')),
+                'sold' => array_sum(array_column($branches, 'sold')),
+            ],
+            'branches' => array_values($branches),
+            'pieces' => $pieces,
+            'pieces_total' => (int) $meta->pieces,
+        ];
+    }
+
+    /**
+     * Semua gambar satu design utk carousel: gambar laman web (kikisan, cache sehari) dahulu, kemudian gambar cermin jika berbeza/satu-satunya.
+     * Boleh lambat kali pertama (kikisan) - sebab itu dihantar DITANGGUH. `reference` = gambar cermin yg sekadar rujukan (berat terdekat).
+     *
+     * @return array{urls: list<string>, reference: bool}
+     */
+    public static function designImages(string $code): array
+    {
+        $code = trim($code);
+        $urls = array_values(array_unique(ProductImageFetcher::imageUrlsFor($code)));
+        $mirror = ProductImageFetcher::mirrorImageFor($code);
+
+        if ($mirror !== null && ! in_array($mirror, $urls, true)) {
+            $urls[] = $mirror;
+        }
+
+        $reference = $mirror !== null && ProductImageFetcher::isReferenceImage(ProductImageFetcher::referenceImages([$code]), $code, $mirror);
+
+        return ['urls' => $urls, 'reference' => $reference];
     }
 
     /**
@@ -421,7 +691,9 @@ final class SupplierLookup
     /** Panaskan cache agregat tempoh ini (rujuk perintah `supplier-lookup:warm`); pulangkan bilangan baris design x cawangan x supplier. */
     public function warm(): int
     {
-        return $this->ensurePartitions();
+        self::categoryByDesign();
+
+        return $this->ensurePartitions() + $this->ensureSalesPartitions();
     }
 
     /**
@@ -435,6 +707,70 @@ final class SupplierLookup
         $this->ensurePartitions();
 
         return Cache::get($this->cachePrefix().':vendor:'.$supplier, []);
+    }
+
+    /**
+     * Jualan (Status 0/9, SalesDate dlm tempoh JUALAN) bagi SATU supplier ikut design x cawangan - dicache berasingan drpd stock in supaya
+     * dua tempoh boleh digabung bebas tanpa mengira semula yg lain.
+     *
+     * @return list<array{code: string, store: string, vendor: string, sold: int}>
+     */
+    private function salesGroups(string $supplier): array
+    {
+        $this->ensureSalesPartitions();
+
+        return Cache::get($this->salesCachePrefix().':vendor:'.$supplier, []);
+    }
+
+    private function salesCachePrefix(): string
+    {
+        return sprintf(
+            'supplier-lookup-sales:v1:%s:%s:%s',
+            $this->salesFrom->toDateString(),
+            $this->salesTo->toDateString(),
+            md5((string) InventoryPiece::query()->max('synced_at')),
+        );
+    }
+
+    /** Sama spt ensurePartitions() utk agregat jualan. */
+    private function ensureSalesPartitions(): int
+    {
+        $prefix = $this->salesCachePrefix();
+
+        return Cache::remember($prefix.':ready', now()->addMinutes(self::CACHE_MINUTES), function () use ($prefix): int {
+            $groups = $this->aggregateSales();
+
+            foreach (collect($groups)->groupBy('vendor') as $vendor => $rows) {
+                Cache::put($prefix.':vendor:'.$vendor, $rows->values()->all(), now()->addMinutes(self::CACHE_MINUTES));
+            }
+
+            return count($groups);
+        });
+    }
+
+    /**
+     * @return list<array{code: string, store: string, vendor: string, sold: int}>
+     */
+    private function aggregateSales(): array
+    {
+        return InventoryPiece::query()
+            ->when($this->hasIndex(self::SALES_INDEX), fn ($query) => $query->useIndex(self::SALES_INDEX))
+            ->realVendor()
+            ->whereNotNull('InternalCode')
+            ->where('InternalCode', '!=', '')
+            ->whereIn('Status', self::SOLD_STATUSES)
+            ->whereBetween('SalesDate', [$this->salesFrom->toDateTimeString(), $this->salesTo->toDateTimeString()])
+            ->selectRaw('InternalCode, StoreCode, TRIM(VendorCode) as vendor, COUNT(*) as sold')
+            ->groupBy('InternalCode', 'StoreCode', 'vendor')
+            ->toBase()
+            ->get()
+            ->map(fn ($row): array => [
+                'code' => trim((string) $row->InternalCode),
+                'store' => trim((string) $row->StoreCode),
+                'vendor' => (string) $row->vendor,
+                'sold' => (int) $row->sold,
+            ])
+            ->all();
     }
 
     /**
@@ -475,7 +811,7 @@ final class SupplierLookup
 
         // Hanya lajur dlm index covering: query dijawab drpd index sahaja (diukur ~0.3 saat utk 30 hari).
         return InventoryPiece::query()
-            ->when($this->hasCoveringIndex(), fn ($query) => $query->useIndex(self::COVERING_INDEX))
+            ->when($this->hasIndex(self::COVERING_INDEX), fn ($query) => $query->useIndex(self::COVERING_INDEX))
             ->realVendor()
             ->whereNotNull('InternalCode')
             ->where('InternalCode', '!=', '')
@@ -515,11 +851,11 @@ final class SupplierLookup
     }
 
     /** Index covering mungkin belum wujud (migrasi belum dijalankan) - tanpa petunjuk index, query tetap betul tetapi perlahan. */
-    private function hasCoveringIndex(): bool
+    private function hasIndex(string $index): bool
     {
-        return Cache::remember('supplier-lookup:covering-index', now()->addHour(), function (): bool {
+        return Cache::remember('supplier-lookup:has-index:'.$index, now()->addHour(), function () use ($index): bool {
             try {
-                return Schema::hasIndex('jemisys_inventory_mirror', self::COVERING_INDEX);
+                return Schema::hasIndex('jemisys_inventory_mirror', $index);
             } catch (\Throwable) {
                 return false;
             }

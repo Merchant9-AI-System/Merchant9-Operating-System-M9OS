@@ -40,8 +40,11 @@
     <img class="brand" src="{{ asset('images/brand/merchant9-lockup-horizontal.png') }}" alt="Merchant9 Operating Systems">
     <h1>Supplier Lookup - {{ $supplierName }} ({{ $supplierCode }})</h1>
     <p class="meta">
-        {{ $days }} hari terakhir &middot;
+        Stock in {{ $days }} hari &middot; Jualan {{ $salesDays }} hari &middot;
         {{ $branchMode ? 'Cawangan: '.implode(', ', $branches) : 'Semua cawangan' }} &middot;
+        @if ($categories !== [])
+            Kategori: {{ implode(', ', $categories) }} &middot;
+        @endif
         Disusun: {{ $sortLabel }} &middot;
         {{ now()->format('d/m/Y H:i') }} &middot; {{ $generatedBy }}
     </p>

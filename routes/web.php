@@ -53,6 +53,7 @@ Route::middleware('auth')->group(function () {
     // Supplier Lookup - sell-through setiap design drpd piece yg diambil dlm tempoh (Total Amik, Sold, Available, %), role sama
     // dgn Back Office Actions (rujuk SupplierLookupController & App\Support\SupplierLookup dokblok).
     Route::get('/supplier-lookup', [SupplierLookupController::class, 'index'])->name('supplier-lookup.index');
+    Route::get('/supplier-lookup/design/{code}', [SupplierLookupController::class, 'design'])->where('code', '[^/]+')->name('supplier-lookup.design');
     Route::get('/supplier-lookup/suggestions', [SupplierLookupController::class, 'suggestions'])->middleware('throttle:120,1')->name('supplier-lookup.suggestions');
     Route::get('/supplier-lookup/details', [SupplierLookupController::class, 'details'])->middleware('throttle:240,1')->name('supplier-lookup.details');
     Route::get('/supplier-lookup/export', [SupplierLookupController::class, 'export'])->middleware('throttle:20,1')->name('supplier-lookup.export');

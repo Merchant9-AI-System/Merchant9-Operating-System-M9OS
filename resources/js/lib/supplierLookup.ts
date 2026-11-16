@@ -17,10 +17,13 @@ export const DEFAULT_SORTS: SortSpec[] = [];
 // Paling banyak kunci susunan serentak (salinan SupplierLookup::MAX_SORTS di PHP).
 export const MAX_SORTS = 5;
 
-// Satu design supplier: setiap cawangan -> [Total Amik/Buy, Total Sold].
+// Satu design supplier: setiap cawangan -> [Total Amik/Buy, Total Sold, Total Available]. Amik ikut tempoh STOCK IN, Sold ikut tempoh
+// JUALAN (dua tempoh bebas), Available = baki batch stock in yg belum terjual (dikira server - bukan Amik tolak Sold).
 export interface LookupDesign {
     code: string;
-    stores: Record<string, [number, number]>;
+    // Kod kategori (null = tiada) utk penapis kategori.
+    category: string | null;
+    stores: Record<string, [number, number, number]>;
 }
 
 // Permintaan cawangan yg belum selesai (Branch Requested): kod design -> cawangan -> qty. Dikira segar oleh server (SupplierLookup::demandFor()),
@@ -72,8 +75,8 @@ export const COLUMN_LABELS = {
 // Bukan cawangan sebenar - tak ditawarkan sbg pilihan cawangan (masih dikira dlm jumlah tanpa tapisan).
 const EXCLUDED_BRANCHES = ['SECURITY'];
 
-function makeRow(code: string, store: string | null, buy: number, sold: number, requested: number, branches: BranchFigures[] = []): LookupRow {
-    return { code, store, buy, sold, available: buy - sold, percent: buy > 0 ? (sold / buy) * 100 : 0, requested, branches };
+function makeRow(code: string, store: string | null, buy: number, sold: number, available: number, requested: number, branches: BranchFigures[] = []): LookupRow {
+    return { code, store, buy, sold, available, percent: buy > 0 ? (sold / buy) * 100 : 0, requested, branches };
 }
 
 // Tanpa cawangan dipilih: satu baris setiap design (jumlah semua cawangan) + `branches` (pecahan ikut cawangan utk popover). Dgn cawangan
@@ -90,6 +93,7 @@ export function rollUp(designs: LookupDesign[], branches: string[], demand: Look
         if (branches.length === 0) {
             let buy = 0;
             let sold = 0;
+            let available = 0;
             let requestedTotal = 0;
             const breakdown: BranchFigures[] = [];
 
@@ -97,16 +101,17 @@ export function rollUp(designs: LookupDesign[], branches: string[], demand: Look
             const stores = [...new Set([...Object.keys(design.stores), ...Object.keys(requested)])].sort(compareText);
 
             for (const store of stores) {
-                const [storeBuy, storeSold] = design.stores[store] ?? [0, 0];
+                const [storeBuy, storeSold, storeAvailable] = design.stores[store] ?? [0, 0, 0];
                 const storeRequested = requested[store] ?? 0;
 
                 buy += storeBuy;
                 sold += storeSold;
+                available += storeAvailable;
                 requestedTotal += storeRequested;
-                breakdown.push({ store, buy: storeBuy, sold: storeSold, available: storeBuy - storeSold, requested: storeRequested });
+                breakdown.push({ store, buy: storeBuy, sold: storeSold, available: storeAvailable, requested: storeRequested });
             }
 
-            rows.push(makeRow(design.code, null, buy, sold, requestedTotal, breakdown));
+            rows.push(makeRow(design.code, null, buy, sold, available, requestedTotal, breakdown));
 
             continue;
         }
@@ -115,7 +120,7 @@ export function rollUp(designs: LookupDesign[], branches: string[], demand: Look
             const figures = design.stores[branch];
 
             if (figures) {
-                rows.push(makeRow(design.code, branch, figures[0], figures[1], requested[branch] ?? 0));
+                rows.push(makeRow(design.code, branch, figures[0], figures[1], figures[2], requested[branch] ?? 0));
             }
         }
     }
@@ -171,6 +176,32 @@ export function paginate<T>(rows: T[], page: number, pageSize: number = PAGE_SIZ
     const current = Math.min(Math.max(1, page), lastPage);
 
     return { rows: rows.slice((current - 1) * pageSize, current * pageSize), page: current, lastPage, total };
+}
+
+// Pilihan kategori drpd data yg dimuat: kategori yg ada pd design + bilangan design; label = nama (names: kod -> nama) atau kod.
+export function categoryOptions(designs: LookupDesign[], names: Record<string, string>): BranchOption[] {
+    const counts = new Map<string, number>();
+
+    for (const design of designs) {
+        if (design.category) {
+            counts.set(design.category, (counts.get(design.category) ?? 0) + 1);
+        }
+    }
+
+    return [...counts.entries()]
+        .map(([code, count]) => ({ value: code, label: names[code] || code, count }))
+        .sort((a, b) => compareText(a.label.toLowerCase(), b.label.toLowerCase()));
+}
+
+// Tapis design ikut kategori terpilih (kosong = semua).
+export function filterByCategories(designs: LookupDesign[], categories: string[]): LookupDesign[] {
+    if (categories.length === 0) {
+        return designs;
+    }
+
+    const wanted = new Set(categories);
+
+    return designs.filter((design) => design.category !== null && wanted.has(design.category));
 }
 
 // Pilihan cawangan drpd data yg dimuat: cawangan yg ada piece diambil + bilangan design.

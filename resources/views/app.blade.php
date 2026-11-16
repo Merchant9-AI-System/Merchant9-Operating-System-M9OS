@@ -28,6 +28,16 @@
             background-color: oklch(0.145 0 0);
         }
     </style> --}}
+    {{-- Mod cerah/gelap: tetapkan kelas `dark` SEBELUM paparan (elak kerlipan). Selaras dgn resources/js/lib/appearance.ts (kunci m9os-appearance). --}}
+    <script>
+        (function () {
+            try {
+                var stored = localStorage.getItem('m9os-appearance');
+                var dark = stored === 'dark' || (stored !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                document.documentElement.classList.toggle('dark', dark);
+            } catch (e) {}
+        })();
+    </script>
     <title inertia>{{ config('app.name') }}</title>
     @include('partials.share-meta')
 

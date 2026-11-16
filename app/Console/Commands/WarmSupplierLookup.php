@@ -17,7 +17,7 @@ class WarmSupplierLookup extends Command
             $start = microtime(true);
             $groups = SupplierLookup::forDays($days)->warm();
 
-            $this->line(sprintf('%3d hari: %s baris design x cawangan (%d ms)', $days, number_format($groups), round((microtime(true) - $start) * 1000)));
+            $this->line(sprintf('%3d hari (stock in + jualan): %s baris design x cawangan (%d ms)', $days, number_format($groups), round((microtime(true) - $start) * 1000)));
         }
 
         return self::SUCCESS;
