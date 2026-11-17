@@ -737,7 +737,7 @@ function submit() {
             <!-- Cawangan + Nama PIC dipindah ke sini (bukan Card berasingan) supaya seksyen
                  "Cari & Tambah Item" naik ke atas - InputGroup + icon sahaja (tiada label teks). -->
             <div class="flex flex-wrap items-start gap-3">
-                <InputGroup class="w-38 bg-input/50">
+                <InputGroup class="w-auto bg-input/50 shadow-none">
                     <InputGroupAddon>
                         <Store class="size-4" />
                     </InputGroupAddon>
@@ -753,7 +753,7 @@ function submit() {
                         </SelectContent>
                     </Select>
                 </InputGroup>
-                <InputGroup class="w-48 bg-input/50">
+                <InputGroup class="w-48 bg-input/50 shadow-none">
                     <InputGroupAddon>
                         <User class="size-4" />
                     </InputGroupAddon>
@@ -1064,11 +1064,11 @@ function submit() {
                                                 <span v-if="line.internal_code">{{ line.internal_code }} -</span>
                                                 {{ line.item_desc }}
                                                 <Badge v-if="line.source_type === 'web'" variant="outline"
-                                                    class="text-xs bg-white">
+                                                    class="text-xs bg-white text-muted-foreground">
                                                     Laman Web
                                                 </Badge>
                                                 <Badge v-if="line.source_type === 'upload'" variant="outline"
-                                                    class="text-xs bg-white">
+                                                    class="text-xs bg-white text-muted-foreground">
                                                     Gambar Sendiri
                                                 </Badge>
                                             </p>
@@ -1091,11 +1091,10 @@ function submit() {
                                         </div>
                                         <Badge variant="secondary"
                                             :class="`text-xs shrink-0 font-medium ${fulfillmentBadgeClass(line.fulfillment_status)}`">
-                                            <!-- {{ isTerminal(line.fulfillment_status) ? 0 : line.qty_requested }} unit -->
                                             {{ line.fulfillment_label }}
                                         </Badge>
                                         <Button v-if="isTerminal(line.fulfillment_status)"
-                                            :class="isTerminal(line.fulfillment_status) ? 'text-primary' : ''"
+                                            :class="isTerminal(line.fulfillment_status) ? 'text-primary opacity-0' : ''"
                                             type="button" variant="outline" size="icon" class="shrink-0"
                                             @click="requestAgain(line)">
                                             <Plus class="size-4" />

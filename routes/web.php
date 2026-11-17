@@ -2,18 +2,22 @@
 
 use App\Http\Controllers\BackOfficeActionsController;
 use App\Http\Controllers\BranchDemandEntryController;
+use App\Http\Controllers\BranchTargetController;
+use App\Http\Controllers\ChecklistToggleController;
+use App\Http\Controllers\DesignImagesController;
 use App\Http\Controllers\ExpenseClaimController;
 use App\Http\Controllers\HomeController;
+use App\Http\Controllers\HqDirectionAcknowledgeController;
 use App\Http\Controllers\JobsheetLookupController;
 use App\Http\Controllers\ProductImagesController;
 use App\Http\Controllers\SupplierLookupController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
-Route::get('/page', function () {
-    // return view('welcome');
-    return Inertia::render('LandingPage/FirstPage');
-});
+// Route::get('/page', function () {
+//     // return view('welcome');
+//     return Inertia::render('LandingPage/FirstPage');
+// });
 
 Route::redirect('/', '/home');
 
@@ -23,6 +27,18 @@ Route::redirect('/', '/home');
 Route::middleware('auth')->group(function () {
     // Ringkasan semalam ikut peranan - halaman pertama selepas log masuk (rujuk HomeController).
     Route::get('/home', HomeController::class)->name('home');
+
+    // Imej design utk senarai /home (dimuatkan lazy bila baris kelihatan) - rujuk DesignImagesController.
+    Route::get('/home/design-images', DesignImagesController::class)->name('home.design-images');
+
+    // Ketua cawangan menanda arahan HQ sebagai "Faham" (rujuk HqDirectionAcknowledgeController).
+    Route::post('/hq-directions/{direction}/acknowledge', HqDirectionAcknowledgeController::class)->name('hq-directions.acknowledge');
+
+    // Ketua cawangan menetapkan/mengemas kini sasaran jualan bulan semasa cawangan sendiri (rujuk BranchTargetController).
+    Route::post('/branch-targets', BranchTargetController::class)->name('branch-targets.store');
+
+    // Ketua cawangan menanda/menyahtanda item Daily Checklist hari ini (rujuk ChecklistToggleController).
+    Route::post('/checklist/{item}', ChecklistToggleController::class)->name('checklist.toggle');
 
     Route::get('/branch-demand', [BranchDemandEntryController::class, 'create'])->name('branch-demand.create');
     Route::get('/branch-demand/current-items', [BranchDemandEntryController::class, 'currentItems'])->name('branch-demand.current-items');

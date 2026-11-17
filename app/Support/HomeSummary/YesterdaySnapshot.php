@@ -31,7 +31,7 @@ class YesterdaySnapshot
      */
     public function report(Carbon $date): ?array
     {
-        return $this->remember('report:'.$date->toDateString(), fn () => app(DailyHedgeFigure::class)->forDate($date->toDateString()));
+        return $this->remember('report2:'.$date->toDateString(), fn () => app(DailyHedgeFigure::class)->forDate($date->toDateString()));
     }
 
     /**

@@ -240,6 +240,20 @@ return [
         'Reject:StockRearrangementStop',
         'Approve:ExpenseClaim',
         'Reject:ExpenseClaim',
+        // Arahan HQ (widget HqDirectionsWidget, bukan Resource): nampak widget = View:HqDirectionsWidget (tab Widgets);
+        // lima di bawah menentukan siapa boleh melihat/mencipta/mengubah/memadam arahan (HqDirectionPolicy).
+        'ViewAny:HqDirection',
+        'View:HqDirection',
+        'Create:HqDirection',
+        'Update:HqDirection',
+        'Delete:HqDirection',
+        // Daily Checklist (Resource ChecklistItem - templat; ChecklistItemPolicy).
+        'ViewAny:ChecklistItem',
+        'View:ChecklistItem',
+        'Create:ChecklistItem',
+        'Update:ChecklistItem',
+        'Delete:ChecklistItem',
+        'DeleteAny:ChecklistItem',
     ],
 
     /*

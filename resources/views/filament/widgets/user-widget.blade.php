@@ -17,9 +17,10 @@
         </div>
 
         <div class="fi-account-widget-logout-forms">
-            <x-filament::button :icon="\Filament\Support\Icons\Heroicon::UserCircle" tag="a" labeled-from="sm"
-                href="{{ filament()->getProfileUrl() }}">
-                {{ __('Profile') }}
+            {{-- href="{{ filament()->getProfileUrl() }}"> --}}
+            <x-filament::button :icon="\Filament\Support\Icons\Heroicon::Backward" tag="a" labeled-from="sm"
+                href="/home">
+                {{ __('Home') }}
             </x-filament::button>
         </div>
         <form action="{{ filament()->getLogoutUrl() }}" method="post" class="fi-account-widget-logout-form">

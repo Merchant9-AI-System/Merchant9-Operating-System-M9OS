@@ -41,6 +41,13 @@ return [
         'ceo_hero_key' => env('HOME_CEO_HERO_KEY', ''),
     ],
 
+    // Halaman /home ketua cawangan (App\Support\HomeSummary). Kategori JEMiSys yang TIDAK dimasukkan dalam
+    // "Terlaris" & "Restock" - gold bar / silver bar / trade-in bar bukan design barang kemas (dijual ikut
+    // gram, kerap mendahului senarai). Kosongkan (HOME_EXCLUDED_CATEGORIES=) untuk memasukkan semua.
+    'home_summary' => [
+        'excluded_categories' => array_values(array_filter(array_map('trim', explode(',', (string) env('HOME_EXCLUDED_CATEGORIES', 'GB,BAR,SILBAR,TIB,ATIB'))))),
+    ],
+
     // Formula hedge harian Finance: (berat jualan x sales_purity) - (berat buyback x buyback_purity)
     // = gram tulen bersih. Faktor ialah andaian tetap Finance (mesej harian "SALES - BUYBACK"), bukan
     // purata sebenar - rujuk App\Support\DailyHedgeFigure. buyback_doc_types = DocType TblTradeIn.

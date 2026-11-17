@@ -28,7 +28,7 @@ function bridgeFlashToToast(initialFlash: unknown) {
 // Mod cerah/gelap: pulihkan pilihan tersimpan (skrip awal dlm app.blade.php sudah menetapkan kelas) & Ctrl + D utk menukar.
 initAppearance();
 registerAppearanceShortcut((appearance) =>
-    toast(appearance === 'dark' ? 'Mod gelap' : 'Mod cerah', { icon: appearance === 'dark' ? Moon : Sun, duration: 1200 }),
+    toast(appearance === 'dark' ? 'Mod gelap' : 'Mod cerah', { duration: 1200 }), //icon: appearance === 'dark' ? Moon : Sun,
 );
 
 createInertiaApp({

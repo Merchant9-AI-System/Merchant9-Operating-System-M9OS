@@ -52,7 +52,7 @@ class DailyHedgeFigure
         $placeholders = implode(',', array_fill(0, count($docTypes), '?'));
 
         $buybackRows = SqlServerQueryTimeout::run(self::CONNECTION, fn () => DB::connection(self::CONNECTION)->select(
-            "SELECT UPPER(RTRIM(StoreCode)) AS store, SUM(TotalGoldWeight) AS weight, COUNT(*) AS docs
+            "SELECT UPPER(RTRIM(StoreCode)) AS store, SUM(TotalGoldWeight) AS weight, SUM(NetAmount) AS amount, COUNT(*) AS docs
              FROM TblTradeIn WITH (NOLOCK)
              WHERE Status = ? AND RTRIM(DocType) IN ({$placeholders}) AND TransDate >= ? AND TransDate < ?".($cutoff ? ' AND CreatedDate <= ?' : '').'
              GROUP BY UPPER(RTRIM(StoreCode))',
@@ -69,7 +69,12 @@ class DailyHedgeFigure
             ->mapWithKeys(fn ($r) => [strtoupper(trim((string) $r->store)) => round((float) $r->weight, 2)])
             ->all();
 
-        return ['date' => $from, 'as_of' => $cutoff, 'buyback_by_store' => $buybackByStore]
+        // Nilai RM buyback (TblTradeIn.NetAmount) setiap cawangan - sepadan dgn buyback_by_store (gram).
+        $buybackAmountByStore = collect($buybackRows)
+            ->mapWithKeys(fn ($r) => [strtoupper(trim((string) $r->store)) => round((float) $r->amount, 2)])
+            ->all();
+
+        return ['date' => $from, 'as_of' => $cutoff, 'buyback_by_store' => $buybackByStore, 'buyback_amount_by_store' => $buybackAmountByStore]
             + self::fromRows(
                 array_map(fn ($r) => [
                     'store' => (string) $r->store,

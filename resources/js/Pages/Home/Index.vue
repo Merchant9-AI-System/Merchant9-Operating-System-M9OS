@@ -5,15 +5,22 @@ import {
     ArrowDownRight,
     ArrowRight,
     ArrowUpRight,
+    ArrowRightLeft,
     Banknote,
+    Bell,
+    ClipboardCheck,
     ClipboardList,
     Coins,
     Gem,
     Landmark,
+    LayoutGrid,
     Lock,
     Recycle,
     Scale,
+    Store,
+    Target,
     TrendingUp,
+    Trophy,
     Truck,
     Wallet,
     Moon,
@@ -30,6 +37,9 @@ import NumberTicker from '@/components/inspira/NumberTicker.vue';
 import Sparkline from '@/components/inspira/Sparkline.vue';
 import TrendChart from '@/components/inspira/TrendChart.vue';
 import { Skeleton } from '@/components/ui/skeleton';
+import { currentAppearance, toggleAppearance } from '@/lib/appearance';
+import BranchModules from './BranchModules.vue';
+import HqDirectionsPanel from './HqDirectionsPanel.vue';
 
 type Tone = 'default' | 'good' | 'warn' | 'bad';
 
@@ -43,6 +53,10 @@ interface SummaryItem {
     // Cip perbandingan di sebelah nombor (cth. +1.3%).
     delta?: { text: string; tone: Tone } | null;
     label: string;
+    // Cip skop data pada kad: "Semalam · 16/11" (diserlahkan) atau "Semasa" (data live/semasa).
+    tag?: string | null;
+    // Pautan Inertia di hujung kad (cth. ke halaman berkaitan).
+    link?: { label: string; href: string } | null;
     value: string;
     hint?: string | null;
     tone?: Tone;
@@ -85,7 +99,7 @@ const props = defineProps<{
     sections?: Section[];
 }>();
 
-const page = usePage<{ auth: { user: { name: string } | null } }>();
+const page = usePage<{ auth: { user: { name: string } | null }; hasBranch?: boolean }>();
 
 const greeting = computed(() => {
     const hour = new Date().getHours();
@@ -161,7 +175,34 @@ function hasTrend(item: SummaryItem): boolean {
     return (item.trend?.length ?? 0) > 1;
 }
 
-// Tab penapis seksyen: 'all' = semua seksyen disusun menurun. Jika seksyen hilang (data dimuat semula), kembali ke semua.
+// Ikon setiap seksyen/tab (hiasan; seksyen tak dikenali guna LayoutGrid).
+const SECTION_ICONS: Record<string, Component> = {
+    // Kunci = SummarySection::key() (rujuk App\Support\HomeSummary).
+    ceo_sales: TrendingUp,
+    ceo_finance: Landmark,
+    ceo_alerts: Bell,
+    branch: Store,
+};
+
+// Modul cawangan ketua cawangan (dirender BranchModules.vue) - setiap satu ialah tab. Kunci mesti sama dgn BranchModules.
+const BRANCH_MODULE_TABS: { key: string; title: string; icon: Component }[] = [
+    { key: 'checklist', title: 'Checklist', icon: ClipboardCheck },
+    { key: 'target', title: 'Sasaran', icon: Target },
+    { key: 'ranking', title: 'Ranking Staf', icon: Trophy },
+    { key: 'rearrange', title: 'Susun Semula', icon: ArrowRightLeft },
+    { key: 'stock', title: 'Jualan & Stok', icon: Gem },
+];
+
+const hasBranch = computed(() => page.props.hasBranch === true);
+
+// Tab penapis: 'all' = semua disusun menurun; selebihnya satu seksyen ringkasan atau satu modul cawangan.
+const tabs = computed<{ key: string; title: string; icon: Component }[]>(() => [
+    { key: 'all', title: 'Semua', icon: LayoutGrid },
+    ...(props.sections ?? []).map((section) => ({ key: section.key, title: section.title, icon: SECTION_ICONS[section.key] ?? LayoutGrid })),
+    ...(hasBranch.value ? BRANCH_MODULE_TABS : []),
+]);
+
+// Jika tab hilang (data dimuat semula), kembali ke semua.
 const activeTab = ref<string>('all');
 
 const visibleSections = computed<Section[]>(() => {
@@ -170,14 +211,11 @@ const visibleSections = computed<Section[]>(() => {
     return activeTab.value === 'all' ? sections : sections.filter((section) => section.key === activeTab.value);
 });
 
-watch(
-    () => props.sections,
-    (sections) => {
-        if (activeTab.value !== 'all' && !sections?.some((section) => section.key === activeTab.value)) {
-            activeTab.value = 'all';
-        }
-    },
-);
+watch(tabs, (list) => {
+    if (!list.some((tab) => tab.key === activeTab.value)) {
+        activeTab.value = 'all';
+    }
+});
 
 // Kad dipilih (klik) -> panel trend terperinci di bawah grid seksyen itu. Satu pilihan pada satu masa.
 const selectedId = ref<string | null>(null);
@@ -237,35 +275,32 @@ watch(tabSentinel, (element) => {
 
 onBeforeUnmount(() => stuckObserver?.disconnect());
 
-// Tema gelap/cerah: dipilih pengguna & disimpan di pelayar (localStorage mungkin tak tersedia - dibungkus try/catch).
-// Lalai gelap. Warna halaman semuanya token CSS (--h-*) yg ditakrif di blok <style> di bawah.
+// Tema gelap/cerah: IKUT sistem tema global app (lib/appearance.ts - kelas `dark` pada <html>, disimpan sbg
+// m9os-appearance, ditukar juga oleh Ctrl + D). Dulu halaman ini ada tema sendiri (m9os-home-theme) jadi Ctrl + D
+// tak mengubahnya. Kini butang di sini memanggil toggleAppearance() dan `theme` sentiasa dibaca semula drpd kelas
+// <html> (MutationObserver), jadi butang, Ctrl + D dan halaman Inertia lain sentiasa selaras.
+// Warna halaman semuanya token CSS (--h-*) yg ditakrif di blok <style> di bawah.
 type Theme = 'dark' | 'light';
 
-const THEME_KEY = 'm9os-home-theme';
-const theme = ref<Theme>('dark');
+const theme = ref<Theme>(typeof document === 'undefined' ? 'dark' : currentAppearance());
 const isLight = computed(() => theme.value === 'light');
 
 function toggleTheme(): void {
-    theme.value = isLight.value ? 'dark' : 'light';
-
-    try {
-        window.localStorage.setItem(THEME_KEY, theme.value);
-    } catch {
-        // tiada storan - tema hanya untuk sesi ini
-    }
+    toggleAppearance();
 }
 
-onMounted(() => {
-    try {
-        const saved = window.localStorage.getItem(THEME_KEY);
+let appearanceObserver: MutationObserver | null = null;
 
-        if (saved === 'light' || saved === 'dark') {
-            theme.value = saved;
-        }
-    } catch {
-        // abaikan
-    }
+onMounted(() => {
+    theme.value = currentAppearance();
+
+    appearanceObserver = new MutationObserver(() => {
+        theme.value = currentAppearance();
+    });
+    appearanceObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 });
+
+onBeforeUnmount(() => appearanceObserver?.disconnect());
 </script>
 
 <template>
@@ -325,6 +360,9 @@ onMounted(() => {
                 </BlurFade>
             </header>
 
+            <!-- Arahan HQ utk cawangan (ketua cawangan sahaja) - di atas ringkasan supaya dibaca dahulu. -->
+            <HqDirectionsPanel />
+
             <Deferred data="sections">
                 <template #fallback>
                     <HairlineGrid class="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
@@ -340,29 +378,33 @@ onMounted(() => {
                     Belum ada ringkasan untuk peranan anda. Gunakan pautan di atas untuk mula bekerja.
                 </p>
 
-                <div v-if="sections && sections.length > 1" ref="tabSentinel" aria-hidden="true" class="-mb-6 h-px" />
+                <div v-if="tabs.length > 2" ref="tabSentinel" aria-hidden="true" class="-mb-6 h-px" />
 
                 <div
-                    v-if="sections && sections.length > 1"
+                    v-if="tabs.length > 2"
                     role="tablist"
                     aria-label="Seksyen ringkasan"
                     class="sticky top-0 z-30 -mx-4 flex overflow-x-auto border-b px-4 transition-colors sm:-mx-6 sm:px-6"
                     :class="tabsStuck ? 'border-[var(--h-line)] bg-[var(--h-bg)]/85 backdrop-blur' : 'border-transparent'"
                 >
                     <button
-                        v-for="tab in [{ key: 'all', title: 'Semua' }, ...sections]"
+                        v-for="tab in tabs"
                         :key="tab.key"
                         type="button"
                         role="tab"
                         :aria-selected="activeTab === tab.key"
-                        class="relative whitespace-nowrap px-4 py-3 text-sm transition-colors focus-visible:outline-none"
+                        class="relative flex items-center gap-2 whitespace-nowrap px-4 py-3 text-sm transition-colors focus-visible:outline-none"
                         :class="activeTab === tab.key ? 'text-[var(--h-fg)]' : 'text-[var(--h-muted)] hover:text-[var(--h-fg)]'"
                         @click="activeTab = tab.key"
                     >
+                        <component :is="tab.icon" class="size-4" :class="activeTab === tab.key ? 'text-[var(--h-gold)]' : ''" />
                         {{ tab.title }}
-                        <span
-                            class="absolute inset-x-3 bottom-0 h-0.5 origin-left rounded-full bg-[var(--h-gold)] transition-transform duration-300"
-                            :class="activeTab === tab.key ? 'scale-x-100' : 'scale-x-0'"
+                        <!-- Penunjuk gelongsor antara tab (layout animation motion-v); tanpa animasi bila kurang gerakan. -->
+                        <Motion
+                            v-if="activeTab === tab.key"
+                            layout-id="home-tab-indicator"
+                            class="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-[var(--h-gold)]"
+                            :transition="{ type: 'spring', stiffness: 420, damping: 34 }"
                         />
                     </button>
                 </div>
@@ -370,7 +412,10 @@ onMounted(() => {
                 <template v-for="section in visibleSections" :key="`${activeTab}-${section.key}`">
                     <section :id="`section-${section.key}`" class="flex flex-col gap-3">
                         <BlurFade class="flex items-center gap-3">
-                            <h2 class="text-xs font-medium uppercase tracking-[0.18em] text-[var(--h-muted)]">{{ section.title }}</h2>
+                            <h2 class="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-[var(--h-muted)]">
+                                <component :is="SECTION_ICONS[section.key] ?? LayoutGrid" class="size-3.5 text-[var(--h-gold)]" />
+                                {{ section.title }}
+                            </h2>
                             <span class="h-px flex-1 bg-[var(--h-line)]" />
                         </BlurFade>
 
@@ -379,7 +424,10 @@ onMounted(() => {
                         </p>
 
                         <BlurFade v-if="section.items.length > 0" :delay="0.05">
-                            <HairlineGrid class="grid-flow-dense grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                            <HairlineGrid
+                                class="grid-flow-dense grid-cols-1 sm:grid-cols-2"
+                                :class="section.items.length === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'"
+                            >
                                 <component
                                     :is="hasTrend(item) && !item.hero ? 'button' : 'div'"
                                     v-for="item in section.items"
@@ -395,7 +443,16 @@ onMounted(() => {
                                     @click="hasTrend(item) && !item.hero ? toggleSelected(item) : undefined"
                                 >
                                     <div class="flex items-center justify-between gap-3">
-                                        <span class="text-xs text-[var(--h-muted)]">{{ item.label }}</span>
+                                        <span class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--h-muted)]">
+                                            {{ item.label }}
+                                            <span
+                                                v-if="item.tag"
+                                                class="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                                                :class="item.tag.startsWith('Semalam') ? 'bg-[var(--h-gold2)]/25 text-[var(--h-gold)]' : 'bg-[var(--h-fill)] text-[var(--h-soft)]'"
+                                            >
+                                                {{ item.tag }}
+                                            </span>
+                                        </span>
                                         <component
                                             :is="iconFor(item.label)"
                                             class="size-4 text-[var(--h-faint)] transition-colors group-hover/cell:text-[var(--h-gold)]"
@@ -427,6 +484,15 @@ onMounted(() => {
                                     </div>
 
                                     <div v-if="item.hint" class="text-xs leading-relaxed text-[var(--h-muted)]">{{ item.hint }}</div>
+
+                                    <Link
+                                        v-if="item.link"
+                                        :href="item.link.href"
+                                        class="group/link mt-auto inline-flex w-fit items-center gap-1 text-xs font-medium text-[var(--h-gold)] focus-visible:outline-none focus-visible:underline"
+                                    >
+                                        {{ item.link.label }}
+                                        <ArrowRight class="size-3 transition-transform group-hover/link:translate-x-0.5" />
+                                    </Link>
 
                                     <TrendChart
                                         v-if="item.hero && hasTrend(item)"
@@ -533,6 +599,9 @@ onMounted(() => {
                     </section>
                 </template>
             </Deferred>
+
+            <!-- Modul cawangan (Terlaris, Boleh direstock) - hanya dirender utk ketua cawangan (prop hasBranch). -->
+            <BranchModules :tab="activeTab" />
         </div>
     </div>
 </template>
