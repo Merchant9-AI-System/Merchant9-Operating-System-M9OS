@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "f27b5a0157a3460c03cd5143a3a9cee3",
+    "content-hash": "9e69a46c407b319c95938303b5c2baf4",
     "packages": [
         {
             "name": "alizharb/filament-activity-log",
@@ -7529,6 +7529,52 @@
                 }
             ],
             "time": "2026-04-27T14:27:52+00:00"
+        },
+        {
+            "name": "stechstudio/filament-impersonate",
+            "version": "v5.7.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/stechstudio/filament-impersonate.git",
+                "reference": "2c4f62925f6dd9ceb02271d3cd5f01433385ec62"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/stechstudio/filament-impersonate/zipball/2c4f62925f6dd9ceb02271d3cd5f01433385ec62",
+                "reference": "2c4f62925f6dd9ceb02271d3cd5f01433385ec62",
+                "shasum": ""
+            },
+            "require": {
+                "filament/filament": "^4.0|^5.0"
+            },
+            "require-dev": {
+                "orchestra/testbench": "^10.0",
+                "pestphp/pest": "^3.0",
+                "pestphp/pest-plugin-laravel": "^3.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "STS\\FilamentImpersonate\\FilamentImpersonateServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "STS\\FilamentImpersonate\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "description": "A Filament package to impersonate your users.",
+            "support": {
+                "issues": "https://github.com/stechstudio/filament-impersonate/issues",
+                "source": "https://github.com/stechstudio/filament-impersonate/tree/v5.7.0"
+            },
+            "time": "2026-11-04T01:29:17+00:00"
         },
         {
             "name": "symfony/clock",

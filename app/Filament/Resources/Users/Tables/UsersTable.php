@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Users\Tables;
 
 use App\Models\User;
+use App\Support\HomeSummary\HomeAccess;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkActionGroup;
@@ -10,6 +11,7 @@ use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\Alignment;
@@ -18,6 +20,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use STS\FilamentImpersonate\Actions\Impersonate;
 
 class UsersTable
 {
@@ -35,15 +38,15 @@ class UsersTable
                     ->searchable(),
                 TextColumn::make('roles.name')
                     ->label('Role')
-                    ->formatStateUsing(fn($state): string => Str::headline($state))
+                    ->formatStateUsing(fn ($state): string => Str::headline($state))
                     ->colors(['info'])
                     ->badge()
                     ->toggleable(),
                 TextColumn::make('store_code')
                     ->label('Cawangan')
-                    ->formatStateUsing(fn(?string $state) => filled($state) ? trim($state) : 'HQ')
+                    ->formatStateUsing(fn (?string $state) => filled($state) ? trim($state) : 'HQ')
                     ->badge()
-                    ->color(fn(?string $state) => filled($state) ? 'gray' : 'info')
+                    ->color(fn (?string $state) => filled($state) ? 'gray' : 'info')
                     ->sortable()
                     ->toggleable(),
                 TextColumn::make('email_verified_at')
@@ -66,6 +69,11 @@ class UsersTable
                 ActionGroup::make([
                     ViewAction::make(),
                     EditAction::make(),
+                    // Hanya super_admin, dan bukan terhadap super_admin lain (rujuk User::canImpersonate/canBeImpersonated).
+                    // Mendarat di halaman yg sama spt selepas log masuk (HomeLoginResponse): /home atau dashboard.
+                    Impersonate::make()
+                        ->withoutSpa()
+                        ->redirectTo(fn (): string => HomeAccess::enabledFor(Filament::auth()->user()) ? route('home') : Filament::getUrl()),
                     Action::make('set_role')
                         ->label('Set Role')
                         ->color('info')
@@ -78,19 +86,19 @@ class UsersTable
                         ->form([
                             Select::make('roles')
                                 ->relationship('roles', 'name')
-                                ->getOptionLabelFromRecordUsing(fn(Model $record) => Str::headline($record->name))
+                                ->getOptionLabelFromRecordUsing(fn (Model $record) => Str::headline($record->name))
                                 ->multiple()
                                 ->preload()
                                 ->searchable(),
                         ])
                         ->action(
-                            fn() => Notification::make()
+                            fn () => Notification::make()
                                 ->success()
                                 ->title('Updated successfully')
                                 ->body('Role has been updated.')
                                 ->send()
                         )
-                        ->hidden(fn(User $record): bool => $record->isSuperAdmin() || ! auth()->user()->isSuperAdmin()),
+                        ->hidden(fn (User $record): bool => $record->isSuperAdmin() || ! auth()->user()->isSuperAdmin()),
                     ActionGroup::make([
                         DeleteAction::make(),
                     ])

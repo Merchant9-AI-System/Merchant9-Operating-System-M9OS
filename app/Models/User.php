@@ -65,6 +65,18 @@ class User extends Authenticatable implements FilamentUser
         return $this->hasRole(config('filament-shield.super_admin.name'));
     }
 
+    /** Impersonate (stechstudio/filament-impersonate): hanya super_admin boleh menyamar sebagai pengguna lain. */
+    public function canImpersonate(): bool
+    {
+        return $this->isSuperAdmin();
+    }
+
+    /** Super_admin tak boleh disamar (elak peningkatan kuasa / jejak audit kabur); semua peranan lain boleh. */
+    public function canBeImpersonated(): bool
+    {
+        return ! $this->isSuperAdmin();
+    }
+
     /** Cawangan tempat user ditempatkan (null utk HQ/CEO/super_admin - tak terikat satu cawangan). */
     public function store()
     {
