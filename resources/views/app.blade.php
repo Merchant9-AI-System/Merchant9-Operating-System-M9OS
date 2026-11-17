@@ -56,6 +56,10 @@
 
 <body class="font-sans antialiased bg-background"> {{-- bg-background --}}
     @inertia
+
+    {{-- Banner "sedang menyamar" + butang keluar (stechstudio/filament-impersonate). Panel Filament memaparkannya sendiri;
+         halaman Inertia (cth. /home) perlu dimasukkan di sini - tiada output bila tiada impersonasi aktif. --}}
+    <x-impersonate::banner />
 </body>
 
 </html>

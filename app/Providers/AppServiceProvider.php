@@ -6,9 +6,12 @@ use App\Http\Responses\HomeLoginResponse;
 use App\Support\RemoteThumbnails;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Passport\Passport;
+use STS\FilamentImpersonate\Events\EnterImpersonation;
+use STS\FilamentImpersonate\Events\LeaveImpersonation;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -46,5 +49,16 @@ class AppServiceProvider extends ServiceProvider
         // (dipublish via `vendor:publish --tag=mcp-views`). Guna default (belum jenamakan) buat
         // masa ni - cukup berfungsi utk aliran DCR Claude.ai.
         Passport::authorizationView('mcp.authorize');
+
+        // Jejak audit impersonasi (stechstudio/filament-impersonate): siapa menyamar sebagai siapa, bila mula & tamat.
+        Event::listen(EnterImpersonation::class, fn (EnterImpersonation $e) => activity('impersonation')
+            ->causedBy($e->impersonator)
+            ->performedOn($e->impersonated)
+            ->log('Mula menyamar sebagai '.$e->impersonated->name));
+
+        Event::listen(LeaveImpersonation::class, fn (LeaveImpersonation $e) => activity('impersonation')
+            ->causedBy($e->impersonator)
+            ->performedOn($e->impersonated)
+            ->log('Tamat menyamar sebagai '.$e->impersonated->name));
     }
 }
