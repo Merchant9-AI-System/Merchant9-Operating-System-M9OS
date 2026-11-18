@@ -23,9 +23,11 @@ class HomeSummary
     public const ROLES_WITH_SUMMARY = [BranchSection::ROLE, ...CeoSectionBase::ROLES];
 
     /**
+     * @param  array<int, string>|null  $keys  kunci seksyen yg dipasang (HomeLayout) - jika diberi, `appliesTo()` dilangkau
+     *                                         (susun atur ditentukan pentadbir); null = ikut `appliesTo()` peranan (lama).
      * @return array<int, array<string, mixed>>
      */
-    public function sectionsFor(User $user, Carbon $date): array
+    public function sectionsFor(User $user, Carbon $date, ?array $keys = null): array
     {
         $result = [];
 
@@ -33,7 +35,7 @@ class HomeSummary
             /** @var SummarySection $section */
             $section = app($class);
 
-            if (! $section->appliesTo($user)) {
+            if ($keys === null ? ! $section->appliesTo($user) : ! in_array($section->key(), $keys, true)) {
                 continue;
             }
 

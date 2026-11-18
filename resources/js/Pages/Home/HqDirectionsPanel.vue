@@ -3,6 +3,7 @@ import { Deferred, router, usePage } from '@inertiajs/vue3';
 import { Check, Megaphone } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import BlurFade from '@/components/inspira/BlurFade.vue';
+import { useHomeModules } from '@/lib/homeModules';
 
 // Arahan HQ utk cawangan ketua yg log masuk (rujuk App\Support\HomeSummary\HqDirectionFeed): kelihatan selagi belum
 // diakui; selepas "Faham" kekal pada hari itu sahaja. `html` dihantar SUDAH DISANITASI oleh server (Filament
@@ -22,7 +23,8 @@ interface Direction {
 
 const page = usePage<{ hasBranch?: boolean; hqDirections?: Direction[] | null }>();
 
-const hasBranch = computed(() => page.props.hasBranch === true);
+const { has, orderStyle } = useHomeModules();
+const hasBranch = computed(() => has('hq_directions'));
 const directions = computed(() => page.props.hqDirections ?? []);
 const pendingCount = computed(() => directions.value.filter((d) => !d.acknowledged).length);
 
@@ -54,7 +56,7 @@ function period(direction: Direction): string {
     <Deferred v-if="hasBranch" data="hqDirections">
         <template #fallback><span /></template>
 
-        <section v-if="directions.length > 0" id="section-hq-directions" class="flex flex-col gap-3">
+        <section v-if="directions.length > 0" id="section-hq-directions" class="flex flex-col gap-3" :style="orderStyle('hq_directions')">
             <BlurFade class="flex items-center gap-3">
                 <h2 class="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-[var(--h-muted)]">
                     <Megaphone class="size-3.5 text-[var(--h-gold)]" />

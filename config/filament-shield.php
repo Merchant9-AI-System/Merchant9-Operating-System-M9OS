@@ -248,6 +248,9 @@ return [
         'Update:HqDirection',
         'Delete:HqDirection',
         // Daily Checklist (Resource ChecklistItem - templat; ChecklistItemPolicy).
+        // Halaman Home: 'View:HomePageSettings' (HasPageShield) = boleh lihat tetapan; 'Update:HomePageSettings' = boleh mengubah
+        // (on/off peranan, modul & urutan bagi setiap peranan).
+        'Update:HomePageSettings',
         'ViewAny:ChecklistItem',
         'View:ChecklistItem',
         'Create:ChecklistItem',

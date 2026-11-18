@@ -7,9 +7,10 @@ import NumberTicker from '@/components/inspira/NumberTicker.vue';
 import SpotlightCard from '@/components/inspira/SpotlightCard.vue';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useHomeModules } from '@/lib/homeModules';
 import LazyDesignImage from './LazyDesignImage.vue';
 
-// Susun semula stok (rujuk App\Support\HomeSummary\RearrangeFeed): transfer m9os (stock_transfers) disemak silang dgn
+// Status Barang (dahulu "Susun semula stok"; rujuk App\Support\HomeSummary\RearrangeFeed): transfer m9os (stock_transfers) disemak silang dgn
 // jadual cermin JEMiSys (jemisys_inventory_mirror) kerana staf bekerja dlm JEMiSys sebenar - status transfer m9os tak
 // dikemas kini. Tiga tab (kotak ringkasan boleh diklik): design perlu DIHANTAR (cawangan ini sumber), akan DITERIMA
 // (cawangan ini destinasi) dan LAPUK (sejarah, >14 hari tanpa bukti). Status setiap design drpd cermin.
@@ -49,7 +50,8 @@ interface Rearrange {
 type TabKey = 'send' | 'receive' | 'stale';
 
 const page = usePage<{ hasBranch?: boolean; rearrange?: Rearrange | null }>();
-const hasBranch = computed(() => page.props.hasBranch === true);
+const { has, orderStyle } = useHomeModules();
+const hasBranch = computed(() => has('rearrange'));
 const data = computed(() => page.props.rearrange ?? null);
 
 // Tab lalai = yg ada kerja: hantar dahulu, kemudian terima, kemudian lapuk. Pilihan pengguna dikekalkan selepas data dimuat semula.
@@ -159,11 +161,11 @@ function qtyText(item: RearrangeItem): string {
 </script>
 
 <template>
-    <section v-if="hasBranch" id="section-rearrange" class="flex flex-col gap-3">
+    <section v-if="hasBranch" id="section-rearrange" class="flex flex-col gap-3" :style="orderStyle('rearrange')">
         <BlurFade class="flex items-center gap-3">
             <h2 class="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-[var(--h-muted)]">
                 <ArrowRightLeft class="size-3.5 text-[var(--h-gold)]" />
-                Susun Semula Stok
+                Status Barang
             </h2>
             <span class="h-px flex-1 bg-[var(--h-line)]" />
         </BlurFade>
@@ -179,13 +181,13 @@ function qtyText(item: RearrangeItem): string {
             <BlurFade v-if="data" :delay="0.05">
                 <SpotlightCard class="flex flex-col gap-4 rounded-lg border border-[var(--h-line)] bg-[var(--h-panel)] p-5">
                     <p v-if="!data.available" class="text-sm text-[var(--h-muted)]">
-                        Data JEMiSys tidak dapat dicapai sekarang - bilangan susun semula tidak dipaparkan supaya tidak mengelirukan.
+                        Data JEMiSys tidak dapat dicapai sekarang - status barang tidak dipaparkan supaya tidak mengelirukan.
                     </p>
 
                     <template v-else>
                         <div
                             role="tablist"
-                            aria-label="Susun semula stok"
+                            aria-label="Status barang"
                             class="grid grid-cols-1 gap-px overflow-hidden rounded-md border border-[var(--h-line)] bg-[var(--h-line)] sm:grid-cols-3"
                         >
                             <button

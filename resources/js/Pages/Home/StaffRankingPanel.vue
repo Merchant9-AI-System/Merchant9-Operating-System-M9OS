@@ -3,6 +3,7 @@ import { Deferred, router, usePage } from '@inertiajs/vue3';
 import { Trophy } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import BlurFade from '@/components/inspira/BlurFade.vue';
+import { useHomeModules } from '@/lib/homeModules';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import DonutChart from './DonutChart.vue';
@@ -35,7 +36,8 @@ type ShareKey = 'rm' | 'grams' | 'tickets';
 
 const page = usePage<{ hasBranch?: boolean; period?: string; rankingPeriod: 'this' | 'last'; staffRanking?: StaffRanking | null }>();
 
-const hasBranch = computed(() => page.props.hasBranch === true);
+const { has, orderStyle } = useHomeModules();
+const hasBranch = computed(() => has('ranking'));
 const data = computed(() => page.props.staffRanking ?? null);
 
 const METRICS: { key: MetricKey; label: string }[] = [
@@ -173,7 +175,7 @@ function changePeriod(value: string): void {
             </div>
         </template>
 
-        <section v-if="data" id="section-staff-ranking" class="staff-chart flex flex-col gap-3">
+        <section v-if="data" id="section-staff-ranking" class="staff-chart flex flex-col gap-3" :style="orderStyle('ranking')">
             <BlurFade class="flex items-center gap-3">
                 <h2 class="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-[var(--h-muted)]">
                     <Trophy class="size-3.5 text-[var(--h-gold)]" />

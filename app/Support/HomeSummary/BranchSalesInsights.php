@@ -72,14 +72,29 @@ class BranchSalesInsights
      */
     public function overview(string $store, string $period): array
     {
-        $store = strtoupper(trim($store));
-        $period = self::normalizePeriod($period);
+        return $this->overviewFor([$store], $period);
+    }
 
-        return Cache::remember("home_branch_overview:{$store}:{$period}", now()->addMinutes(self::CACHE_MINUTES), function () use ($store, $period) {
+    /**
+     * Sama seperti overview() tetapi utk SKOP banyak cawangan (modul universal): jualan = jumlah semua cawangan dlm skop;
+     * "stok sini" = stok gabungan cawangan dlm skop; "cawangan lain" = cawangan di luar skop (selain HQ/WEB).
+     * Satu cawangan = hasil & kunci cache yg sama seperti sebelum ini.
+     *
+     * @param  array<int, string>  $stores
+     * @return array{period: string, period_label: string, since: string, synced_at: string|null, top: array<int, array<string, mixed>>, restock: array<int, array<string, mixed>>, restock_total: int}
+     */
+    public function overviewFor(array $stores, string $period): array
+    {
+        $stores = array_values(array_unique(array_filter(array_map(fn (string $s) => strtoupper(trim($s)), $stores), fn (string $s) => $s !== '')));
+        sort($stores);
+        $period = self::normalizePeriod($period);
+        $scopeKey = count($stores) === 1 ? $stores[0] : 'multi_'.md5(implode(',', $stores));
+
+        return Cache::remember("home_branch_overview:{$scopeKey}:{$period}", now()->addMinutes(self::CACHE_MINUTES), function () use ($stores, $period) {
             $since = self::sinceFor($period);
             $days = self::periods()[$period]['days'];
 
-            $candidates = $this->soldQuery($store, $since)
+            $candidates = $this->soldQuery($stores, $since)
                 ->selectRaw('RTRIM(InternalCode) AS code, COUNT(*) AS pieces, COALESCE(SUM(GoldWeight), 0) AS grams, COALESCE(SUM(SalesAmount), 0) AS rm, '.
                     'MAX(Description) AS description, RTRIM(MAX(CategoryCode)) AS category, MAX(nickname) AS nickname, MAX(image_url) AS image_url')
                 ->groupByRaw('RTRIM(InternalCode)')
@@ -89,7 +104,7 @@ class BranchSalesInsights
                 ->toBase()
                 ->get();
 
-            $details = $this->detailsFor($candidates->pluck('code')->all(), $store);
+            $details = $this->detailsFor($candidates->pluck('code')->all(), $stores);
             $categoryNames = $this->categoryNames();
 
             $rows = $candidates->map(function ($r) use ($details, $days, $categoryNames) {
@@ -168,10 +183,10 @@ class BranchSalesInsights
     }
 
     /** Asas: design sah (bukan kategori bar, vendor sah) yg terjual di cawangan ini sejak $since. */
-    private function soldQuery(string $store, Carbon $since): Builder
+    private function soldQuery(array $stores, Carbon $since): Builder
     {
         return $this->baseQuery()
-            ->whereRaw('UPPER(RTRIM(StoreCode)) = ?', [$store])
+            ->whereRaw('UPPER(RTRIM(StoreCode)) IN ('.implode(',', array_fill(0, max(count($stores), 1), '?')).')', $stores === [] ? [''] : $stores)
             ->whereNotNull('SalesDate')
             ->where('SalesDate', '>=', $since);
     }
@@ -201,9 +216,10 @@ class BranchSalesInsights
      * cawangan asal tetapi sudah keluar secara fizikal); bilangannya diambil melalui indeks Status (sedikit baris).
      *
      * @param  array<int, string>  $codes
+     * @param  array<int, string>  $stores  cawangan dlm skop ("sini")
      * @return array<string, array<string, mixed>>
      */
-    private function detailsFor(array $codes, string $store): array
+    private function detailsFor(array $codes, array $stores): array
     {
         if ($codes === []) {
             return [];
@@ -238,7 +254,7 @@ class BranchSalesInsights
         }
 
         $bucket = fn (string $storeCode): string => match (true) {
-            $storeCode === $store => 'stock_here',
+            in_array($storeCode, $stores, true) => 'stock_here',
             $storeCode === 'HQ' => 'stock_hq',
             $storeCode === 'WEB' => 'ignore',
             default => 'stock_other',
@@ -263,7 +279,7 @@ class BranchSalesInsights
                 $result[$r->code][$key] -= (int) $r->n;
             }
 
-            if ((string) $r->status === $transit && (string) $r->to_store === $store) {
+            if ((string) $r->status === $transit && in_array((string) $r->to_store, $stores, true)) {
                 $result[$r->code]['incoming'] += (int) $r->n;
             }
         }

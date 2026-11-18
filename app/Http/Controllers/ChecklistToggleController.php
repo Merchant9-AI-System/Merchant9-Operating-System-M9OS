@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ChecklistCompletion;
 use App\Models\ChecklistItem;
 use App\Support\HomeSummary\BranchSection;
+use App\Support\HomeSummary\HomeLayout;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -20,7 +21,8 @@ class ChecklistToggleController extends Controller
     {
         $user = $request->user();
 
-        abort_unless($user->hasRole(BranchSection::ROLE), 403);
+        // Modul mesti dipasang utk peranan pengguna (susun atur /home - HomeLayout), bukan sekadar nama peranan.
+        abort_unless(HomeLayout::has($user, 'checklist'), 403);
 
         $store = BranchSection::storeOf($user);
 

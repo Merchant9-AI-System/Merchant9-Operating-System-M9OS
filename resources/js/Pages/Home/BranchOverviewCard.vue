@@ -12,7 +12,8 @@ const props = defineProps<{
     data: BranchOverview;
     periods: PeriodOption[];
     period: string;
-    requestUrl: string;
+    // Pautan "Minta stok" - tiada utk modul universal (banyak cawangan).
+    requestUrl?: string | null;
     loading?: boolean;
 }>();
 
@@ -61,6 +62,7 @@ const tabs = computed(() => [
                     <option v-for="p in periods" :key="p.value" :value="p.value" class="bg-[var(--h-bg)]">{{ p.label }}</option>
                 </select>
                 <Link
+                    v-if="requestUrl"
                     :href="requestUrl"
                     class="rounded-full bg-[var(--h-fill)] px-3 py-1.5 text-sm text-[var(--h-soft)] transition-colors hover:bg-[var(--h-gold2)]/20 hover:text-[var(--h-fg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--h-gold)]"
                 >

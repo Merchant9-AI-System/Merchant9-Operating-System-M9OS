@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Support\HomeSummary\BranchSection;
+use App\Support\HomeSummary\HomeLayout;
 use App\Support\HomeSummary\TransferEvidence;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +18,8 @@ class DesignImagesController extends Controller
 
     public function __invoke(Request $request, TransferEvidence $evidence): JsonResponse
     {
-        abort_unless($request->user()->hasRole(BranchSection::ROLE), 403);
+        // Modul mesti dipasang utk peranan pengguna (susun atur /home - HomeLayout), bukan sekadar nama peranan.
+        abort_unless(HomeLayout::has($request->user(), 'rearrange'), 403);
 
         $codes = $request->query('codes');
 

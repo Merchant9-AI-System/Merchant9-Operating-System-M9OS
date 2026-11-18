@@ -8,9 +8,12 @@ import {
     ArrowRightLeft,
     Banknote,
     Bell,
+    Boxes,
+    Building2,
     ClipboardCheck,
     ClipboardList,
     Coins,
+    Crosshair,
     Gem,
     Landmark,
     LayoutGrid,
@@ -21,6 +24,7 @@ import {
     Target,
     TrendingUp,
     Trophy,
+    Users,
     Truck,
     Wallet,
     Moon,
@@ -28,9 +32,10 @@ import {
     X,
 } from '@lucide/vue';
 import { Motion } from 'motion-v';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Component } from 'vue';
 import BlurFade from '@/components/inspira/BlurFade.vue';
+import ScrollFade from '@/components/inspira/ScrollFade.vue';
 import FlickeringGrid from '@/components/inspira/FlickeringGrid.vue';
 import HairlineGrid from '@/components/inspira/HairlineGrid.vue';
 import NumberTicker from '@/components/inspira/NumberTicker.vue';
@@ -38,6 +43,7 @@ import Sparkline from '@/components/inspira/Sparkline.vue';
 import TrendChart from '@/components/inspira/TrendChart.vue';
 import { Skeleton } from '@/components/ui/skeleton';
 import { currentAppearance, toggleAppearance } from '@/lib/appearance';
+import { useHomeModules } from '@/lib/homeModules';
 import BranchModules from './BranchModules.vue';
 import HqDirectionsPanel from './HqDirectionsPanel.vue';
 
@@ -175,35 +181,55 @@ function hasTrend(item: SummaryItem): boolean {
     return (item.trend?.length ?? 0) > 1;
 }
 
-// Ikon setiap seksyen/tab (hiasan; seksyen tak dikenali guna LayoutGrid).
-const SECTION_ICONS: Record<string, Component> = {
-    // Kunci = SummarySection::key() (rujuk App\Support\HomeSummary).
-    ceo_sales: TrendingUp,
-    ceo_finance: Landmark,
-    ceo_alerts: Bell,
-    branch: Store,
+// Ikon modul ikut nama dlm daftar modul (App\Support\HomeSummary\HomeModules); nama tak dikenali guna LayoutGrid.
+const ICON_BY_NAME: Record<string, Component> = {
+    store: Store,
+    'clipboard-check': ClipboardCheck,
+    target: Target,
+    trophy: Trophy,
+    'arrow-right-left': ArrowRightLeft,
+    gem: Gem,
+    'trending-up': TrendingUp,
+    landmark: Landmark,
+    bell: Bell,
+    building: Building2,
+    boxes: Boxes,
+    crosshair: Crosshair,
+    users: Users,
 };
 
-// Modul cawangan ketua cawangan (dirender BranchModules.vue) - setiap satu ialah tab. Kunci mesti sama dgn BranchModules.
-const BRANCH_MODULE_TABS: { key: string; title: string; icon: Component }[] = [
-    { key: 'checklist', title: 'Checklist', icon: ClipboardCheck },
-    { key: 'target', title: 'Sasaran', icon: Target },
-    { key: 'ranking', title: 'Ranking Staf', icon: Trophy },
-    { key: 'rearrange', title: 'Susun Semula', icon: ArrowRightLeft },
-    { key: 'stock', title: 'Jualan & Stok', icon: Gem },
-];
+// Modul terpasang utk pengguna (susun atur per peranan, urutan = urutan paparan) - tab dan urutan panel dibina drpd ini.
+const { modules: homeModules, orderStyle } = useHomeModules();
 
-const hasBranch = computed(() => page.props.hasBranch === true);
+function iconOf(key: string): Component {
+    return ICON_BY_NAME[homeModules.value.find((module) => module.key === key)?.icon ?? ''] ?? LayoutGrid;
+}
 
-// Tab penapis: 'all' = semua disusun menurun; selebihnya satu seksyen ringkasan atau satu modul cawangan.
+// Tab penapis: 'all' = semua; selebihnya satu modul (seksyen ringkasan atau panel). Arahan HQ (pinned) bukan tab.
 const tabs = computed<{ key: string; title: string; icon: Component }[]>(() => [
     { key: 'all', title: 'Semua', icon: LayoutGrid },
-    ...(props.sections ?? []).map((section) => ({ key: section.key, title: section.title, icon: SECTION_ICONS[section.key] ?? LayoutGrid })),
-    ...(hasBranch.value ? BRANCH_MODULE_TABS : []),
+    ...homeModules.value.filter((module) => module.tab).map((module) => ({ key: module.key, title: module.title, icon: iconOf(module.key) })),
 ]);
 
 // Jika tab hilang (data dimuat semula), kembali ke semua.
 const activeTab = ref<string>('all');
+
+// Pilih tab dan bawa tab itu ke tengah bar (bar boleh ditatal mendatar bila tab banyak).
+async function selectTab(key: string, event: MouseEvent): Promise<void> {
+    const tab = event.currentTarget as HTMLElement | null;
+    const viewport = tab?.closest<HTMLElement>('[data-slot="scroll-area-viewport"]');
+
+    activeTab.value = key;
+
+    // Selepas DOM dikemas kini (penunjuk tab beralih) - menatal sebelum itu dibatalkan oleh render semula.
+    await nextTick();
+
+    if (tab && viewport) {
+        const offset = tab.getBoundingClientRect().left - viewport.getBoundingClientRect().left + viewport.scrollLeft;
+
+        viewport.scrollTo({ left: offset - (viewport.clientWidth - tab.offsetWidth) / 2, behavior: 'smooth' });
+    }
+}
 
 const visibleSections = computed<Section[]>(() => {
     const sections = props.sections ?? [];
@@ -321,7 +347,7 @@ onBeforeUnmount(() => appearanceObserver?.disconnect());
         />
 
         <div class="relative z-10 mx-auto flex max-w-6xl flex-col gap-6 px-4 pb-16 pt-6 sm:px-6">
-            <header class="flex flex-col gap-5">
+            <header class="flex flex-col gap-5" style="order: -30">
                 <BlurFade class="flex items-center justify-between gap-3">
                     <img :src="isLight ? LOGO_LIGHT_URL : LOGO_DARK_URL" alt="Merchant9" class="h-6 w-auto" />
                     <div class="flex items-center gap-3">
@@ -374,19 +400,21 @@ onBeforeUnmount(() => appearanceObserver?.disconnect());
                     </HairlineGrid>
                 </template>
 
-                <p v-if="!sections || sections.length === 0" class="text-sm text-[var(--h-muted)]">
+                <p v-if="homeModules.length === 0" class="text-sm text-[var(--h-muted)]">
                     Belum ada ringkasan untuk peranan anda. Gunakan pautan di atas untuk mula bekerja.
                 </p>
 
-                <div v-if="tabs.length > 2" ref="tabSentinel" aria-hidden="true" class="-mb-6 h-px" />
+                <div v-if="tabs.length > 2" ref="tabSentinel" aria-hidden="true" class="-mb-6 h-px" style="order: -10" />
 
                 <div
                     v-if="tabs.length > 2"
-                    role="tablist"
-                    aria-label="Seksyen ringkasan"
-                    class="sticky top-0 z-30 -mx-4 flex overflow-x-auto border-b px-4 transition-colors sm:-mx-6 sm:px-6"
+                    style="order: -10"
+                    class="sticky top-0 z-30 -mx-4 border-b px-4 transition-colors sm:-mx-6 sm:px-6"
                     :class="tabsStuck ? 'border-[var(--h-line)] bg-[var(--h-bg)]/85 backdrop-blur' : 'border-transparent'"
                 >
+                    <!-- ScrollArea mendatar + pudar tepi (ScrollFade): bar tab panjang boleh ditatal tanpa bar tatal asli. -->
+                    <ScrollFade>
+                    <div role="tablist" aria-label="Seksyen ringkasan" class="flex">
                     <button
                         v-for="tab in tabs"
                         :key="tab.key"
@@ -395,7 +423,7 @@ onBeforeUnmount(() => appearanceObserver?.disconnect());
                         :aria-selected="activeTab === tab.key"
                         class="relative flex items-center gap-2 whitespace-nowrap px-4 py-3 text-sm transition-colors focus-visible:outline-none"
                         :class="activeTab === tab.key ? 'text-[var(--h-fg)]' : 'text-[var(--h-muted)] hover:text-[var(--h-fg)]'"
-                        @click="activeTab = tab.key"
+                        @click="selectTab(tab.key, $event)"
                     >
                         <component :is="tab.icon" class="size-4" :class="activeTab === tab.key ? 'text-[var(--h-gold)]' : ''" />
                         {{ tab.title }}
@@ -407,13 +435,15 @@ onBeforeUnmount(() => appearanceObserver?.disconnect());
                             :transition="{ type: 'spring', stiffness: 420, damping: 34 }"
                         />
                     </button>
+                    </div>
+                    </ScrollFade>
                 </div>
 
                 <template v-for="section in visibleSections" :key="`${activeTab}-${section.key}`">
-                    <section :id="`section-${section.key}`" class="flex flex-col gap-3">
+                    <section :id="`section-${section.key}`" class="flex flex-col gap-3" :style="orderStyle(section.key)">
                         <BlurFade class="flex items-center gap-3">
                             <h2 class="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-[var(--h-muted)]">
-                                <component :is="SECTION_ICONS[section.key] ?? LayoutGrid" class="size-3.5 text-[var(--h-gold)]" />
+                                <component :is="iconOf(section.key)" class="size-3.5 text-[var(--h-gold)]" />
                                 {{ section.title }}
                             </h2>
                             <span class="h-px flex-1 bg-[var(--h-line)]" />

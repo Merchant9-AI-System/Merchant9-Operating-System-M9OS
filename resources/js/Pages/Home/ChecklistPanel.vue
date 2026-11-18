@@ -8,6 +8,7 @@ import ConfettiBurst from '@/components/inspira/ConfettiBurst.vue';
 import NumberTicker from '@/components/inspira/NumberTicker.vue';
 import SpotlightCard from '@/components/inspira/SpotlightCard.vue';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useHomeModules } from '@/lib/homeModules';
 
 // Daily Checklist cawangan (rujuk App\Support\HomeSummary\ChecklistFeed): satu senarai bagi CAWANGAN, ditanda siap
 // hari ini (waktu Malaysia), tiada bukti gambar. Tertunggak = belum siap selepas waktu "sebelum".
@@ -31,7 +32,8 @@ interface Checklist {
 }
 
 const page = usePage<{ hasBranch?: boolean; checklist?: Checklist | null }>();
-const hasBranch = computed(() => page.props.hasBranch === true);
+const { has, orderStyle } = useHomeModules();
+const hasBranch = computed(() => has('checklist'));
 const data = computed(() => page.props.checklist ?? null);
 const pct = computed(() => (data.value && data.value.total > 0 ? Math.round((data.value.done / data.value.total) * 100) : 0));
 const busy = ref<number | null>(null);
@@ -67,7 +69,7 @@ function toggle(item: ChecklistItem): void {
 </script>
 
 <template>
-    <section v-if="hasBranch" id="section-checklist" class="flex flex-col gap-3">
+    <section v-if="hasBranch" id="section-checklist" class="flex flex-col gap-3" :style="orderStyle('checklist')">
         <Deferred data="checklist">
             <template #fallback>
                 <div class="flex flex-col gap-3 rounded-lg border border-[var(--h-line)] p-5">

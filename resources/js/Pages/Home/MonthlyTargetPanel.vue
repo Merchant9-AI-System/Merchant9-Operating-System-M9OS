@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useHomeModules } from '@/lib/homeModules';
 
 // Sasaran bulan semasa vs jualan sebenar (RM & gram) cawangan ketua yg log masuk (rujuk MonthlyTargetFeed).
 // Ketua cawangan boleh menetapkan sasaran jika belum ada, dan mengemas kini jika sudah ada (catatan WAJIB) -
@@ -38,7 +39,8 @@ interface MonthlyTarget {
 
 const page = usePage<{ hasBranch?: boolean; monthlyTarget?: MonthlyTarget | null }>();
 
-const hasBranch = computed(() => page.props.hasBranch === true);
+const { has, orderStyle } = useHomeModules();
+const hasBranch = computed(() => has('target'));
 const data = computed(() => page.props.monthlyTarget ?? null);
 
 const open = ref(false);
@@ -96,7 +98,7 @@ function barWidth(metric: Metric): string {
             </div>
         </template>
 
-        <section v-if="data" id="section-monthly-target" class="flex flex-col gap-3">
+        <section v-if="data" id="section-monthly-target" class="flex flex-col gap-3" :style="orderStyle('target')">
             <BlurFade class="flex items-center gap-3">
                 <h2 class="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-[var(--h-muted)]">
                     <Target class="size-3.5 text-[var(--h-gold)]" />

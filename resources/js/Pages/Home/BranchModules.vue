@@ -4,11 +4,16 @@ import { Gem } from '@lucide/vue';
 import { computed, ref } from 'vue';
 import BlurFade from '@/components/inspira/BlurFade.vue';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useHomeModules } from '@/lib/homeModules';
 import BranchOverviewCard from './BranchOverviewCard.vue';
 import ChecklistPanel from './ChecklistPanel.vue';
 import RearrangePanel from './RearrangePanel.vue';
 import MonthlyTargetPanel from './MonthlyTargetPanel.vue';
 import StaffRankingPanel from './StaffRankingPanel.vue';
+import UniversalRankingPanel from './UniversalRankingPanel.vue';
+import UniversalStockPanel from './UniversalStockPanel.vue';
+import UniversalSummaryPanel from './UniversalSummaryPanel.vue';
+import UniversalTargetPanel from './UniversalTargetPanel.vue';
 import type { BranchOverview, PeriodOption } from './types';
 
 // Jualan & stok cawangan pada /home (ketua cawangan sahaja): satu kad gabungan Terlaris + Perlu restock.
@@ -27,7 +32,8 @@ const page = usePage<{
 const props = withDefaults(defineProps<{ tab?: string }>(), { tab: 'all' });
 const shows = (key: string): boolean => props.tab === 'all' || props.tab === key;
 
-const hasBranch = computed(() => page.props.hasBranch === true);
+const { has, orderStyle } = useHomeModules();
+const hasBranch = computed(() => has('stock'));
 const loading = ref(false);
 
 // Tukar tempoh: muat semula prop branchOverview sahaja (partial reload) dgn ?period= baharu.
@@ -58,8 +64,13 @@ function changePeriod(period: string): void {
     <MonthlyTargetPanel v-if="shows('target')" />
     <StaffRankingPanel v-if="shows('ranking')" />
     <RearrangePanel v-if="shows('rearrange')" />
+    <!-- Modul universal (skop cawangan ditetapkan pentadbir; sesuai utk peranan tanpa cawangan). -->
+    <UniversalSummaryPanel v-if="shows('u_summary')" />
+    <UniversalTargetPanel v-if="shows('u_target')" />
+    <UniversalRankingPanel v-if="shows('u_ranking')" />
+    <UniversalStockPanel v-if="shows('u_stock')" />
 
-    <section v-if="hasBranch && shows('stock')" id="section-branch-modules" class="flex flex-col gap-3">
+    <section v-if="hasBranch && shows('stock')" id="section-branch-modules" class="flex flex-col gap-3" :style="orderStyle('stock')">
         <BlurFade class="flex items-center gap-3">
             <h2 class="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-[var(--h-muted)]">
                 <Gem class="size-3.5 text-[var(--h-gold)]" />

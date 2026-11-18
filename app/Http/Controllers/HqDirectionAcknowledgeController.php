@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\HqDirection;
 use App\Support\HomeSummary\BranchSection;
+use App\Support\HomeSummary\HomeLayout;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
@@ -18,7 +19,8 @@ class HqDirectionAcknowledgeController extends Controller
     {
         $user = $request->user();
 
-        abort_unless($user->hasRole(BranchSection::ROLE), 403);
+        // Modul mesti dipasang utk peranan pengguna (susun atur /home - HomeLayout), bukan sekadar nama peranan.
+        abort_unless(HomeLayout::has($user, 'hq_directions'), 403);
 
         $store = BranchSection::storeOf($user);
 

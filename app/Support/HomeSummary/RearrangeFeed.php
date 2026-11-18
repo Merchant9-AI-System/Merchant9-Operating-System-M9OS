@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
- * Data panel "Susun Semula Stok" pd /home ketua cawangan. Transfer aktif m9os disemak silang dgn cermin JEMiSys
+ * Data panel "Status Barang" (dahulu "Susun Semula Stok") pd /home ketua cawangan. Transfer aktif m9os disemak silang dgn cermin JEMiSys
  * (TransferReconciler) kerana status m9os tidak dikemas kini staf. Hasil:
  * - to_send: baki yg cawangan INI perlu hantar (dia sumber), tidak lapuk.
  * - incoming: dalam perjalanan / belum sampai ke cawangan ini.
