@@ -32,6 +32,7 @@ use App\Filament\Widgets\PhysicalGoldDifferenceFromOpeningChart;
 use App\Filament\Widgets\StockVsOptimumChart;
 use App\Filament\Widgets\UserWidget;
 use App\Http\Controllers\BackOfficeActionsController;
+use App\Http\Controllers\RestockAnalysisController;
 use App\Support\DomainNotice;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Filament\Http\Middleware\Authenticate;
@@ -76,13 +77,18 @@ class AdminPanelProvider extends PanelProvider
             ->brandLogo(asset('images/brand/merchant9-lockup-horizontal.svg'))
             ->darkModeBrandLogo(asset('images/brand/merchant9-lockup-horizontal-dark.svg'))
             ->brandLogoHeight('2.25rem')
-            ->favicon(asset('favicon.svg') . '?v=2')
+            ->favicon(asset('favicon.svg').'?v=2')
             ->userMenuItems([
                 'profile' => MenuItem::make()
-                    ->label(fn(): string => Auth::user()?->name ?? 'User')
+                    ->label(fn (): string => Auth::user()?->name ?? 'User')
                     ->icon(Heroicon::UserCircle)
                     ->url('/admin/profile')
                     ->sort(-1),
+                MenuItem::make()
+                    ->label('M9 Health Check')
+                    ->icon(Heroicon::Sparkles)
+                    ->url('http://100.74.136.28/m9-health-next')
+                    ->visible(fn () => auth()->user()?->isSuperAdmin()),
             ])
             ->maxContentWidth(Width::ScreenTwoExtraLarge)
             ->simplePageMaxContentWidth(Width::Medium)
@@ -91,10 +97,10 @@ class AdminPanelProvider extends PanelProvider
             // Modal "domain telah bertukar" - dihidupkan melalui .env (rujuk config/domain_notice.php); tiada output
             // bila dimatikan atau hos semasa sudah domain baharu.
             // Meta pratonton pautan (og:image) utk halaman log masuk/panel - rujuk partials/share-meta.
-            ->renderHook(PanelsRenderHook::HEAD_END, fn(): string => view('partials.share-meta')->render())
+            ->renderHook(PanelsRenderHook::HEAD_END, fn (): string => view('partials.share-meta')->render())
             ->renderHook(
                 PanelsRenderHook::BODY_END,
-                fn(): string => DomainNotice::shouldShow(request()) ? view('filament.hooks.domain-notice')->render() : '',
+                fn (): string => DomainNotice::shouldShow(request()) ? view('filament.hooks.domain-notice')->render() : '',
             )
             ->databaseNotifications()
             ->databaseNotificationsPolling('20s')
@@ -106,29 +112,36 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->navigationItems([
                 NavigationItem::make('Form Items Request (Branch)')
-                    ->url('/branch-demand', shouldOpenInNewTab: true)
+                    ->url('/branch-demand', shouldOpenInNewTab: false)
                     ->icon(Heroicon::OutlinedPencilSquare)
                     ->group('Procurement')
-                    ->visible(fn() => Auth::user()->hasRole(['manager_sale', 'manager', 'leader_branch', 'ceo', 'super_admin']))
+                    ->visible(fn () => Auth::user()->hasRole(['manager_sale', 'manager', 'leader_branch', 'ceo', 'super_admin']))
                     ->sort(-1),
                 NavigationItem::make('Back Office Actions')
-                    ->url('/back-office-actions', shouldOpenInNewTab: true)
+                    ->url('/back-office-actions', shouldOpenInNewTab: false)
                     ->icon(Heroicon::OutlinedClipboardDocumentCheck)
                     ->group('Procurement')
-                    ->visible(fn() => Auth::user()->hasRole(BackOfficeActionsController::ROLES))
+                    ->visible(fn () => Auth::user()->hasRole(BackOfficeActionsController::ROLES))
                     ->sort(0),
                 NavigationItem::make('Supplier Lookup')
-                    ->url('/supplier-lookup', shouldOpenInNewTab: true)
+                    ->url('/supplier-lookup', shouldOpenInNewTab: false)
                     ->icon(Heroicon::OutlinedTruck)
                     ->group('Procurement')
-                    ->visible(fn() => Auth::user()->hasRole(BackOfficeActionsController::ROLES))
+                    ->visible(fn () => Auth::user()->hasRole(BackOfficeActionsController::ROLES))
                     ->sort(1),
                 NavigationItem::make('Jobsheet Lookup')
-                    ->url('/jobsheet-lookup', shouldOpenInNewTab: true)
+                    ->url('/jobsheet-lookup', shouldOpenInNewTab: false)
                     ->icon(Heroicon::OutlinedMagnifyingGlassCircle)
                     ->group('Inventory Health')
-                    ->visible(fn() => Auth::user()->hasRole(['manager', 'ceo', 'super_admin']))
+                    ->visible(fn () => Auth::user()->hasRole(['manager', 'ceo', 'super_admin']))
                     ->sort(-1),
+                NavigationItem::make('Restock Analysis')
+                    ->url('/restock-analysis', shouldOpenInNewTab: false)
+                    ->icon(Heroicon::OutlinedChartBar)
+                    ->group('Analisis JEMiSys')
+                    ->visible(fn () => RestockAnalysisController::canAccess(Auth::user()))
+                    ->badge('New')
+                    ->sort(0),
             ])
             // ->font('Roboto Mono')
             ->navigationGroups([

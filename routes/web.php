@@ -10,6 +10,7 @@ use App\Http\Controllers\HomeController;
 use App\Http\Controllers\HqDirectionAcknowledgeController;
 use App\Http\Controllers\JobsheetLookupController;
 use App\Http\Controllers\ProductImagesController;
+use App\Http\Controllers\RestockAnalysisController;
 use App\Http\Controllers\SupplierLookupController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -74,6 +75,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/supplier-lookup/details', [SupplierLookupController::class, 'details'])->middleware('throttle:240,1')->name('supplier-lookup.details');
     Route::get('/supplier-lookup/export', [SupplierLookupController::class, 'export'])->middleware('throttle:20,1')->name('supplier-lookup.export');
     Route::get('/supplier-lookup/print', [SupplierLookupController::class, 'print'])->middleware('throttle:20,1')->name('supplier-lookup.print');
+
+    // Restock Analysis - gabungan halaman Filament Restock ikut Saiz/Berat/Kategori, ikut kebenaran Shield View:RestockBy*
+    // (rujuk RestockAnalysisController dokblok).
+    Route::get('/restock-analysis', [RestockAnalysisController::class, 'index'])->name('restock-analysis.index');
+    Route::get('/restock-analysis/designs', [RestockAnalysisController::class, 'designs'])->middleware('throttle:120,1')->name('restock-analysis.designs');
+    Route::get('/restock-analysis/design', [RestockAnalysisController::class, 'design'])->middleware('throttle:120,1')->name('restock-analysis.design');
 
     // Senarai PENUH imej produk (bukan 1 thumbnail sahaja) bagi satu InternalCode - dibuka drpd
     // lajur imej ImageColumn di Filament (rujuk ProductImagesController dokblok).

@@ -11,13 +11,17 @@ const props = withDefaults(
         // Bilangan titik perpuluhan pd teks tengah.
         decimals?: number;
         label?: string;
+        // Teks tengah tersuai (cth. nilai stok) - lalai: `value` sbg peratus.
+        text?: string;
+        // Kelas warna gelang (cth. "stroke-red-500") - lalai: stroke-primary.
+        ringClass?: HTMLAttributes['class'];
         class?: HTMLAttributes['class'];
     }>(),
-    { decimals: 1, label: undefined, class: undefined },
+    { decimals: 1, label: undefined, text: undefined, ringClass: undefined, class: undefined },
 );
 
 const clamped = computed(() => Math.min(100, Math.max(0, props.value)));
-const text = computed(() => `${props.value.toFixed(props.decimals)}%`);
+const text = computed(() => props.text ?? `${props.value.toFixed(props.decimals)}%`);
 </script>
 
 <template>
@@ -40,7 +44,7 @@ const text = computed(() => `${props.value.toFixed(props.decimals)}%`);
                 stroke-linecap="round"
                 pathLength="100"
                 :stroke-dasharray="`${clamped} 100`"
-                class="stroke-primary transition-[stroke-dasharray] duration-300"
+                :class="cn('stroke-primary transition-[stroke-dasharray] duration-300', props.ringClass)"
             />
         </svg>
         <span class="absolute inset-0 flex items-center justify-center text-[9px] leading-none font-medium tabular-nums sm:text-[10px]">{{ text }}</span>

@@ -12,6 +12,8 @@ import { cn } from '@/lib/utils';
 const props = defineProps<{
     title: string;
     options: { value: string; label: string; count?: number }[];
+    // Satu pilihan sahaja (cth. tempoh): memilih menggantikan pilihan lama & menutup popover; tiada "Kosongkan penapis".
+    single?: boolean;
 }>();
 
 // Popover.vue mengisytiharkan `open` sbg prop boolean - tanpa v-model:open, Vue menetapkannya false
@@ -23,6 +25,13 @@ const selected = defineModel<string[]>({ default: () => [] });
 const selectedSet = computed(() => new Set(selected.value));
 
 function toggle(value: string) {
+    if (props.single) {
+        selected.value = [value];
+        open.value = false;
+
+        return;
+    }
+
     selected.value = selectedSet.value.has(value)
         ? selected.value.filter((v) => v !== value)
         : [...selected.value, value];
@@ -62,7 +71,8 @@ const selectedLabels = computed(() => props.options.filter((o) => selectedSet.va
                         <CommandItem v-for="option in options" :key="option.value" :value="option.label"
                             @select.prevent="toggle(option.value)">
                             <div :class="cn(
-                                'flex size-4 items-center justify-center rounded-sm border border-primary',
+                                'flex size-4 items-center justify-center border border-primary',
+                                single ? 'rounded-full' : 'rounded-sm',
                                 selectedSet.has(option.value) ? 'bg-primary text-primary-foreground' : 'opacity-50 [&_svg]:invisible',
                             )">
                                 <Check class="size-3.5" />
@@ -78,7 +88,7 @@ const selectedLabels = computed(() => props.options.filter((o) => selectedSet.va
                             Tiada carian
                         </CommandItem>
                     </CommandGroup>
-                    <template v-if="selected.length > 0">
+                    <template v-if="selected.length > 0 && !single">
                         <Separator />
                         <CommandGroup>
                             <CommandItem value="__clear" class="justify-center text-center" @select.prevent="selected = []">

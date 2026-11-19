@@ -9,6 +9,7 @@ use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
 use App\Models\User;
 use App\Support\MemberLookup;
+use App\Support\RestockSnapshotMaterializer;
 use App\Support\StockoutReorderMaterializer;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -124,6 +125,14 @@ class SyncJemisysMirrors implements ShouldQueue
             // StockoutReorder baca terus drpd jadual ni (bukan agregat live) - rujuk nota
             // App\Support\StockoutReorderMaterializer/App\Filament\Pages\StockoutReorder.
             $stockoutCandidateCount = StockoutReorderMaterializer::materialize();
+
+            // Ringkasan restock (halaman Restock Analysis) - kegagalan di sini TIDAK menggagalkan segerak mirror (data cermin sudah
+            // lengkap); halaman hanya menunjukkan snapshot terakhir yg berjaya sehingga larian berikut / `app:build-restock-snapshot`.
+            try {
+                RestockSnapshotMaterializer::materialize();
+            } catch (Throwable $e) {
+                Log::error('SyncJemisysMirrors: ringkasan restock gagal dibina - '.$e->getMessage());
+            }
 
             // Semua kalkulator berat guna Cache::rememberForever() (bukan TTL 3600s) - staleness
             // kekal terikat pada bila sync/warm terakhir berjaya, BUKAN tempoh tamat rawak yg

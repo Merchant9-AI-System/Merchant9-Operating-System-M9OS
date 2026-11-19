@@ -88,21 +88,57 @@ class RestockAnalysisCalculator
         };
     }
 
-    public static function bySize(string $period = self::DEFAULT_PERIOD): Collection
+    /**
+     * @param  bool  $fixedWindow  true = pieces_received/pieces_sold ikut $period, TETAPI Cadangan/Disyorkan/Gap sentiasa
+     *                             dikira drpd tetingkap TREND_MONTHS tetap (rujuk finalize()). Tiada beza utk PERIOD_ALL.
+     */
+    public static function bySize(string $period = self::DEFAULT_PERIOD, bool $fixedWindow = false): Collection
     {
-        return collect(Cache::rememberForever("restock_by_size:{$period}", function () use ($period) {
-            return retry(6, fn () => static::computeBySize($period)->toArray(), 800);
+        $fixedWindow = static::effectiveFixedWindow($period, $fixedWindow);
+        $key = "restock_by_size:{$period}".($fixedWindow ? ':fixed' : '');
+
+        return collect(Cache::rememberForever($key, function () use ($period, $fixedWindow) {
+            return retry(6, fn () => static::computeBySize($period, $fixedWindow)->toArray(), 800);
         }));
     }
 
-    public static function byWeight(string $period = self::DEFAULT_PERIOD): Collection
+    /** @param  bool  $fixedWindow  rujuk bySize(). */
+    public static function byWeight(string $period = self::DEFAULT_PERIOD, bool $fixedWindow = false): Collection
     {
-        return collect(Cache::rememberForever("restock_by_weight:{$period}", function () use ($period) {
-            return retry(6, fn () => static::computeByWeight($period)->toArray(), 800);
+        $fixedWindow = static::effectiveFixedWindow($period, $fixedWindow);
+        $key = "restock_by_weight:{$period}".($fixedWindow ? ':fixed' : '');
+
+        return collect(Cache::rememberForever($key, function () use ($period, $fixedWindow) {
+            return retry(6, fn () => static::computeByWeight($period, $fixedWindow)->toArray(), 800);
         }));
     }
 
-    protected static function computeBySize(string $period = self::DEFAULT_PERIOD): Collection
+    /**
+     * Cadangan utk satu baris - peraturan SAMA spt finalize()/computeByCategoryPerBranch() (dikongsi RestockSnapshotMaterializer).
+     *
+     * @param  int  $sample  bilangan penerimaan keseluruhan (ukuran saiz sampel)
+     * @param  int  $stock  stok semasa
+     * @param  float  $velocity  jualan sebulan (tetingkap TREND_MONTHS)
+     * @param  int  $target  stok disyorkan
+     */
+    public static function verdictFor(int $sample, int $stock, float $velocity, int $target): string
+    {
+        return match (true) {
+            $sample < self::MIN_SAMPLE => self::VERDICT_NO_DATA,
+            $stock === 0 && $velocity > 0 => self::VERDICT_SOLD_OUT,
+            $stock < $target => self::VERDICT_RESTOCK,
+            $target > 0 && $stock > $target * 2 => self::VERDICT_OVERSTOCK,
+            default => self::VERDICT_OK,
+        };
+    }
+
+    /** PERIOD_ALL sudah sentiasa guna tetingkap tetap - kongsi kunci cache & hasil yg sama. */
+    protected static function effectiveFixedWindow(string $period, bool $fixedWindow): bool
+    {
+        return $fixedWindow && $period !== self::PERIOD_ALL;
+    }
+
+    protected static function computeBySize(string $period = self::DEFAULT_PERIOD, bool $fixedWindow = false): Collection
     {
         // JewelSize (TEXT, ~280 nilai unik - jauh lebih kecil drpd GoldWeight berterusan) -
         // kumpul RAW dulu dlm SQL (selamat, bukan combinatorial explosion spt berat), kemudian
@@ -119,7 +155,8 @@ class RestockAnalysisCalculator
                 'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received, '.
                 'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold, '.
                 'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold_velocity_window, '.
-                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart, $velocityWindowStart])
+                'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received_sample, '.
+                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart, $velocityWindowStart, static::trendStartForPeriod(self::PERIOD_ALL)])
             ->groupBy('CategoryCode', 'StoreCode', 'JewelSize')
             ->get();
 
@@ -134,11 +171,12 @@ class RestockAnalysisCalculator
                     'pieces_received' => $rows->sum('pieces_received'),
                     'pieces_sold' => $rows->sum('pieces_sold'),
                     'pieces_sold_velocity_window' => $rows->sum('pieces_sold_velocity_window'),
+                    'pieces_received_sample' => $rows->sum('pieces_received_sample'),
                     'current_stock' => $rows->sum('current_stock'),
                 ];
             })->values();
 
-        return static::finalize($merged, $period);
+        return static::finalize($merged, $period, $fixedWindow);
     }
 
     /**
@@ -350,14 +388,18 @@ class RestockAnalysisCalculator
      * Cache rememberForever PER KATEGORI + TEMPOH (kunci cache sertakan $period - tempoh
      * berlainan = trend window berlainan, TIDAK boleh kongsi cache sesama).
      */
-    public static function byCategoryPerBranch(string $categoryCode, string $period = self::DEFAULT_PERIOD): Collection
+    /** @param  bool  $fixedWindow  rujuk bySize(). */
+    public static function byCategoryPerBranch(string $categoryCode, string $period = self::DEFAULT_PERIOD, bool $fixedWindow = false): Collection
     {
-        return collect(Cache::rememberForever("restock_by_category_per_branch:{$categoryCode}:{$period}", function () use ($categoryCode, $period) {
-            return retry(6, fn () => static::computeByCategoryPerBranch($categoryCode, $period)->toArray(), 800);
+        $fixedWindow = static::effectiveFixedWindow($period, $fixedWindow);
+        $key = "restock_by_category_per_branch:{$categoryCode}:{$period}".($fixedWindow ? ':fixed' : '');
+
+        return collect(Cache::rememberForever($key, function () use ($categoryCode, $period, $fixedWindow) {
+            return retry(6, fn () => static::computeByCategoryPerBranch($categoryCode, $period, $fixedWindow)->toArray(), 800);
         }));
     }
 
-    protected static function computeByCategoryPerBranch(string $categoryCode, string $period = self::DEFAULT_PERIOD): Collection
+    protected static function computeByCategoryPerBranch(string $categoryCode, string $period = self::DEFAULT_PERIOD, bool $fixedWindow = false): Collection
     {
         $trendStart = static::trendStartForPeriod($period);
         // Tetingkap velocity TETAP - rujuk nota sama dlm computeBySize() & dokblok PERIOD_ALL/finalize().
@@ -374,7 +416,8 @@ class RestockAnalysisCalculator
                 'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received, '.
                 'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold, '.
                 'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold_velocity_window, '.
-                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart, $velocityWindowStart])
+                'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received_sample, '.
+                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart, $velocityWindowStart, static::trendStartForPeriod(self::PERIOD_ALL)])
             ->groupBy('InternalCode', 'StoreCode')
             ->toBase()
             ->get();
@@ -382,7 +425,7 @@ class RestockAnalysisCalculator
         $trendWindowDays = max((int) $trendStart->diffInDays(now()), 1);
         // PERIOD_ALL - rujuk dokblok finalize() (velocity WAJIB kekal tetingkap TREND_MONTHS
         // sebenar, bukan span "semua"/epoch).
-        $useFixedVelocityWindow = $period === self::PERIOD_ALL;
+        $useFixedVelocityWindow = $period === self::PERIOD_ALL || $fixedWindow;
         $velocityWindowDays = max((int) $velocityWindowStart->diffInDays(now()), 1);
         $categoryName = Category::where('CategoryCode', $categoryCode)->value('Description') ?? $categoryCode;
 
@@ -391,7 +434,7 @@ class RestockAnalysisCalculator
         // imageUrlsFor() - satu query kelompok utk semua InternalCode dlm kategori ni.
         $imageUrls = static::imageUrlsFor($raw->pluck('InternalCode'));
 
-        return $raw->map(function ($r) use ($trendWindowDays, $useFixedVelocityWindow, $velocityWindowDays, $categoryCode, $categoryName, $imageUrls) {
+        return $raw->map(function ($r) use ($trendWindowDays, $useFixedVelocityWindow, $velocityWindowDays, $categoryCode, $categoryName, $imageUrls, $fixedWindow) {
             $piecesReceived = (int) $r->pieces_received;
             $piecesSold = (int) $r->pieces_sold;
             $currentStock = (int) $r->current_stock;
@@ -402,8 +445,11 @@ class RestockAnalysisCalculator
             $velocity = SalesVelocityHelper::velocity($velocityPiecesSold, $velocityDays);
             $targetStock = SalesVelocityHelper::targetStock($velocity, self::TARGET_COVER_MONTHS);
 
+            // Mod tetingkap tetap: sampel minimum diukur drpd SEMUA penerimaan (spt PERIOD_ALL), bukan tempoh paparan yg pendek.
+            $sample = $fixedWindow ? (int) $r->pieces_received_sample : $piecesReceived;
+
             $verdict = match (true) {
-                $piecesReceived < self::MIN_SAMPLE => self::VERDICT_NO_DATA,
+                $sample < self::MIN_SAMPLE => self::VERDICT_NO_DATA,
                 $currentStock === 0 && $velocity > 0 => self::VERDICT_SOLD_OUT,
                 $currentStock < $targetStock => self::VERDICT_RESTOCK,
                 $targetStock > 0 && $currentStock > $targetStock * 2 => self::VERDICT_OVERSTOCK,
@@ -483,7 +529,7 @@ class RestockAnalysisCalculator
         return $s;
     }
 
-    protected static function computeByWeight(string $period = self::DEFAULT_PERIOD): Collection
+    protected static function computeByWeight(string $period = self::DEFAULT_PERIOD, bool $fixedWindow = false): Collection
     {
         // Bucket berat DALAM SQL (CASE WHEN) sebelum GROUP BY - elak kumpul ikut GoldWeight
         // mentah (float berterusan) yg cipta beribu kumpulan tak perlu (punca OOM sblm ni).
@@ -501,11 +547,12 @@ class RestockAnalysisCalculator
                 'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received, '.
                 'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold, '.
                 'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as pieces_sold_velocity_window, '.
-                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart, $velocityWindowStart])
+                'SUM(CASE WHEN PurchDate >= ? THEN 1 ELSE 0 END) as pieces_received_sample, '.
+                'SUM(QtyOnHand) as current_stock', [$trendStart, $trendStart, $velocityWindowStart, static::trendStartForPeriod(self::PERIOD_ALL)])
             ->groupBy('CategoryCode', 'StoreCode', DB::raw($caseExpr))
             ->get();
 
-        return static::finalize($raw, $period);
+        return static::finalize($raw, $period, $fixedWindow);
     }
 
     /** public - dikongsi dgn JobsheetRestockScorer (bucket berat DLM SQL, elak tarik baris
@@ -541,7 +588,7 @@ class RestockAnalysisCalculator
         return '50g+';
     }
 
-    protected static function finalize(Collection $raw, string $period = self::DEFAULT_PERIOD): Collection
+    protected static function finalize(Collection $raw, string $period = self::DEFAULT_PERIOD, bool $fixedWindow = false): Collection
     {
         $trendStart = static::trendStartForPeriod($period);
         $trendWindowDays = max((int) $trendStart->diffInDays(now()), 1);
@@ -552,10 +599,10 @@ class RestockAnalysisCalculator
         // (bukan span "semua"/epoch ni) - kalau tidak, velocity runtuh hampir sifar (dibahagi
         // puluhan ribu hari), rosakkan cadangan restock. Rujuk pieces_sold_velocity_window
         // (dikira berasingan dlm computeBySize()/computeByWeight()) & dokblok PERIOD_ALL.
-        $useFixedVelocityWindow = $period === self::PERIOD_ALL;
+        $useFixedVelocityWindow = $period === self::PERIOD_ALL || $fixedWindow;
         $velocityWindowDays = max((int) now()->subMonths(self::TREND_MONTHS)->diffInDays(now()), 1);
 
-        $out = $raw->map(function ($r) use ($trendWindowDays, $categoryNames, $useFixedVelocityWindow, $velocityWindowDays) {
+        $out = $raw->map(function ($r) use ($trendWindowDays, $categoryNames, $useFixedVelocityWindow, $velocityWindowDays, $fixedWindow) {
             $piecesReceived = (int) $r->pieces_received;
             $piecesSold = (int) $r->pieces_sold;
             $currentStock = (int) $r->current_stock;
@@ -566,7 +613,10 @@ class RestockAnalysisCalculator
             $velocity = SalesVelocityHelper::velocity($velocityPiecesSold, $velocityDays);
             $targetStock = SalesVelocityHelper::targetStock($velocity, self::TARGET_COVER_MONTHS);
 
-            if ($piecesReceived < self::MIN_SAMPLE) {
+            // Mod tetingkap tetap: sampel minimum diukur drpd SEMUA penerimaan (spt PERIOD_ALL), bukan tempoh paparan yg pendek.
+            $sample = $fixedWindow ? (int) $r->pieces_received_sample : $piecesReceived;
+
+            if ($sample < self::MIN_SAMPLE) {
                 $verdict = self::VERDICT_NO_DATA;
             } elseif ($currentStock === 0 && $velocity > 0) {
                 $verdict = self::VERDICT_SOLD_OUT;
