@@ -172,4 +172,6 @@ export interface DesignDetail {
     computed_at: string;
     stores: StoreStock[];
     monthly: { month: string; store: number; others: number }[];
+    // Bucket saiz/berat paling lazim bagi design ini di cawangan dipilih (null = tiada piece).
+    buckets: { size: string | null; weight: string | null };
 }

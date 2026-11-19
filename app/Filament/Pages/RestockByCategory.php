@@ -52,6 +52,17 @@ class RestockByCategory extends Page implements HasTable
     /** Bilangan baris sejarah maksimum dipaparkan dlm modal "Lihat Sejarah". */
     private const HISTORY_MODAL_LIMIT = 30;
 
+    /** Digantikan oleh halaman Restock Analysis (Senarai Design): disorok drpd menu, URL lama dialihkan di mount(). */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
+    public function mount(): void
+    {
+        $this->redirect(route('restock-analysis.index', ['view' => 'design']));
+    }
+
     public function getSubheading(): ?string
     {
         $base = 'Cadangan restock per design silang SATU Kategori terpilih - pilih Kategori utk papar data.';

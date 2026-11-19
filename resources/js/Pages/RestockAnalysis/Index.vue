@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, router } from '@inertiajs/vue3';
-import { Boxes, Check, CircleCheck, Copy, Eye, ListFilter, PackageSearch, PackageX, Search, Sparkles, TriangleAlert, X } from '@lucide/vue';
+import { ArrowLeft, Boxes, Check, CircleCheck, Copy, Eye, ListFilter, PackageSearch, PackageX, Search, Sparkles, TriangleAlert, X } from '@lucide/vue';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { toast } from 'vue-sonner';
 import CircularProgress from '@/components/CircularProgress.vue';
@@ -71,6 +71,8 @@ const props = defineProps<{
     // Trend harian Sold Out/Perlu Restock (30 hari, paparan Ringkasan) & lengkung saiz/berat satu kategori (paparan Saiz/Berat).
     trend: { date: string; sold_out: number; restock: number }[] | null;
     curve: { data: { bucket: string; stock: number; sold_3m: number }[]; total: number } | null;
+    // Butang Kembali ke dashboard panel admin.
+    dashboardUrl: string;
 }>();
 
 const MAX_SORTS = 4;
@@ -220,18 +222,27 @@ function setPerPage(size: number) {
 
 // --- Panel butiran ---
 const panelOpen = ref(false);
-const panel = ref<{ mode: 'design' | 'bucket'; code?: string; store: string; categoryCode?: string; categoryName?: string; bucket?: string } | null>(null);
+const panel = ref<{ mode: 'design' | 'bucket'; code?: string; store: string; view?: 'size' | 'weight'; categoryCode?: string; categoryName?: string; bucket?: string } | null>(null);
+
+// Pengguna hanya nampak butang ke bucket bagi paparan yg dibenarkan (rujuk kebenaran Shield).
+const canSize = computed(() => props.viewOptions.some((o) => o.value === 'size'));
+const canWeight = computed(() => props.viewOptions.some((o) => o.value === 'weight'));
 
 function openRow(row: DesignRow & BucketRow) {
     panel.value = isDesign.value
         ? { mode: 'design', code: row.internal_code, store: row.store_code }
-        : { mode: 'bucket', store: row.store_code, categoryCode: row.category_code, categoryName: row.category_name, bucket: row.bucket };
+        : { mode: 'bucket', store: row.store_code, view: props.filters.view === 'weight' ? 'weight' : 'size', categoryCode: row.category_code, categoryName: row.category_name, bucket: row.bucket };
     panelOpen.value = true;
 }
 
 // Dari senarai bucket, klik satu design -> panel design (cawangan sama).
 function openDesignFromBucket(code: string, store: string) {
     panel.value = { mode: 'design', code, store };
+}
+
+// Dari panel design, butang ke senarai design dlm bucket saiz/berat yg sama (cawangan sama).
+function openBucketFromDesign(view: 'size' | 'weight', bucket: string, categoryCode: string, categoryName: string) {
+    panel.value = { mode: 'bucket', store: panel.value?.store ?? '', view, categoryCode, categoryName, bucket };
 }
 
 // --- Salin senarai (halaman semasa, lajur dipisah tab - sedia ditampal ke Excel/WhatsApp) ---
@@ -381,10 +392,15 @@ const curveVisible = computed(() => isBucket.value && !showSkeleton.value && pro
 
     <div class="mx-auto flex max-w-7xl min-w-0 flex-col gap-4 px-3 py-6 sm:px-6 sm:py-8">
         <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-            <div>
-                <h1 class="text-xl font-semibold tracking-tight">Restock Analysis</h1>
-                <p class="text-sm text-muted-foreground">Fahami stok dan jualan setiap design di setiap cawangan, dan
-                    apa yang perlu diberi perhatian hari ini.</p>
+            <div class="flex items-start gap-3">
+                <Button as="a" :href="dashboardUrl" variant="outline" size="icon-sm" class="mt-0.5 bg-card" aria-label="Kembali ke dashboard" title="Kembali ke dashboard">
+                    <ArrowLeft class="size-4" />
+                </Button>
+                <div>
+                    <h1 class="text-xl font-semibold tracking-tight">Restock Analysis</h1>
+                    <p class="text-sm text-muted-foreground">Fahami stok dan jualan setiap design di setiap cawangan, dan
+                        apa yang perlu diberi perhatian hari ini.</p>
+                </div>
             </div>
 
             <!-- Paparan -->
@@ -893,6 +909,7 @@ const curveVisible = computed(() => isBucket.value && !showSkeleton.value && pro
     </div>
 
     <DetailPanel v-if="panel" v-model:open="panelOpen" :mode="panel.mode" :code="panel.code" :store="panel.store"
-        :view="filters.view === 'weight' ? 'weight' : 'size'" :category-code="panel.categoryCode"
-        :category-name="panel.categoryName" :bucket="panel.bucket" @open-design="openDesignFromBucket" />
+        :view="panel.view ?? (filters.view === 'weight' ? 'weight' : 'size')" :can-size="canSize" :can-weight="canWeight"
+        :category-code="panel.categoryCode"
+        :category-name="panel.categoryName" :bucket="panel.bucket" @open-design="openDesignFromBucket" @open-bucket="openBucketFromDesign" />
 </template>

@@ -51,6 +51,17 @@ class RestockByWeight extends Page implements HasTable
     /** Bilangan design maksimum dipaparkan dlm modal "Lihat Design" - senarai penuh boleh capai beratus baris. */
     private const DESIGNS_MODAL_LIMIT = 20;
 
+    /** Digantikan oleh halaman Restock Analysis (tab Ikut Berat): disorok drpd menu, URL lama dialihkan di mount(). */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
+    public function mount(): void
+    {
+        $this->redirect(route('restock-analysis.index', ['view' => 'weight']));
+    }
+
     public function getSubheading(): ?string
     {
         $base = 'Cadangan restock ikut Berat Emas, silang Kategori x Cawangan - dikira 100% drpd data JEMiSys sebenar.';

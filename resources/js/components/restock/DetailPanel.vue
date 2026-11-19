@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { Ruler, Scale } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import ImagePreview from '@/components/ImagePreview.vue';
 import BarsChart from '@/components/restock/BarsChart.vue';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -32,9 +34,15 @@ const props = defineProps<{
     categoryCode?: string;
     categoryName?: string;
     bucket?: string;
+    // Paparan Saiz/Berat yg boleh dilihat pengguna (kebenaran) - menentukan butang ke senarai design dlm bucket sama.
+    canSize?: boolean;
+    canWeight?: boolean;
 }>();
 
-const emit = defineEmits<{ 'open-design': [code: string, store: string] }>();
+const emit = defineEmits<{
+    'open-design': [code: string, store: string];
+    'open-bucket': [view: 'size' | 'weight', bucket: string, categoryCode: string, categoryName: string];
+}>();
 
 const open = defineModel<boolean>('open', { required: true });
 
@@ -189,6 +197,22 @@ const title = computed(() => (props.mode === 'design' ? (props.code ?? '') : `${
                         Boleh dipertimbangkan transfer daripada:
                         <strong v-for="(s, i) in surplusStores" :key="s.store_code" class="font-semibold">{{ i > 0 ? ', ' : ' ' }}{{ s.store_code }} (+{{ s.surplus }})</strong>.
                     </p>
+
+                    <!-- Pintasan ke senarai design dlm bucket saiz/berat yg sama (panel bucket) -->
+                    <section v-if="(canSize && detail.buckets.size) || (canWeight && detail.buckets.weight)" class="flex flex-col gap-2">
+                        <h3 class="text-sm font-medium">Design lain dalam bucket yang sama</h3>
+                        <div class="flex flex-wrap gap-2">
+                            <Button v-if="canSize && detail.buckets.size" type="button" variant="outline" size="sm" @click="emit('open-bucket', 'size', detail.buckets.size, detail.category_code, detail.category_name)">
+                                <Ruler class="size-4" />
+                                {{ detail.buckets.size === '(tiada)' ? 'Tiada saiz' : `Saiz ${detail.buckets.size}` }}
+                            </Button>
+                            <Button v-if="canWeight && detail.buckets.weight" type="button" variant="outline" size="sm" @click="emit('open-bucket', 'weight', detail.buckets.weight, detail.category_code, detail.category_name)">
+                                <Scale class="size-4" />
+                                {{ detail.buckets.weight === '(tiada)' ? 'Tiada berat' : `Berat ${detail.buckets.weight}` }}
+                            </Button>
+                        </div>
+                        <p class="text-xs text-muted-foreground">{{ detail.category_name }} di {{ detail.selected_store }}.</p>
+                    </section>
 
                     <!-- Stok berbanding disyorkan setiap cawangan -->
                     <section class="flex flex-col gap-2">

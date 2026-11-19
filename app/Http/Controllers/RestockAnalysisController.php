@@ -13,6 +13,7 @@ use App\Models\RestockVerdictChange;
 use App\Models\User;
 use App\Support\RestockAnalysisCalculator;
 use App\Support\RestockSnapshotQuery;
+use Filament\Facades\Filament;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -88,6 +89,8 @@ class RestockAnalysisController extends Controller
             'rows' => null,
             'breakdown' => null,
             'trend' => null,
+            // Butang Kembali: dashboard panel admin Filament.
+            'dashboardUrl' => Filament::getPanel('admin')->getUrl(),
             'curve' => null,
         ];
 
@@ -151,6 +154,8 @@ class RestockAnalysisController extends Controller
                     : 0,
             ])->values(),
             'monthly' => $this->monthlySales($code, $store),
+            // Bucket saiz & berat paling lazim bagi piece design ini di cawangan dipilih - utk butang ke senarai design dlm bucket yg sama.
+            'buckets' => $this->designBuckets($code, $store),
         ]);
     }
 
@@ -427,6 +432,41 @@ class RestockAnalysisController extends Controller
             'data' => $top->sortBy(fn (array $row) => $rank($row['bucket']))->values()->all(),
             'total' => $rows->count(),
         ];
+    }
+
+    /**
+     * Bucket saiz & berat paling lazim bagi piece sebuah design (di cawangan dipilih; semua cawangan jika tiada). Label sama spt jadual bucket
+     * (RestockAnalysisCalculator::sizeLabel() & weightBucketSqlCase()).
+     *
+     * @return array{size: ?string, weight: ?string}
+     */
+    private function designBuckets(string $code, string $store): array
+    {
+        $pieces = InventoryPiece::query()
+            ->realVendor()
+            ->where(fn ($q) => $q->where('InternalCode', $code)->orWhere('InternalCode', $code.' '))
+            ->when($store !== '', fn ($q) => $q->whereRaw('TRIM(StoreCode) = ?', [$store]))
+            ->toBase();
+
+        $size = (clone $pieces)
+            ->selectRaw('JewelSize as raw_bucket, COUNT(*) as total')
+            ->groupBy('JewelSize')
+            ->get()
+            ->groupBy(fn ($row) => RestockAnalysisCalculator::sizeLabel($row->raw_bucket))
+            ->map(fn ($rows) => $rows->sum('total'))
+            ->sortDesc()
+            ->keys()
+            ->first();
+
+        $weightSql = RestockAnalysisCalculator::weightBucketSqlCase();
+        $weight = (clone $pieces)
+            ->selectRaw("{$weightSql} as raw_bucket, COUNT(*) as total")
+            ->groupByRaw($weightSql)
+            ->get()
+            ->sortByDesc('total')
+            ->first()?->raw_bucket;
+
+        return ['size' => $size === null ? null : (string) $size, 'weight' => $weight === null ? null : (string) $weight];
     }
 
     /**

@@ -51,6 +51,17 @@ class RestockBySize extends Page implements HasTable
     /** Bilangan design maksimum dipaparkan dlm modal "Lihat Design" - senarai penuh boleh capai beratus baris. */
     private const DESIGNS_MODAL_LIMIT = 20;
 
+    /** Digantikan oleh halaman Restock Analysis (tab Ikut Saiz): disorok drpd menu, URL lama dialihkan di mount(). */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
+    public function mount(): void
+    {
+        $this->redirect(route('restock-analysis.index', ['view' => 'size']));
+    }
+
     public function getSubheading(): ?string
     {
         $base = 'Cadangan restock ikut Saiz, silang Kategori x Cawangan - dikira 100% drpd data JEMiSys sebenar.';
