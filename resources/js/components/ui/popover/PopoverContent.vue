@@ -8,8 +8,9 @@ const props = withDefaults(
         class?: HTMLAttributes['class'];
         align?: 'start' | 'center' | 'end';
         sideOffset?: number;
+        collisionPadding?: number;
     }>(),
-    { align: 'start', sideOffset: 4 },
+    { align: 'start', sideOffset: 4, collisionPadding: 0 },
 );
 </script>
 
@@ -18,6 +19,7 @@ const props = withDefaults(
         <PopoverContent
             :align="props.align"
             :side-offset="props.sideOffset"
+            :collision-padding="props.collisionPadding"
             :class="cn(
                 'z-50 w-72 rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none',
                 props.class,

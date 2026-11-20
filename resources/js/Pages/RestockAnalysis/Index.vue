@@ -695,7 +695,7 @@ const curveVisible = computed(() => isBucket.value && !showSkeleton.value && pro
                                 <p class="truncate text-xs text-muted-foreground">{{ isDesign ? [row.description,
                                 row.category_name].filter(Boolean).join(' · ') : bucketHeader }}</p>
                             </div>
-                            <Badge variant="outline">{{ row.store_code }}</Badge>
+                            <Badge variant="secondary">{{ row.store_code }}</Badge>
                         </div>
                         <div class="flex items-center justify-between gap-2">
                             <Badge :class="styleFor(row.verdict).badge">{{ styleFor(row.verdict).short }}</Badge>
@@ -818,7 +818,7 @@ const curveVisible = computed(() => isBucket.value && !showSkeleton.value && pro
                                     </TableCell>
                                     <TableCell class="whitespace-nowrap">{{ row.category_name }}</TableCell>
                                     <TableCell>
-                                        <Badge variant="outline">{{ row.store_code }}</Badge>
+                                        <Badge variant="secondary">{{ row.store_code }}</Badge>
                                     </TableCell>
                                     <TableCell v-if="isBucket" class="whitespace-nowrap font-medium">
                                         <span v-if="row.bucket === '(tiada)'"

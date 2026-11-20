@@ -5,6 +5,9 @@ export const VERDICT_OK = 'Stok Cukup';
 export const VERDICT_OVERSTOCK = 'Overstock';
 export const VERDICT_NO_DATA = 'Data Tak Cukup';
 
+// Bukan cawangan jualan: tiada butang tindakan & tidak disenaraikan sbg sumber/penerima (sepadan RestockAnalysisController::NON_BRANCH_STORES).
+export const NON_BRANCH_STORES = ['HQ', 'SECURITY'];
+
 export interface VerdictStyle {
     short: string;
     badge: string;
@@ -161,6 +164,36 @@ export interface StoreStock {
     surplus: number;
 }
 
+// Piece yg sedang bergerak antara cawangan (maklumat tambahan - stok tak diubah): `transit` = Status 5, `loan_transit` = Status 7/8.
+export interface StockMovement {
+    type: 'transit' | 'loan_transit';
+    from_store: string;
+    to_store: string | null;
+    size: string;
+    qty: number;
+    weight_min: number | null;
+    weight_max: number | null;
+}
+
+// Bilangan piece (yg masih ada stok) yg ditanda Reserve / Booked / Loan di sebuah cawangan.
+export interface StoreHolds {
+    reserved: number;
+    booked: number;
+    loaned: number;
+}
+
+// Baris permintaan cawangan (branch_demand_request_lines) utk design ini yg masih diproses.
+export interface RequestLine {
+    id: number;
+    qty: number;
+    size: string | null;
+    weight: string | null;
+    status: string;
+    label: string;
+    remark: string | null;
+    created_at: string;
+}
+
 export interface DesignDetail {
     code: string;
     description: string | null;
@@ -172,8 +205,12 @@ export interface DesignDetail {
     computed_at: string;
     stores: StoreStock[];
     monthly: { month: string; store: number; others: number }[];
-    // Bucket saiz/berat paling lazim bagi design ini di cawangan dipilih (null = tiada piece).
-    buckets: { size: string | null; weight: string | null };
     // Stok semasa & jualan 3 bulan ikut cawangan x saiz (hanya yg masih ada stok atau laku), dgn julat berat (gram).
-    sizes: { store_code: string; size: string; stock: number; sold_3m: number; weight_min: number | null; weight_max: number | null }[];
+    movements: StockMovement[];
+    holds: Record<string, StoreHolds>;
+    // Butang Request pada kotak cadangan: pengguna boleh hantar utk cawangan dipilih? & request aktif sedia ada.
+    can_request: boolean;
+    can_transfer: boolean;
+    requests: RequestLine[];
+    sizes: { store_code: string; size: string; stock: number; sold_3m: number; weight_min: number | null; weight_max: number | null; weight_buckets: string[] }[];
 }

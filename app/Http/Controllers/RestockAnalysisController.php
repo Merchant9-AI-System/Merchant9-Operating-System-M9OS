@@ -2,14 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\JemisysInventoryStatus;
+use App\Models\BranchDemandRequest;
+use App\Models\BranchDemandRequestLine;
 use App\Models\InventoryMirror;
 use App\Models\Jemisys\Category;
 use App\Models\Jemisys\InventoryPiece;
+use App\Models\Jemisys\Store;
 use App\Models\Jemisys\Vendor;
 use App\Models\RestockBucketSnapshot;
 use App\Models\RestockDailyCount;
 use App\Models\RestockSnapshot;
 use App\Models\RestockVerdictChange;
+use App\Models\StockTransfer;
 use App\Models\User;
 use App\Support\RestockAnalysisCalculator;
 use App\Support\RestockSnapshotQuery;
@@ -20,6 +25,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -52,6 +58,12 @@ class RestockAnalysisController extends Controller
     public const PER_PAGE_OPTIONS = [25, 50, 100, 200];
 
     public const DEFAULT_PER_PAGE = 50;
+
+    /** Bukan cawangan jualan: tiada butang Request/Transfer di kotak cadangan & tidak disenaraikan sbg sumber/penerima. */
+    public const NON_BRANCH_STORES = ['HQ', 'SECURITY'];
+
+    /** Stok minimum (boleh diambil) sebuah cawangan utk dijadikan sumber transfer - 1 piece biasanya stok paparan. */
+    public const MIN_SOURCE_STOCK = 2;
 
     /** Bilangan design maksimum dlm panel drill-down bucket (disusun Terjual Bulan Ini tertinggi dahulu). */
     public const DESIGNS_LIMIT = 50;
@@ -123,6 +135,7 @@ class RestockAnalysisController extends Controller
         abort_if($rows->isEmpty(), 404);
 
         $first = $rows->first();
+        $movementData = $this->designMovements($code);
         $vendorName = Vendor::query()->get()->first(fn ($v) => trim((string) $v->VendorCode) === $first->vendor_code)?->Description;
 
         return response()->json([
@@ -154,11 +167,290 @@ class RestockAnalysisController extends Controller
                     : 0,
             ])->values(),
             'monthly' => $this->monthlySales($code, $store),
-            // Bucket saiz & berat paling lazim bagi piece design ini di cawangan dipilih - utk butang ke senarai design dlm bucket yg sama.
-            'buckets' => $this->designBuckets($code, $store),
             // Stok & jualan 3 bulan ikut cawangan x saiz (+ julat berat) - supaya tahu SAIZ/BERAT mana yg ada atau habis.
             'sizes' => $this->designSizes($code),
+            // Maklumat tambahan (tidak mengubah stok/Cadangan): piece dlm perjalanan antara cawangan & piece yg dikhaskan.
+            'movements' => $movementData['movements'],
+            'holds' => $movementData['holds'],
+            // Butang "Request" pada kotak cadangan: boleh hantar utk cawangan dipilih? & request aktif sedia ada utk design ini.
+            'can_request' => $this->canRequestFor($store),
+            'can_transfer' => $this->canTransferFrom($store),
+            'requests' => $this->activeRequests($code, $store),
         ]);
+    }
+
+    /**
+     * Hantar permintaan restock utk satu design terus dari panel: HANYA menambah satu baris pada permintaan cawangan (BranchDemandRequest
+     * kekal satu setiap cawangan - rujuk BranchDemandEntryController::store). Kuantiti TIDAK ditentukan di sini - Back Office yg memutuskan -
+     * jadi `qty_requested` (wajib, bukan null) diisi pengguna dlm borang (lalai 1 jika tidak dihantar).
+     */
+    public function storeRequest(Request $request): JsonResponse
+    {
+        abort_unless($this->canView('design'), 403);
+
+        // Validator manual: app ini memaksa laluan bukan api/* dirender sbg HTML (rujuk bootstrap/app.php), jadi validate() akan MENGALIH, bukan JSON 422.
+        $validator = Validator::make($request->all(), [
+            'code' => ['required', 'string', 'max:20'],
+            'store_code' => ['required', 'string', 'max:20'],
+            'size' => ['nullable', 'string', 'max:100'],
+            'weight' => ['nullable', 'string', 'max:20'],
+            'type' => ['nullable', 'in:request,order'],
+            'is_critical' => ['nullable', 'boolean'],
+            'remark' => ['nullable', 'string', 'max:255'],
+            'qty' => ['nullable', 'integer', 'min:1', 'max:1000'],
+        ], [
+            'qty.integer' => 'Kuantiti mesti nombor bulat.',
+            'qty.min' => 'Kuantiti mesti sekurang-kurangnya 1.',
+            'qty.max' => 'Kuantiti terlalu besar (maksimum :max).',
+            'size.max' => 'Saiz terlalu panjang (maksimum :max aksara).',
+            'weight.max' => 'Berat terlalu panjang (maksimum :max aksara).',
+            'remark.max' => 'Remark terlalu panjang (maksimum :max aksara).',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => $validator->errors()->first(), 'errors' => $validator->errors()], 422);
+        }
+
+        $data = $validator->validated();
+        $code = trim($data['code']);
+        $storeCode = trim($data['store_code']);
+        abort_unless($this->canRequestFor($storeCode), 403);
+
+        $snapshot = RestockSnapshot::query()->where('internal_code', $code)->where('store_code', $storeCode)->first();
+        abort_if($snapshot === null, 404);
+
+        // Request hanya utk cawangan yg kekurangan stok (Sold Out / Perlu Restock).
+        if (! in_array($snapshot->verdict, [RestockAnalysisCalculator::VERDICT_SOLD_OUT, RestockAnalysisCalculator::VERDICT_RESTOCK], true)) {
+            return response()->json(['message' => "{$storeCode} tidak memerlukan restock untuk design ini."], 422);
+        }
+
+        $store = Store::whereRaw('TRIM(StoreCode) = ?', [$storeCode])->first();
+        abort_if($store === null, 404);
+
+        $size = filled($data['size'] ?? null) ? trim($data['size']) : null;
+        $weight = filled($data['weight'] ?? null) ? trim($data['weight']) : null;
+
+        $duplicate = collect($this->activeRequests($code, $storeCode))->contains(
+            fn (array $line) => mb_strtolower((string) $line['size']) === mb_strtolower((string) $size) && (string) $line['weight'] === (string) $weight,
+        );
+
+        if ($duplicate) {
+            return response()->json(['message' => 'Permintaan yang sama untuk design, saiz dan berat ini sudah ada dan masih diproses.'], 422);
+        }
+
+        $demand = BranchDemandRequest::where('store_code', $store->StoreCode)->latest()->first();
+        $isFirstEver = $demand === null;
+
+        if ($isFirstEver) {
+            $demand = BranchDemandRequest::create([
+                'store_code' => $store->StoreCode,
+                'submitted_by_name' => Auth::user()->name,
+            ]);
+        }
+
+        $line = $demand->lines()->create([
+            'internal_code' => $code,
+            'source_type' => BranchDemandRequestLine::SOURCE_CATALOG,
+            'item_desc' => $snapshot->description,
+            'qty_requested' => (int) ($data['qty'] ?? 1),
+            'remark' => filled($data['remark'] ?? null) ? trim($data['remark']) : null,
+            'size' => $size,
+            'weight' => $weight,
+            'category_name' => $this->categoryNames()[$snapshot->category_code] ?? $snapshot->category_code,
+            // Kritikal diutamakan; permintaan "order" (tiada cawangan boleh menyumbang) bermula di peringkat Order.
+            'fulfillment_status' => match (true) {
+                ! empty($data['is_critical']) => BranchDemandRequestLine::FULFILLMENT_STOK_KRITIKAL,
+                ($data['type'] ?? 'request') === 'order' => BranchDemandRequestLine::FULFILLMENT_ORDER,
+                default => BranchDemandRequestLine::FULFILLMENT_REQUESTED,
+            },
+        ]);
+
+        $demand->notifyReviewers(1, $isFirstEver);
+
+        return response()->json([
+            'message' => "Permintaan {$demand->request_number} dihantar untuk {$storeCode}.",
+            'request_number' => $demand->request_number,
+            'line' => $this->requestLineData($line),
+        ], 201);
+    }
+
+    /** Pengguna boleh bertindak (Request/Transfer) bagi cawangan ini? Bukan HQ/Security; pengguna ber-cawangan hanya utk cawangan sendiri. */
+    private function canRequestFor(string $storeCode): bool
+    {
+        $user = Auth::user();
+
+        if ($user === null || $storeCode === '' || $this->isNonBranchStore($storeCode) || ! $this->canView('design')) {
+            return false;
+        }
+
+        $own = trim((string) $user->store_code);
+
+        return $own === '' || $own === $storeCode;
+    }
+
+    /** Sama seperti canRequestFor() + kebenaran Shield `Create:StockTransfer` (super_admin dianggap ada). */
+    private function canTransferFrom(string $storeCode): bool
+    {
+        $user = Auth::user();
+
+        return $this->canRequestFor($storeCode) && ($user->isSuperAdmin() || $user->can('Create:StockTransfer'));
+    }
+
+    /**
+     * Baris permintaan cawangan utk design ini yg masih diproses (belum Dah Delivery/Rearrange/Item Not Available & tidak ditolak).
+     *
+     * @return list<array{id: int, qty: int, size: ?string, weight: ?string, status: string, label: string, remark: ?string, created_at: string}>
+     */
+    private function activeRequests(string $code, string $storeCode): array
+    {
+        if ($storeCode === '') {
+            return [];
+        }
+
+        return BranchDemandRequestLine::query()
+            ->where('internal_code', $code)
+            ->where('line_status', '!=', BranchDemandRequestLine::STATUS_REJECTED)
+            ->whereNotIn('fulfillment_status', BranchDemandRequestLine::FULFILLMENT_TERMINAL)
+            ->whereHas('request', fn ($query) => $query->whereRaw('TRIM(store_code) = ?', [$storeCode]))
+            ->latest('id')
+            ->limit(20)
+            ->get()
+            ->map(fn (BranchDemandRequestLine $line) => $this->requestLineData($line))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Mencipta StockTransfer (notifikasi kepada cawangan asal, destinasi & manager dihantar oleh StockTransfer::notifyBranches) dlm dua arah:
+     * `give` = cawangan Overstock memindahkan stoknya kpd cawangan yg kekurangan; `request` = cawangan yg kekurangan (Sold Out / Perlu Restock)
+     * meminta daripada cawangan lain yg Stok Cukup / Overstock (min. MIN_SOURCE_STOCK boleh diambil). Kuantiti dihadkan kepada stok yg boleh
+     * diambil di cawangan asal (stok tolak piece yg sedang dihantar keluar). Saiz/berat disimpan dlm nota (jadual stock_transfers tiada lajurnya).
+     */
+    public function storeTransfer(Request $request): JsonResponse
+    {
+        abort_unless($this->canView('design'), 403);
+
+        $validator = Validator::make($request->all(), [
+            'code' => ['required', 'string', 'max:20'],
+            'from_store' => ['required', 'string', 'max:20'],
+            'to_store' => ['required', 'string', 'max:20', 'different:from_store'],
+            'direction' => ['nullable', 'in:give,request'],
+            'qty' => ['required', 'integer', 'min:1'],
+            'size' => ['nullable', 'string', 'max:100'],
+            'weight' => ['nullable', 'string', 'max:20'],
+            'notes' => ['nullable', 'string', 'max:255'],
+        ], [
+            'to_store.different' => 'Cawangan penerima mesti berlainan daripada cawangan asal.',
+            'qty.required' => 'Kuantiti perlu diisi.',
+            'qty.integer' => 'Kuantiti mesti nombor bulat.',
+            'qty.min' => 'Kuantiti mesti sekurang-kurangnya 1.',
+            'size.max' => 'Saiz terlalu panjang (maksimum :max aksara).',
+            'weight.max' => 'Berat terlalu panjang (maksimum :max aksara).',
+            'notes.max' => 'Nota terlalu panjang (maksimum :max aksara).',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => $validator->errors()->first(), 'errors' => $validator->errors()], 422);
+        }
+
+        $data = $validator->validated();
+        $code = trim($data['code']);
+        $from = trim($data['from_store']);
+        $to = trim($data['to_store']);
+
+        $requesting = ($data['direction'] ?? 'give') === 'request';
+
+        // give: pengguna bertindak bagi cawangan asal; request: bagi cawangan penerima (yg meminta). HQ/Security tidak terlibat.
+        abort_unless($this->canTransferFrom($requesting ? $to : $from) && ! $this->isNonBranchStore($requesting ? $from : $to), 403);
+
+        $snapshots = RestockSnapshot::query()->where('internal_code', $code)->whereIn('store_code', [$from, $to])->get()->keyBy('store_code');
+        abort_if(! $snapshots->has($from) || ! $snapshots->has($to), 404);
+
+        // Cawangan yg kehabisan stok (Sold Out) boleh juga meminta daripada cawangan Perlu Restock yg masih ada stok - tetapi cawangan itu
+        // dibiarkan sekurang-kurangnya 1 piece (supaya tidak turut menjadi Sold Out).
+        $requesterEmpty = $snapshots[$to]->verdict === RestockAnalysisCalculator::VERDICT_SOLD_OUT;
+        $donorVerdicts = match (true) {
+            ! $requesting => [RestockAnalysisCalculator::VERDICT_OVERSTOCK],
+            $requesterEmpty => [RestockAnalysisCalculator::VERDICT_OK, RestockAnalysisCalculator::VERDICT_OVERSTOCK, RestockAnalysisCalculator::VERDICT_RESTOCK],
+            default => [RestockAnalysisCalculator::VERDICT_OK, RestockAnalysisCalculator::VERDICT_OVERSTOCK],
+        };
+
+        if (! in_array($snapshots[$from]->verdict, $donorVerdicts, true)) {
+            return response()->json(['message' => $requesting ? "{$from} tidak boleh menyumbang stok kepada {$to}." : "Hanya cawangan Overstock boleh memindahkan stok, dan {$from} bukan Overstock."], 422);
+        }
+
+        if (! in_array($snapshots[$to]->verdict, [RestockAnalysisCalculator::VERDICT_SOLD_OUT, RestockAnalysisCalculator::VERDICT_RESTOCK], true)) {
+            return response()->json(['message' => "{$to} tidak memerlukan stok tambahan."], 422);
+        }
+
+        $available = $this->transferableStock($code, $from, $snapshots[$from]->stock);
+
+        if ($requesting && $available < self::MIN_SOURCE_STOCK) {
+            return response()->json(['message' => "{$from} tidak mempunyai stok lebih untuk disumbangkan."], 422);
+        }
+
+        $takeable = $available - ($snapshots[$from]->verdict === RestockAnalysisCalculator::VERDICT_RESTOCK ? 1 : 0);
+
+        if ($data['qty'] > $takeable) {
+            return response()->json(['message' => "Stok yang boleh dipindahkan dari {$from} hanya {$takeable} piece."], 422);
+        }
+
+        $fromStore = Store::whereRaw('TRIM(StoreCode) = ?', [$from])->first();
+        $toStore = Store::whereRaw('TRIM(StoreCode) = ?', [$to])->first();
+        abort_if($fromStore === null || $toStore === null, 404);
+
+        $detail = collect([
+            filled($data['size'] ?? null) ? 'Saiz '.trim($data['size']) : null,
+            filled($data['weight'] ?? null) ? 'Berat '.trim($data['weight']).'g' : null,
+        ])->filter()->implode(' | ');
+
+        $notes = collect([$detail !== '' ? $detail : null, filled($data['notes'] ?? null) ? trim($data['notes']) : null])->filter()->implode(' - ');
+
+        $transfer = StockTransfer::create([
+            'internal_code' => $code,
+            'item_desc' => $snapshots[$from]->description,
+            'category_code' => $snapshots[$from]->category_code,
+            'from_store' => $fromStore->StoreCode,
+            'to_store' => $toStore->StoreCode,
+            'qty' => $data['qty'],
+            'requested_by' => Auth::user()->name,
+            'notes' => $notes !== '' ? $notes : null,
+        ]);
+
+        return response()->json([
+            'message' => "Transfer {$transfer->transfer_number} dicipta: {$from} ke {$to} ({$data['qty']} piece).",
+            'transfer_number' => $transfer->transfer_number,
+        ], 201);
+    }
+
+    /** Stok yg boleh diambil dari sebuah cawangan: stok tolak piece yg sedang dihantar keluar (transit & loan transit). */
+    private function transferableStock(string $code, string $store, int $stock): int
+    {
+        $outgoing = collect($this->designMovements($code)['movements'])
+            ->where('from_store', $store)
+            ->sum('qty');
+
+        return max(0, $stock - (int) $outgoing);
+    }
+
+    private function isNonBranchStore(string $storeCode): bool
+    {
+        return in_array(strtoupper(trim($storeCode)), self::NON_BRANCH_STORES, true);
+    }
+
+    /** @return array{id: int, qty: int, size: ?string, weight: ?string, status: string, label: string, remark: ?string, created_at: string} */
+    private function requestLineData(BranchDemandRequestLine $line): array
+    {
+        return [
+            'id' => $line->id,
+            'qty' => (int) $line->qty_requested,
+            'size' => $line->size,
+            'weight' => $line->weight,
+            'status' => $line->fulfillment_status,
+            'label' => $line->fulfillment_label,
+            'remark' => $line->remark,
+            'created_at' => $line->created_at?->toDateString() ?? '',
+        ];
     }
 
     /**
@@ -503,25 +795,31 @@ class RestockAnalysisController extends Controller
      * ada stok atau ada jualan 3 bulan terkini (kumpulan lama tanpa kedua-duanya tak relevan utk keputusan restock). Saiz yg sama label
      * digabung (sizeLabel(): "16.0" = "16"); disusun ikut cawangan kemudian saiz menaik.
      *
-     * @return list<array{store_code: string, size: string, stock: int, sold_3m: int, weight_min: ?float, weight_max: ?float}>
+     * `weight_buckets` = julat berat (label sama spt bucket Ikut Berat) yg dimiliki piece dlm kumpulan itu, utk membuka senarai design bucket berat.
+     *
+     * @return list<array{store_code: string, size: string, stock: int, sold_3m: int, weight_min: ?float, weight_max: ?float, weight_buckets: list<string>}>
      */
     private function designSizes(string $code): array
     {
+        $weightSql = RestockAnalysisCalculator::weightBucketSqlCase();
+
         $rows = InventoryPiece::query()
             ->realVendor()
             ->where(fn ($q) => $q->where('InternalCode', $code)->orWhere('InternalCode', $code.' '))
             ->selectRaw(
-                'TRIM(StoreCode) as store, JewelSize as raw_size, SUM(QtyOnHand) as stock, MIN(GoldWeight) as weight_min, MAX(GoldWeight) as weight_max, '.
-                'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as sold_3m',
+                "TRIM(StoreCode) as store, JewelSize as raw_size, {$weightSql} as weight_bucket, SUM(QtyOnHand) as stock, MIN(GoldWeight) as weight_min, ".
+                'MAX(GoldWeight) as weight_max, SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as sold_3m',
                 [now()->subMonths(RestockAnalysisCalculator::TREND_MONTHS)],
             )
-            ->groupByRaw('TRIM(StoreCode), JewelSize')
+            ->groupByRaw("TRIM(StoreCode), JewelSize, {$weightSql}")
             ->toBase()
             ->get();
 
+        $weightOrder = array_flip(RestockAnalysisCalculator::WEIGHT_LABELS);
+
         return $rows
             ->groupBy(fn ($row) => $row->store.'|'.RestockAnalysisCalculator::sizeLabel($row->raw_size))
-            ->map(function ($group) {
+            ->map(function ($group) use ($weightOrder) {
                 $first = $group->first();
                 $min = $group->min('weight_min');
                 $max = $group->max('weight_max');
@@ -533,6 +831,7 @@ class RestockAnalysisController extends Controller
                     'sold_3m' => (int) $group->sum('sold_3m'),
                     'weight_min' => $min === null ? null : round((float) $min, 2),
                     'weight_max' => $max === null ? null : round((float) $max, 2),
+                    'weight_buckets' => $group->pluck('weight_bucket')->unique()->sortBy(fn ($label) => $weightOrder[$label] ?? PHP_INT_MAX)->values()->all(),
                 ];
             })
             ->filter(fn (array $row) => $row['stock'] > 0 || $row['sold_3m'] > 0)
@@ -545,38 +844,68 @@ class RestockAnalysisController extends Controller
     }
 
     /**
-     * Bucket saiz & berat paling lazim bagi piece sebuah design (di cawangan dipilih; semua cawangan jika tiada). Label sama spt jadual bucket
-     * (RestockAnalysisCalculator::sizeLabel() & weightBucketSqlCase()).
+     * Piece sebuah design yg sedang BERGERAK antara cawangan, dan piece yg dikhaskan. MAKLUMAT TAMBAHAN sahaja - stok (QtyOnHand) dan Cadangan
+     * tidak diubah: piece transit masih dikira sbg stok cawangan PENGHANTAR (StoreCode), spt dalam data JEMiSys.
      *
-     * @return array{size: ?string, weight: ?string}
+     * - `transit` (Status 5): dari StoreCode ke TransferToStore.
+     * - `loan_transit` (Status 7 Loan Transit, 8 Loan Return Transit): dari StoreCode ke LoanToStore (TransferToStore jika LoanToStore kosong).
+     * - `holds`: bilangan piece beserta stok yg ditanda Reserve / Booked / Loan, ikut cawangan.
+     *
+     * @return array{movements: list<array{type: string, from_store: string, to_store: ?string, size: string, qty: int, weight_min: ?float, weight_max: ?float}>, holds: array<string, array{reserved: int, booked: int, loaned: int}>}
      */
-    private function designBuckets(string $code, string $store): array
+    private function designMovements(string $code): array
     {
-        $pieces = InventoryPiece::query()
+        $base = InventoryPiece::query()
             ->realVendor()
             ->where(fn ($q) => $q->where('InternalCode', $code)->orWhere('InternalCode', $code.' '))
-            ->when($store !== '', fn ($q) => $q->whereRaw('TRIM(StoreCode) = ?', [$store]))
-            ->toBase();
+            ->where('QtyOnHand', '>', 0);
 
-        $size = (clone $pieces)
-            ->selectRaw('JewelSize as raw_bucket, COUNT(*) as total')
-            ->groupBy('JewelSize')
+        $loanStatuses = [JemisysInventoryStatus::LoanTransit->value, JemisysInventoryStatus::LoanReturnTransit->value];
+        $destination = "COALESCE(NULLIF(TRIM(TransferToStore), ''), NULLIF(TRIM(LoanToStore), ''))";
+        $destinationLoan = "COALESCE(NULLIF(TRIM(LoanToStore), ''), NULLIF(TRIM(TransferToStore), ''))";
+
+        $movements = (clone $base)
+            ->whereIn('Status', [JemisysInventoryStatus::Transit->value, ...$loanStatuses])
+            ->selectRaw(
+                "TRIM(StoreCode) as from_store, TRIM(Status) as status, CASE WHEN TRIM(Status) = '5' THEN {$destination} ELSE {$destinationLoan} END as to_store, ".
+                'JewelSize as raw_size, SUM(QtyOnHand) as qty, MIN(GoldWeight) as weight_min, MAX(GoldWeight) as weight_max',
+            )
+            ->groupByRaw("TRIM(StoreCode), TRIM(Status), CASE WHEN TRIM(Status) = '5' THEN {$destination} ELSE {$destinationLoan} END, JewelSize")
+            ->toBase()
             ->get()
-            ->groupBy(fn ($row) => RestockAnalysisCalculator::sizeLabel($row->raw_bucket))
-            ->map(fn ($rows) => $rows->sum('total'))
-            ->sortDesc()
-            ->keys()
-            ->first();
+            ->groupBy(fn ($row) => $row->status.'|'.$row->from_store.'|'.$row->to_store.'|'.RestockAnalysisCalculator::sizeLabel($row->raw_size))
+            ->map(function ($group) use ($loanStatuses) {
+                $first = $group->first();
+                $min = $group->min('weight_min');
+                $max = $group->max('weight_max');
 
-        $weightSql = RestockAnalysisCalculator::weightBucketSqlCase();
-        $weight = (clone $pieces)
-            ->selectRaw("{$weightSql} as raw_bucket, COUNT(*) as total")
-            ->groupByRaw($weightSql)
+                return [
+                    'type' => in_array($first->status, $loanStatuses, true) ? 'loan_transit' : 'transit',
+                    'from_store' => (string) $first->from_store,
+                    'to_store' => $first->to_store === null ? null : (string) $first->to_store,
+                    'size' => RestockAnalysisCalculator::sizeLabel($first->raw_size),
+                    'qty' => (int) $group->sum('qty'),
+                    'weight_min' => $min === null ? null : round((float) $min, 2),
+                    'weight_max' => $max === null ? null : round((float) $max, 2),
+                ];
+            })
+            ->sortBy([['type', 'asc'], ['from_store', 'asc'], ['to_store', 'asc'], fn (array $a, array $b) => (is_numeric($a['size']) ? (float) $a['size'] : INF) <=> (is_numeric($b['size']) ? (float) $b['size'] : INF)])
+            ->values()
+            ->all();
+
+        $holds = (clone $base)
+            ->selectRaw(
+                'TRIM(StoreCode) as store, SUM(CASE WHEN Reserve <> 0 THEN 1 ELSE 0 END) as reserved, '.
+                'SUM(CASE WHEN Booked <> 0 THEN 1 ELSE 0 END) as booked, SUM(CASE WHEN Loan <> 0 THEN 1 ELSE 0 END) as loaned',
+            )
+            ->groupByRaw('TRIM(StoreCode)')
+            ->toBase()
             ->get()
-            ->sortByDesc('total')
-            ->first()?->raw_bucket;
+            ->filter(fn ($row) => $row->reserved > 0 || $row->booked > 0 || $row->loaned > 0)
+            ->mapWithKeys(fn ($row) => [(string) $row->store => ['reserved' => (int) $row->reserved, 'booked' => (int) $row->booked, 'loaned' => (int) $row->loaned]])
+            ->all();
 
-        return ['size' => $size === null ? null : (string) $size, 'weight' => $weight === null ? null : (string) $weight];
+        return ['movements' => $movements, 'holds' => $holds];
     }
 
     /**

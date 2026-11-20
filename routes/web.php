@@ -81,6 +81,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/restock-analysis', [RestockAnalysisController::class, 'index'])->name('restock-analysis.index');
     Route::get('/restock-analysis/designs', [RestockAnalysisController::class, 'designs'])->middleware('throttle:120,1')->name('restock-analysis.designs');
     Route::get('/restock-analysis/design', [RestockAnalysisController::class, 'design'])->middleware('throttle:120,1')->name('restock-analysis.design');
+    Route::post('/restock-analysis/request', [RestockAnalysisController::class, 'storeRequest'])->middleware('throttle:30,1')->name('restock-analysis.request');
+    Route::post('/restock-analysis/transfer', [RestockAnalysisController::class, 'storeTransfer'])->middleware('throttle:30,1')->name('restock-analysis.transfer');
 
     // Senarai PENUH imej produk (bukan 1 thumbnail sahaja) bagi satu InternalCode - dibuka drpd
     // lajur imej ImageColumn di Filament (rujuk ProductImagesController dokblok).

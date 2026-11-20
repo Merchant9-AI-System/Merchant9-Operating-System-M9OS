@@ -38,6 +38,17 @@
             } catch (e) {}
         })();
     </script>
+    {{-- Roda tetikus di atas input nombor yg sedang fokus mengubah nilainya secara tak sengaja (cth. kuantiti). Lepaskan fokus
+         sebelum tindakan lalai pelayar - nilai kekal & halaman/popover tetap boleh discroll. Meliputi SEMUA input number halaman Inertia. --}}
+    <script>
+        document.addEventListener('wheel', function (event) {
+            var el = document.activeElement;
+
+            if (el instanceof HTMLInputElement && el.type === 'number' && event.target === el) {
+                el.blur();
+            }
+        }, { passive: true });
+    </script>
     <title inertia>{{ config('app.name') }}</title>
     @include('partials.share-meta')
 
