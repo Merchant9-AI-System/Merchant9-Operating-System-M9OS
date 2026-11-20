@@ -9,11 +9,12 @@ import ImagePreview from '@/components/ImagePreview.vue';
 import BarsChart from '@/components/restock/BarsChart.vue';
 import LinesChart from '@/components/restock/LinesChart.vue';
 import DetailPanel from '@/components/restock/DetailPanel.vue';
+import PresetChips from '@/components/restock/PresetChips.vue';
 import SortableHeader from '@/components/SortableHeader.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { Frame, FrameFooter, FramePanel } from '@/components/ui/frame';
+import { Frame, FrameFooter, FrameHeader, FramePanel } from '@/components/ui/frame';
 import { Input } from '@/components/ui/input';
 import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -196,6 +197,51 @@ function openFromBreakdown(kind: 'store' | 'category', code: string) {
 
 function toggleNew() {
     visit({ new: !props.filters.new, verdict: props.filters.new ? props.filters.verdict : [], page: 1 });
+}
+
+// --- Pintasan (badge bulat): satu klik menetapkan Cadangan + susunan (+ "baharu") sekali gus. Kategori, cawangan & carian kekal. Hanya paparan design. ---
+interface Preset {
+    key: string;
+    label: string;
+    hint: string;
+    verdict: string[];
+    sort: Sort<SortKey>[];
+    new: boolean;
+}
+
+const DEFAULT_PRESET = 'urgent';
+
+const PRESETS: Preset[] = [
+    { key: DEFAULT_PRESET, label: 'Paling mendesak', hint: 'Sold Out dan Perlu Restock - kekurangan terbesar dahulu', verdict: [VERDICT_SOLD_OUT, VERDICT_RESTOCK], sort: [{ key: URGENCY, dir: 'asc' }], new: false },
+    { key: 'selling-fast', label: 'Laris, stok tinggal sikit', hint: 'Perlu Restock - jualan 1 bulan tertinggi, stok paling singkat cukup', verdict: [VERDICT_RESTOCK], sort: [{ key: 'sold_1m', dir: 'desc' }, { key: 'cover_months', dir: 'asc' }], new: false },
+    { key: 'running-out', label: 'Laju habis', hint: 'Perlu Restock - stok paling singkat cukup (bulan) dahulu', verdict: [VERDICT_RESTOCK], sort: [{ key: 'cover_months', dir: 'asc' }, { key: 'sold_1m', dir: 'desc' }], new: false },
+    { key: 'new-sold-out', label: 'Baru Sold Out', hint: 'Menjadi Sold Out pada kemas kini terakhir', verdict: [VERDICT_SOLD_OUT], sort: [{ key: URGENCY, dir: 'asc' }], new: true },
+    { key: 'old-sold-out', label: 'Sold Out lama', hint: 'Sold Out - jualan terakhir paling lama dahulu (mungkin design mati)', verdict: [VERDICT_SOLD_OUT], sort: [{ key: 'last_sold_at', dir: 'asc' }], new: false },
+    { key: 'overstock', label: 'Lebihan stok', hint: 'Overstock - stok paling banyak dahulu (calon dipindahkan)', verdict: [VERDICT_OVERSTOCK], sort: [{ key: 'stock', dir: 'desc' }], new: false },
+];
+
+// Pintasan aktif = Cadangan, "baharu" & susunan semasa sama (ikut urutan). Ubah penapis/susunan sendiri = tiada badge aktif ("tersuai").
+const activePreset = computed(
+    () =>
+        PRESETS.find(
+            (preset) =>
+                sameSet(preset.verdict, props.filters.verdict) &&
+                preset.new === props.filters.new &&
+                serializeSorts(preset.sort) === serializeSorts(props.filters.sort),
+        )?.key ?? null,
+);
+
+// Klik badge aktif = kembali ke pintasan lalai (Paling mendesak).
+function applyPreset(key: string) {
+    const preset = PRESETS.find((p) => p.key === key);
+
+    if (!preset) {
+        return;
+    }
+
+    const target = activePreset.value === preset.key ? (PRESETS.find((p) => p.key === DEFAULT_PRESET) ?? preset) : preset;
+
+    visit({ verdict: [...target.verdict], sort: target.sort.map((spec) => ({ ...spec })), new: target.new, page: 1 });
 }
 
 // --- Susunan (di server) ---
@@ -574,6 +620,11 @@ const curveVisible = computed(() => isBucket.value && !showSkeleton.value && pro
 
         <!-- Memuatkan: bentuk sama dgn jadual sebenar supaya tiada lompatan susun atur -->
         <Frame v-else-if="showSkeleton" spacing="sm" aria-busy="true" aria-label="Memuatkan data">
+            <!-- Pintasan: badge bulat di atas jadual (satu klik = Cadangan + susunan) -->
+            <FrameHeader v-if="isDesign" class="py-2">
+                <PresetChips :chips="PRESETS" :active="activePreset" :disabled="loading" @select="applyPreset" />
+            </FrameHeader>
+
             <FramePanel class="overflow-hidden p-2 md:p-0">
                 <div class="flex flex-col gap-2 md:hidden">
                     <div v-for="i in SKELETON_ROWS" :key="i"
@@ -678,6 +729,11 @@ const curveVisible = computed(() => isBucket.value && !showSkeleton.value && pro
         </Empty>
 
         <Frame v-else spacing="sm" class="min-w-0">
+            <!-- Pintasan: badge bulat di atas jadual (satu klik = Cadangan + susunan) -->
+            <FrameHeader v-if="isDesign" class="py-2">
+                <PresetChips :chips="PRESETS" :active="activePreset" :disabled="loading" @select="applyPreset" />
+            </FrameHeader>
+
             <FramePanel class="overflow-hidden p-2 md:p-0">
                 <!-- Telefon: kad -->
                 <div class="flex flex-col gap-2 md:hidden">
