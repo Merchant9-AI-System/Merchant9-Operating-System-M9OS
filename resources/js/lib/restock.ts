@@ -174,4 +174,6 @@ export interface DesignDetail {
     monthly: { month: string; store: number; others: number }[];
     // Bucket saiz/berat paling lazim bagi design ini di cawangan dipilih (null = tiada piece).
     buckets: { size: string | null; weight: string | null };
+    // Stok semasa & jualan 3 bulan ikut cawangan x saiz (hanya yg masih ada stok atau laku), dgn julat berat (gram).
+    sizes: { store_code: string; size: string; stock: number; sold_3m: number; weight_min: number | null; weight_max: number | null }[];
 }

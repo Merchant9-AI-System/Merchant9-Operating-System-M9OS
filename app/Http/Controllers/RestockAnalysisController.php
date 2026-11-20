@@ -156,11 +156,15 @@ class RestockAnalysisController extends Controller
             'monthly' => $this->monthlySales($code, $store),
             // Bucket saiz & berat paling lazim bagi piece design ini di cawangan dipilih - utk butang ke senarai design dlm bucket yg sama.
             'buckets' => $this->designBuckets($code, $store),
+            // Stok & jualan 3 bulan ikut cawangan x saiz (+ julat berat) - supaya tahu SAIZ/BERAT mana yg ada atau habis.
+            'sizes' => $this->designSizes($code),
         ]);
     }
 
     /**
-     * Drill-down paparan Saiz/Berat: design dlm satu bucket (Kategori + Cawangan + bucket), terjual bulan ini tertinggi dahulu.
+     * Drill-down paparan Saiz/Berat: design dlm satu bucket (Kategori + Cawangan + bucket), terjual bulan ini tertinggi dahulu, dihantar
+     * DESIGNS_LIMIT setiap kali (`offset` = bilangan yg sudah dimuat; butang "Muat Lagi"). Senarai penuh dikira SEKALI (lambat - memuat piece
+     * setiap design) & di-cache mengikut snapshot, jadi halaman seterusnya serta-merta.
      */
     public function designs(Request $request): JsonResponse
     {
@@ -172,14 +176,74 @@ class RestockAnalysisController extends Controller
         $bucket = trim((string) $request->query('bucket'));
         abort_if($category === '' || $store === '' || $bucket === '', 422);
 
-        $all = $view === 'size'
-            ? RestockAnalysisCalculator::designsForSizeBucket($category, $store, $bucket)
-            : RestockAnalysisCalculator::designsForWeightBucket($category, $store, $bucket);
+        $key = 'restock_analysis:bucket_designs_v2:'.md5(json_encode([$view, $category, $store, $bucket, RestockSnapshot::query()->max('computed_at')]));
+
+        /** @var list<array<string, mixed>> $all */
+        $all = Cache::remember($key, now()->addHours(6), fn () => $this->bucketDesigns($view, $category, $store, $bucket));
+
+        $offset = max(0, (int) $request->query('offset', 0));
+        $page = array_slice($all, $offset, self::DESIGNS_LIMIT);
+
+        // Gambar dicari utk halaman ini sahaja (bukan semua design dlm bucket) - satu pertanyaan kecil.
+        $images = $this->imageUrls(collect(array_column($page, 'internal_code')));
 
         return response()->json([
-            'total' => $all->count(),
-            'designs' => $all->take(self::DESIGNS_LIMIT)->values(),
+            'total' => count($all),
+            'offset' => $offset,
+            'designs' => array_map(fn (array $row) => $row + ['image_url' => $images->get($row['internal_code'])], $page),
         ]);
+    }
+
+    /**
+     * Design dlm satu bucket (Kategori + Cawangan + bucket saiz/berat), diagregat DI DATABASE (GROUP BY design) - bukan memuat setiap piece
+     * kategori ke PHP spt RestockAnalysisCalculator::designsForSizeBucket() (utk bucket besar cth. Rantai Tangan, berpuluh ribu piece).
+     * Disusun: terjual bulan ini tertinggi, kemudian jumlah terjual, kemudian kod.
+     *
+     * @return list<array{internal_code: string, description: ?string, vendor_name: ?string, current_stock: int, pieces_sold: int, sold_this_month: int}>
+     */
+    private function bucketDesigns(string $view, string $category, string $store, string $bucket): array
+    {
+        $isSize = $view === 'size';
+        $bucketSql = $isSize ? 'JewelSize' : RestockAnalysisCalculator::weightBucketSqlCase();
+
+        $query = InventoryPiece::query()
+            ->realVendor()
+            ->where('CategoryCode', $category)
+            ->where('StoreCode', $store)
+            ->selectRaw(
+                "TRIM(InternalCode) as code, {$bucketSql} as raw_bucket, MAX(TRIM(Description)) as description, MAX(VendorCode) as vendor_code, ".
+                'SUM(QtyOnHand) as stock, SUM(CASE WHEN SalesDate IS NOT NULL THEN 1 ELSE 0 END) as sold, '.
+                'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as sold_month',
+                [now()->startOfMonth()],
+            )
+            ->groupByRaw("TRIM(InternalCode), {$bucketSql}");
+
+        if (! $isSize) {
+            // Berat: bucket ditapis terus dlm SQL. Saiz: label dinormalkan dlm PHP (sizeLabel(): "16.0" = "16"), jadi ditapis di bawah.
+            $query->whereRaw("{$bucketSql} = ?", [$bucket]);
+        }
+
+        $vendorNames = Vendor::query()->get()->mapWithKeys(fn ($v) => [trim((string) $v->VendorCode) => trim((string) $v->Description)]);
+
+        return $query->toBase()->get()
+            ->filter(fn ($row) => ! $isSize || RestockAnalysisCalculator::sizeLabel($row->raw_bucket) === $bucket)
+            ->groupBy('code')
+            ->map(function ($rows, $code) use ($vendorNames) {
+                $first = $rows->first();
+                $vendorCode = trim((string) $first->vendor_code);
+
+                return [
+                    'internal_code' => (string) $code,
+                    'description' => $first->description,
+                    'vendor_name' => $vendorNames[$vendorCode] ?? ($vendorCode !== '' ? $vendorCode : null),
+                    'current_stock' => (int) $rows->sum('stock'),
+                    'pieces_sold' => (int) $rows->sum('sold'),
+                    'sold_this_month' => (int) $rows->sum('sold_month'),
+                ];
+            })
+            ->sort(fn (array $a, array $b) => [$b['sold_this_month'], $b['pieces_sold'], $a['internal_code']] <=> [$a['sold_this_month'], $a['pieces_sold'], $b['internal_code']])
+            ->values()
+            ->all();
     }
 
     /** Item menu Filament: nampak jika pengguna ada sekurang-kurangnya satu paparan. */
@@ -432,6 +496,52 @@ class RestockAnalysisController extends Controller
             'data' => $top->sortBy(fn (array $row) => $rank($row['bucket']))->values()->all(),
             'total' => $rows->count(),
         ];
+    }
+
+    /**
+     * Stok semasa & jualan 3 bulan sebuah design ikut cawangan x saiz, dengan julat berat (gram) piece dlm kumpulan itu. Hanya kumpulan yg masih
+     * ada stok atau ada jualan 3 bulan terkini (kumpulan lama tanpa kedua-duanya tak relevan utk keputusan restock). Saiz yg sama label
+     * digabung (sizeLabel(): "16.0" = "16"); disusun ikut cawangan kemudian saiz menaik.
+     *
+     * @return list<array{store_code: string, size: string, stock: int, sold_3m: int, weight_min: ?float, weight_max: ?float}>
+     */
+    private function designSizes(string $code): array
+    {
+        $rows = InventoryPiece::query()
+            ->realVendor()
+            ->where(fn ($q) => $q->where('InternalCode', $code)->orWhere('InternalCode', $code.' '))
+            ->selectRaw(
+                'TRIM(StoreCode) as store, JewelSize as raw_size, SUM(QtyOnHand) as stock, MIN(GoldWeight) as weight_min, MAX(GoldWeight) as weight_max, '.
+                'SUM(CASE WHEN SalesDate >= ? THEN 1 ELSE 0 END) as sold_3m',
+                [now()->subMonths(RestockAnalysisCalculator::TREND_MONTHS)],
+            )
+            ->groupByRaw('TRIM(StoreCode), JewelSize')
+            ->toBase()
+            ->get();
+
+        return $rows
+            ->groupBy(fn ($row) => $row->store.'|'.RestockAnalysisCalculator::sizeLabel($row->raw_size))
+            ->map(function ($group) {
+                $first = $group->first();
+                $min = $group->min('weight_min');
+                $max = $group->max('weight_max');
+
+                return [
+                    'store_code' => (string) $first->store,
+                    'size' => RestockAnalysisCalculator::sizeLabel($first->raw_size),
+                    'stock' => (int) $group->sum('stock'),
+                    'sold_3m' => (int) $group->sum('sold_3m'),
+                    'weight_min' => $min === null ? null : round((float) $min, 2),
+                    'weight_max' => $max === null ? null : round((float) $max, 2),
+                ];
+            })
+            ->filter(fn (array $row) => $row['stock'] > 0 || $row['sold_3m'] > 0)
+            ->sortBy([
+                ['store_code', 'asc'],
+                fn (array $a, array $b) => (is_numeric($a['size']) ? (float) $a['size'] : INF) <=> (is_numeric($b['size']) ? (float) $b['size'] : INF),
+            ])
+            ->values()
+            ->all();
     }
 
     /**
