@@ -18,6 +18,7 @@ use App\Models\StockTransfer;
 use App\Models\User;
 use App\Support\RestockAnalysisCalculator;
 use App\Support\RestockSnapshotQuery;
+use App\Support\SupplierLookup;
 use Filament\Facades\Filament;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
@@ -451,6 +452,20 @@ class RestockAnalysisController extends Controller
             'remark' => $line->remark,
             'created_at' => $line->created_at?->toDateString() ?? '',
         ];
+    }
+
+    /**
+     * Semua gambar satu design utk carousel dlm pratonton gambar panel (sama seperti halaman butiran Supplier Lookup): gambar laman web dahulu,
+     * kemudian gambar cermin. Dimuat HANYA bila pengguna menekan gambar (kikisan kali pertama boleh lambat; selepas itu di-cache sehari).
+     */
+    public function images(Request $request): JsonResponse
+    {
+        abort_unless($this->canView('design'), 403);
+
+        $code = trim((string) $request->query('code'));
+        abort_if($code === '', 422);
+
+        return response()->json(SupplierLookup::designImages($code));
     }
 
     /**

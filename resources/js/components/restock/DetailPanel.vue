@@ -500,6 +500,9 @@ function onRequestSubmitted(line: RequestLine) {
     requests.value = [line, ...requests.value];
 }
 
+// Semua gambar satu design (carousel pratonton) - dimuat hanya bila gambar ditekan.
+const galleryUrl = (code: string) => `/restock-analysis/images?code=${encodeURIComponent(code)}`;
+
 const monthlyMax = computed(() => Math.max(1, ...(detail.value?.monthly ?? []).map((m) => m.store + m.others)));
 
 // `full` = nama bulan + tahun (tooltip/pembaca skrin); lalai = singkatan 3 huruf utk pil.
@@ -542,7 +545,7 @@ const title = computed(() => (props.mode === 'design' ? (props.code ?? '') : `${
                     <!-- Mod design -->
                     <template v-else-if="mode === 'design' && detail">
                         <div class="flex items-start gap-3">
-                            <ImagePreview :src="detail.image_url" :alt="detail.code" class="size-20 shrink-0" />
+                            <ImagePreview :src="detail.image_url" :alt="detail.code" :gallery-url="galleryUrl(detail.code)" class="size-20 shrink-0" />
                             <div class="flex min-w-0 flex-1 flex-col gap-2">
                                 <div v-if="selected" class="flex flex-wrap items-center gap-2">
                                     <Badge :class="styleFor(selected.verdict).badge">{{ selected.verdict }}</Badge>
@@ -905,7 +908,7 @@ const title = computed(() => (props.mode === 'design' ? (props.code ?? '') : `${
                                 class="flex cursor-pointer items-center gap-3 rounded-lg border bg-card p-2 text-left transition hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                 @click="emit('open-design', d.internal_code, store ?? '')"
                                 @keydown.enter="emit('open-design', d.internal_code, store ?? '')">
-                                <ImagePreview :src="d.image_url" :alt="d.internal_code" class="size-12 shrink-0"
+                                <ImagePreview :src="d.image_url" :alt="d.internal_code" :gallery-url="galleryUrl(d.internal_code)" class="size-12 shrink-0"
                                     @click.stop />
                                 <div class="min-w-0 flex-1">
                                     <p class="truncate text-sm font-medium">{{ d.internal_code }}</p>

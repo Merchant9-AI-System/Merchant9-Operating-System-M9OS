@@ -81,6 +81,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/restock-analysis', [RestockAnalysisController::class, 'index'])->name('restock-analysis.index');
     Route::get('/restock-analysis/designs', [RestockAnalysisController::class, 'designs'])->middleware('throttle:120,1')->name('restock-analysis.designs');
     Route::get('/restock-analysis/design', [RestockAnalysisController::class, 'design'])->middleware('throttle:120,1')->name('restock-analysis.design');
+    Route::get('/restock-analysis/images', [RestockAnalysisController::class, 'images'])->middleware('throttle:60,1')->name('restock-analysis.images');
     Route::post('/restock-analysis/request', [RestockAnalysisController::class, 'storeRequest'])->middleware('throttle:30,1')->name('restock-analysis.request');
     Route::post('/restock-analysis/transfer', [RestockAnalysisController::class, 'storeTransfer'])->middleware('throttle:30,1')->name('restock-analysis.transfer');
 
