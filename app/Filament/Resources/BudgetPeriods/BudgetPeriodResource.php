@@ -30,6 +30,12 @@ class BudgetPeriodResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'period_label';
 
+    /** Digantikan oleh halaman Restock Analysis (Senarai Design): disorok drpd menu, URL lama dialihkan di mount(). */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function form(Schema $schema): Schema
     {
         return BudgetPeriodForm::configure($schema);

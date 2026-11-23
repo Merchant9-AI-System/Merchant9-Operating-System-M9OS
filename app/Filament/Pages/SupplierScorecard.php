@@ -32,6 +32,12 @@ class SupplierScorecard extends Page implements HasTable
 
     protected static ?int $navigationSort = 5;
 
+    /** Digantikan oleh halaman Restock Analysis (Senarai Design): disorok drpd menu, URL lama dialihkan di mount(). */
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+    
     public function table(Table $table): Table
     {
         return $table
