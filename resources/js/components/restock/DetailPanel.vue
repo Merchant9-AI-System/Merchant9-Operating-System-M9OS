@@ -25,6 +25,7 @@ import type { DesignDetail, RequestLine, StockMovement } from '@/lib/restock';
 interface BucketDesign {
     internal_code: string;
     description: string | null;
+    nickname?: string | null;
     vendor_name: string | null;
     image_url: string | null;
     current_stock: number;
@@ -521,7 +522,7 @@ const title = computed(() => (props.mode === 'design' ? (props.code ?? '') : `${
 
                 <template v-if="mode === 'design'">
                     <SheetDescription>
-                        {{ detail?.description ?? (loading ? 'Memuatkan...' : '') }}
+                        {{ detail?.nickname ?? detail?.description ?? (loading ? 'Memuatkan...' : '') }}
                         <template v-if="detail"> &middot; {{ detail.category_name }}<template v-if="detail.vendor_name">
                                 &middot; {{ detail.vendor_name }}</template></template>
                     </SheetDescription>
@@ -912,7 +913,7 @@ const title = computed(() => (props.mode === 'design' ? (props.code ?? '') : `${
                                     @click.stop />
                                 <div class="min-w-0 flex-1">
                                     <p class="truncate text-sm font-medium">{{ d.internal_code }}</p>
-                                    <p class="truncate text-xs text-muted-foreground">{{ [d.description,
+                                    <p class="truncate text-xs text-muted-foreground">{{ [d.nickname ?? d.description,
                                     d.vendor_name].filter(Boolean).join(' · ') }}</p>
                                 </div>
                                 <dl class="grid shrink-0 grid-cols-3 gap-x-3 text-center text-xs tabular-nums">

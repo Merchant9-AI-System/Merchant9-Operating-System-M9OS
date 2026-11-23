@@ -748,7 +748,7 @@ const curveVisible = computed(() => isBucket.value && !showSkeleton.value && pro
                                 <p class="truncate text-sm font-medium">{{ isDesign ? row.internal_code :
                                     `${row.category_name}
                                     · ${bucketHeader} ${row.bucket}` }}</p>
-                                <p class="truncate text-xs text-muted-foreground">{{ isDesign ? [row.description,
+                                <p class="text-xs leading-snug text-balance break-words text-muted-foreground">{{ isDesign ? [row.nickname ?? row.description,
                                 row.category_name].filter(Boolean).join(' · ') : bucketHeader }}</p>
                             </div>
                             <Badge variant="secondary">{{ row.store_code }}</Badge>
@@ -866,9 +866,10 @@ const curveVisible = computed(() => isBucket.value && !showSkeleton.value && pro
                                                 @click="openRow(row)">
                                                 <span class="whitespace-nowrap font-medium">{{ row.internal_code
                                                     }}</span>
-                                                <span v-if="row.description"
-                                                    class="max-w-56 truncate text-xs text-muted-foreground"
-                                                    :title="row.description">{{ row.description }}</span>
+                                                <!-- Nama ringkas: nickname, jika tiada DiamondDesc (penerangan sandaran jika kedua-duanya tiada); teks dilipat, tidak dipotong -->
+                                                <span v-if="row.nickname ?? row.description"
+                                                    class="w-44 max-w-56 whitespace-normal text-xs leading-snug text-balance break-words text-muted-foreground"
+                                                    :title="row.description ?? undefined">{{ row.nickname ?? row.description }}</span>
                                             </button>
                                         </div>
                                     </TableCell>

@@ -142,6 +142,8 @@ class RestockAnalysisController extends Controller
         return response()->json([
             'code' => $code,
             'description' => $first->description,
+            // Nama ringkas (nickname, jika tiada DiamondDesc) utk tajuk panel - sama seperti senarai design.
+            'nickname' => $this->nicknames(collect([$code]))->get($code),
             'category_code' => $first->category_code,
             'category_name' => $this->categoryNames()[$first->category_code] ?? $first->category_code,
             'vendor_name' => $vendorName !== null ? trim((string) $vendorName) : $first->vendor_code,
@@ -493,11 +495,12 @@ class RestockAnalysisController extends Controller
 
         // Gambar dicari utk halaman ini sahaja (bukan semua design dlm bucket) - satu pertanyaan kecil.
         $images = $this->imageUrls(collect(array_column($page, 'internal_code')));
+        $nicknames = $this->nicknames(collect(array_column($page, 'internal_code')));
 
         return response()->json([
             'total' => count($all),
             'offset' => $offset,
-            'designs' => array_map(fn (array $row) => $row + ['image_url' => $images->get($row['internal_code'])], $page),
+            'designs' => array_map(fn (array $row) => $row + ['image_url' => $images->get($row['internal_code']), 'nickname' => $nicknames->get($row['internal_code'])], $page),
         ]);
     }
 
@@ -571,6 +574,7 @@ class RestockAnalysisController extends Controller
         $categoryNames = $this->categoryNames();
         $vendorNames = Vendor::query()->get()->mapWithKeys(fn ($v) => [trim((string) $v->VendorCode) => trim((string) $v->Description)]);
         $images = $this->imageUrls($paginator->getCollection()->pluck('internal_code'));
+        $nicknames = $this->nicknames($paginator->getCollection()->pluck('internal_code'));
 
         return $this->pageOf($paginator, fn (RestockSnapshot $row) => [
             'internal_code' => $row->internal_code,
@@ -578,6 +582,7 @@ class RestockAnalysisController extends Controller
             'category_code' => $row->category_code,
             'category_name' => $categoryNames[$row->category_code] ?? $row->category_code,
             'description' => $row->description,
+            'nickname' => $nicknames->get($row->internal_code),
             'vendor_name' => $vendorNames[$row->vendor_code] ?? $row->vendor_code,
             'image_url' => $images->get($row->internal_code),
             'stock' => $row->stock,
@@ -999,6 +1004,28 @@ class RestockAnalysisController extends Controller
             ->toBase()
             ->get()
             ->mapWithKeys(fn ($row) => [trim((string) $row->InternalCode) => $row->image_url]);
+    }
+
+    /**
+     * Nama ringkas design utk senarai: nickname (merchant9.com / warisan keluarga) dahulu, jika tiada guna DiamondDesc (perihalan JEMiSys).
+     *
+     * @param  Collection<int, string>  $codes
+     * @return Collection<string, string> kod (trim) => nama
+     */
+    private function nicknames(Collection $codes): Collection
+    {
+        if ($codes->isEmpty()) {
+            return collect();
+        }
+
+        return InventoryMirror::query()
+            ->whereIn('InternalCode', $codes->unique()->values())
+            ->groupBy('InternalCode')
+            ->selectRaw('InternalCode, MAX(nickname) as nickname, MAX(DiamondDesc) as diamond_desc')
+            ->toBase()
+            ->get()
+            ->mapWithKeys(fn ($row) => [trim((string) $row->InternalCode) => trim((string) $row->nickname) ?: trim((string) $row->diamond_desc)])
+            ->filter();
     }
 
     /** @return Collection<string, string> kod kategori (trim) => nama */

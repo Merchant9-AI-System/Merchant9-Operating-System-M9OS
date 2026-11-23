@@ -111,6 +111,8 @@ export interface DesignRow {
     category_code: string;
     category_name: string;
     description: string | null;
+    // Nama ringkas: nickname, jika tiada DiamondDesc (null jika kedua-duanya tiada).
+    nickname?: string | null;
     vendor_name: string | null;
     image_url: string | null;
     stock: number;
@@ -197,6 +199,8 @@ export interface RequestLine {
 export interface DesignDetail {
     code: string;
     description: string | null;
+    // Nama ringkas: nickname, jika tiada DiamondDesc (null jika kedua-duanya tiada).
+    nickname?: string | null;
     category_code: string;
     category_name: string;
     vendor_name: string | null;
