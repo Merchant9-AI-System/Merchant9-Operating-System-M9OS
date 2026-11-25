@@ -6,8 +6,17 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Support\Env;
 use Laravel\Sanctum\Http\Middleware\CheckAbilities;
 use Laravel\Sanctum\Http\Middleware\CheckForAnyAbility;
+
+// Thread-safe PHP (Apache mod_php on Windows/Laragon): putenv() is PROCESS-wide, so one app's .env values (DB_DATABASE, ...)
+// leak into another app's request that runs in the same process - e.g. SSO, where one app calls another during its own
+// request. Dotenv then treats those variables as already set and keeps the OTHER app's database. Disable putenv() on ZTS builds
+// (superglobals are per request); NTS/php-fpm in production is unaffected.
+if (PHP_ZTS) {
+    Env::disablePutenv();
+}
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(

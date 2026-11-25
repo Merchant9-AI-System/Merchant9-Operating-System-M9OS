@@ -11,6 +11,7 @@ use App\Http\Controllers\HqDirectionAcknowledgeController;
 use App\Http\Controllers\JobsheetLookupController;
 use App\Http\Controllers\ProductImagesController;
 use App\Http\Controllers\RestockAnalysisController;
+use App\Http\Controllers\SsoLogoutController;
 use App\Http\Controllers\SupplierLookupController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -21,6 +22,9 @@ use Inertia\Inertia;
 // });
 
 Route::redirect('/', '/home');
+
+// Single logout utk sistem yg log masuk melalui m9os (rujuk SsoLogoutController) - tanpa 'auth': berfungsi walaupun sesi sudah tamat.
+Route::get('/sso/logout', SsoLogoutController::class)->name('sso.logout');
 
 // Permukaan Inertia+Vue+shadcn-vue berasingan drpd Filament, khusus staf cawangan hantar
 // Branch Demand (rujuk BranchDemandEntryController) - SENGAJA tiada middleware 'auth', staf

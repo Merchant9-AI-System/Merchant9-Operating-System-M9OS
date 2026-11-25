@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Http\Responses\HomeLoginResponse;
+use App\Models\OAuthClient;
 use App\Support\RemoteThumbnails;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -49,6 +50,11 @@ class AppServiceProvider extends ServiceProvider
         // (dipublish via `vendor:publish --tag=mcp-views`). Guna default (belum jenamakan) buat
         // masa ni - cukup berfungsi utk aliran DCR Claude.ai.
         Passport::authorizationView('mcp.authorize');
+
+        // SSO: klien Passport aplikasi ini (klien first-party melangkau kelulusan) dan scope `sso` (rujuk config/sso.php).
+        // Digabung dgn skop sedia ada (MCP menambah skopnya sendiri secara dinamik, rujuk Mcp Server Registrar).
+        Passport::useClientModel(OAuthClient::class);
+        Passport::tokensCan(array_merge(Passport::$scopes ?? [], [config('sso.scope', 'sso') => 'Baca maklumat akaun m9os (SSO)']));
 
         // Jejak audit impersonasi (stechstudio/filament-impersonate): siapa menyamar sebagai siapa, bila mula & tamat.
         Event::listen(EnterImpersonation::class, fn (EnterImpersonation $e) => activity('impersonation')
