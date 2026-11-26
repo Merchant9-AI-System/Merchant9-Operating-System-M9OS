@@ -6,6 +6,7 @@ import ImagePreview from '@/components/ImagePreview.vue';
 import { Badge } from '@/components/ui/badge';
 import { ButtonGroup } from '@/components/ui/button-group';
 import { Button } from '@/components/ui/button';
+import BackToDashboard from '@/components/BackToDashboard.vue';
 import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -727,11 +728,14 @@ function submit() {
 
     <div class="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-8">
         <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-                <h1 class="text-xl font-semibold tracking-tight">Permintaan Stok Cawangan Kepada HQ</h1>
-                <p class="text-sm text-muted-foreground">
-                    Cari item yang diperlukan untuk permintaan stok.
-                </p>
+            <div class="flex items-start gap-3">
+                <BackToDashboard />
+                <div>
+                    <h1 class="text-xl font-semibold tracking-tight">Permintaan Stok Cawangan Kepada HQ</h1>
+                    <p class="text-sm text-muted-foreground">
+                        Cari item yang diperlukan untuk permintaan stok.
+                    </p>
+                </div>
             </div>
 
             <!-- Cawangan + Nama PIC dipindah ke sini (bukan Card berasingan) supaya seksyen

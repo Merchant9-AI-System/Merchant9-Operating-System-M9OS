@@ -12,6 +12,7 @@ import ImagePreview from '@/components/ImagePreview.vue';
 import SearchAutocomplete from '@/components/SearchAutocomplete.vue';
 import SortableHeader from '@/components/SortableHeader.vue';
 import { Button } from '@/components/ui/button';
+import BackToDashboard from '@/components/BackToDashboard.vue';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
@@ -547,11 +548,14 @@ function formatNumber(value: number): string {
 
     <div class="mx-auto flex max-w-7xl flex-col gap-4 px-3 py-6 sm:px-6 sm:py-8">
         <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-                <h1 class="text-xl font-semibold tracking-tight">Supplier Lookup</h1>
-                <p class="text-sm text-muted-foreground">
-                    Jualan setiap design daripada piece yang diambil daripada satu supplier dalam tempoh dipilih.
-                </p>
+            <div class="flex items-start gap-3">
+                <BackToDashboard />
+                <div>
+                    <h1 class="text-xl font-semibold tracking-tight">Supplier Lookup</h1>
+                    <p class="text-sm text-muted-foreground">
+                        Jualan setiap design daripada piece yang diambil daripada satu supplier dalam tempoh dipilih.
+                    </p>
+                </div>
             </div>
 
             <!-- Eksport: satu butang dropdown (Excel / PDF), loading semasa disediakan -->

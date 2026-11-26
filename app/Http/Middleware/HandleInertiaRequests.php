@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Support\HomeSummary\HomeAccess;
+use Filament\Facades\Filament;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -46,6 +47,8 @@ class HandleInertiaRequests extends Middleware
                     'home_enabled' => HomeAccess::enabledFor($request->user()),
                 ] : null,
             ],
+            // Butang Kembali ke dashboard panel admin (rujuk components/BackToDashboard.vue); lazy supaya hanya dikira bila halaman memintanya.
+            'dashboardUrl' => fn () => Filament::getPanel('admin')->getUrl(),
             'flash' => [
                 'success' => $request->session()->get('success'),
             ],

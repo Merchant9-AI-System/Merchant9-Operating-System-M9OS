@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Badge, badgeVariants } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
+import BackToDashboard from '@/components/BackToDashboard.vue';
 import { Card, CardContent, CardHeader, CardAction, CardTitle, CardDescription } from '@/components/ui/card';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { DateRangePicker } from '@/components/ui/date-picker';
@@ -2462,14 +2463,17 @@ function save(andPrint = false, afterSave?: () => void) {
 
     <div class="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-8">
         <div class="flex items-start justify-between gap-4">
-            <div>
-                <h1 class="text-xl font-semibold tracking-tight">Back Office Actions</h1>
-                <p class="text-sm text-muted-foreground">
-                    Senarai design yang diminta cawangan, disusun ikut kod design. Pilih satu design &mdash; tindakan
-                    (<span class="font-medium">Rearrange</span> / <span class="font-medium">Restock</span> / status)
-                    terpakai untuk
-                    semua cawangan yang minta design itu.
-                </p>
+            <div class="flex items-start gap-3">
+                <BackToDashboard />
+                <div>
+                    <h1 class="text-xl font-semibold tracking-tight">Back Office Actions</h1>
+                    <p class="text-sm text-muted-foreground">
+                        Senarai design yang diminta cawangan, disusun ikut kod design. Pilih satu design &mdash; tindakan
+                        (<span class="font-medium">Rearrange</span> / <span class="font-medium">Restock</span> / status)
+                        terpakai untuk
+                        semua cawangan yang minta design itu.
+                    </p>
+                </div>
             </div>
             <Button type="button" variant="outline" class="bg-card" @click="handlePrint">
                 <Printer class="size-4" />

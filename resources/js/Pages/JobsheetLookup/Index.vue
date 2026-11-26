@@ -5,6 +5,7 @@ import { computed, ref } from 'vue';
 import ImagePreview from '@/components/ImagePreview.vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import BackToDashboard from '@/components/BackToDashboard.vue';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -211,11 +212,14 @@ function search() {
     <Head title="Carian Jobsheet" />
 
     <div class="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-8">
-        <div>
-            <h1 class="text-xl font-semibold tracking-tight">Carian Item ikut Jobsheet</h1>
-            <p class="text-sm text-muted-foreground">
-                Cari semua item (jemisys_inventory_mirror) yang dikaitkan dengan satu No. Jobsheet.
-            </p>
+        <div class="flex items-start gap-3">
+            <BackToDashboard />
+            <div>
+                <h1 class="text-xl font-semibold tracking-tight">Carian Item ikut Jobsheet</h1>
+                <p class="text-sm text-muted-foreground">
+                    Cari semua item (jemisys_inventory_mirror) yang dikaitkan dengan satu No. Jobsheet.
+                </p>
+            </div>
         </div>
 
         <Card>
