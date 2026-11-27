@@ -54,6 +54,8 @@ class HomeModules
             ['ceo_sales', 'Jualan Semalam', 'trending-up', self::KIND_SECTION, self::SCOPE_COMPANY, true, 'Jualan, nilai jualan dan hedge semalam (syarikat).'],
             ['ceo_finance', 'Kewangan & Stok Emas', 'landmark', self::KIND_SECTION, self::SCOPE_COMPANY, true, 'Aset, tunai, hutang, Used Gold, physical vs book.'],
             ['ceo_alerts', 'Perlu Perhatian', 'bell', self::KIND_SECTION, self::SCOPE_COMPANY, true, 'Amaran utama yang memerlukan tindakan.'],
+            // Teknikal: hanya super_admin boleh memasangnya (elemen ke-8 = peranan yang dibenarkan) - rujuk HomeLayout::forUser().
+            ['system_health', 'Kesihatan Sistem', 'heart-pulse', self::KIND_SECTION, self::SCOPE_COMPANY, true, 'Segerak JEMiSys, snapshot Restock, job gagal dan baris giliran.', ['super_admin']],
             // Modul universal (skop dipilih pentadbir: cawangan sendiri / semua / cawangan dipilih) - boleh dipakai peranan tanpa cawangan.
             ['u_summary', 'Ringkasan Cawangan', 'building', self::KIND_PANEL, self::SCOPE_FLEX, true, 'Jualan & buyback semalam, permintaan stok dan transit - satu baris setiap cawangan.'],
             ['u_target', 'Sasaran Cawangan', 'crosshair', self::KIND_PANEL, self::SCOPE_FLEX, true, 'Sasaran bulanan vs jualan sebenar bagi setiap cawangan.'],
@@ -63,8 +65,12 @@ class HomeModules
 
         $modules = [];
 
-        foreach ($defs as [$key, $title, $icon, $kind, $scope, $tab, $description]) {
-            $modules[$key] = compact('key', 'title', 'icon', 'kind', 'scope', 'tab', 'description') + ['implemented' => true];
+        foreach ($defs as $def) {
+            [$key, $title, $icon, $kind, $scope, $tab, $description] = $def;
+            // null = semua peranan boleh memasangnya; senarai = hanya peranan tersebut.
+            $roles = $def[7] ?? null;
+
+            $modules[$key] = compact('key', 'title', 'icon', 'kind', 'scope', 'tab', 'description', 'roles') + ['implemented' => true];
         }
 
         return $modules;

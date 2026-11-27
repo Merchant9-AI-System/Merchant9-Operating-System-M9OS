@@ -17,6 +17,7 @@ class HomeSummary
         CeoSalesSection::class,
         CeoFinanceSection::class,
         CeoAlertsSection::class,
+        SystemHealthSection::class,
     ];
 
     /** Peranan yang sudah ada seksyen ringkasan (utk halaman tetapan Halaman Home). */

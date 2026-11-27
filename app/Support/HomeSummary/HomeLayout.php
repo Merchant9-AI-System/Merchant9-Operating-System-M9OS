@@ -21,6 +21,7 @@ class HomeLayout
     {
         return match (true) {
             $role === BranchSection::ROLE => ['hq_directions', 'branch', 'checklist', 'target', 'ranking', 'rearrange', 'stock'],
+            $role === SystemHealthSection::ROLE => ['system_health', 'ceo_alerts', 'ceo_sales'],
             in_array($role, CeoSectionBase::ROLES, true) => ['ceo_sales', 'ceo_finance', 'ceo_alerts'],
             default => [],
         };
@@ -149,6 +150,11 @@ class HomeLayout
                 $module = HomeModules::find($row['key']);
 
                 if (! $row['enabled'] || $module === null || ! $module['implemented']) {
+                    continue;
+                }
+
+                // Modul terhad kepada peranan tertentu (cth. Kesihatan Sistem = super_admin) - langkau walaupun dihidupkan dalam tetapan.
+                if (($module['roles'] ?? null) !== null && ! $user->hasAnyRole($module['roles'])) {
                     continue;
                 }
 

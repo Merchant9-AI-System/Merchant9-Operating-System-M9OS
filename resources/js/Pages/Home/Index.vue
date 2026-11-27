@@ -15,15 +15,19 @@ import {
     Coins,
     Crosshair,
     Gem,
+    HeartPulse,
     Landmark,
     LayoutGrid,
+    ListChecks,
     Lock,
     Recycle,
+    RefreshCw,
     Scale,
     Store,
     Target,
     TrendingUp,
     Trophy,
+    TriangleAlert,
     Users,
     Truck,
     Wallet,
@@ -152,6 +156,9 @@ const DELTA_CLASS: Record<Tone, string> = {
 
 // Ikon ikut kata kunci label - hiasan sahaja; label tak dikenali guna ikon lalai.
 const ICONS: [RegExp, Component][] = [
+    [/segerak|snapshot/i, RefreshCw],
+    [/gagal/i, TriangleAlert],
+    [/giliran/i, ListChecks],
     [/lock/i, Lock],
     [/transit/i, Truck],
     [/permintaan/i, ClipboardList],
@@ -196,6 +203,7 @@ const ICON_BY_NAME: Record<string, Component> = {
     boxes: Boxes,
     crosshair: Crosshair,
     users: Users,
+    'heart-pulse': HeartPulse,
 };
 
 // Modul terpasang utk pengguna (susun atur per peranan, urutan = urutan paparan) - tab dan urutan panel dibina drpd ini.
